@@ -28,6 +28,8 @@
 #   docker-compose logs -f            # Follow logs
 # ==========================================================
 
+name: philpost_ai
+
 services:
   # ----------------------------------------------------------
   # Reverse Proxy (Nginx) — single entrypoint, toggleable
@@ -39,7 +41,7 @@ services:
   # in .env). Set COMPOSE_PROFILES= empty to disable and use external Nginx.
   nginx:
     image: nginx:alpine
-    container_name: rag-ai-nginx
+    container_name: philpost_ai-nginx
     profiles: ["docker-proxy"]
     ports:
       - "80:80" # single published port (clean URLs, no :port)
@@ -90,7 +92,7 @@ services:
         - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
         - NEXT_PUBLIC_API_VERSION=${NEXT_PUBLIC_API_VERSION}
-    container_name: rag-ai-web
+    container_name: philpost_ai-web
     # Bound to loopback so an external/host Nginx can reach it when the
     # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
     # still reaches it by service name (web:3001) over the internal network.
@@ -126,7 +128,7 @@ services:
   # runs CREATE EXTENSION IF NOT EXISTS vector.
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: rag-ai-postgres
+    container_name: philpost_ai-postgres
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
@@ -157,7 +159,7 @@ services:
   # ----------------------------------------------------------
   redis:
     image: redis:alpine
-    container_name: rag-ai-redis
+    container_name: philpost_ai-redis
     networks:
       - app-network
     # Published for local `pnpm dev` (native rag expects redis://localhost:6379).
@@ -181,7 +183,7 @@ services:
     build:
       context: .
       dockerfile: packages/db/Dockerfile
-    container_name: rag-ai-migrate
+    container_name: philpost_ai-migrate
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
     networks:
@@ -200,7 +202,7 @@ services:
     build:
       context: .
       dockerfile: apps/rag/Dockerfile
-    container_name: rag-ai-rag
+    container_name: philpost_ai-rag
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
       - REDIS_URL=redis://redis:6379/0
@@ -263,7 +265,7 @@ services:
     build:
       context: .
       dockerfile: apps/rag/Dockerfile
-    container_name: rag-ai-rag-worker
+    container_name: philpost_ai-rag-worker
     command: ["/app/.venv/bin/arq", "app.worker.WorkerSettings"]
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
@@ -309,7 +311,7 @@ services:
     build:
       context: .
       dockerfile: apps/backend/Dockerfile
-    container_name: rag-ai-backend
+    container_name: philpost_ai-backend
     # Bound to loopback so an external/host Nginx can reach it when the
     # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
     # still reaches it by service name (backend:3000) over the internal network.
@@ -409,7 +411,7 @@ services:
   # Postgres via an ingestion re-run, never migrated.
   neo4j:
     image: neo4j:5.26-community
-    container_name: rag-ai-neo4j
+    container_name: philpost_ai-neo4j
     profiles: ["graph"]
     environment:
       - NEO4J_AUTH=neo4j/devpassword
