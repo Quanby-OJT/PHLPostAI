@@ -51,8 +51,8 @@ export function CitationList({ citations }: { citations: readonly ChatCitation[]
 							title={`${citationLabel(citation)} — open page image`}
 							className="focus-visible:ring-ring rounded-md outline-none focus-visible:ring-2"
 						>
-							<Badge variant="secondary" className="max-w-64 cursor-pointer truncate">
-								{citationLabel(citation)}
+							<Badge variant="secondary" className="max-w-64 cursor-pointer justify-start">
+								<span className="min-w-0 truncate">{citationLabel(citation)}</span>
 							</Badge>
 						</a>
 					) : citation.source ? (
@@ -61,13 +61,13 @@ export function CitationList({ citations }: { citations: readonly ChatCitation[]
 							title={citationLabel(citation)}
 							className="focus-visible:ring-ring rounded-md outline-none focus-visible:ring-2"
 						>
-							<Badge variant="secondary" className="max-w-64 cursor-pointer truncate">
-								{citationLabel(citation)}
+							<Badge variant="secondary" className="max-w-64 cursor-pointer justify-start">
+								<span className="min-w-0 truncate">{citationLabel(citation)}</span>
 							</Badge>
 						</Link>
 					) : (
-						<Badge variant="outline" className="text-muted-foreground max-w-64 truncate">
-							{citationLabel(citation)}
+						<Badge variant="outline" className="text-muted-foreground max-w-64 justify-start">
+							<span className="min-w-0 truncate">{citationLabel(citation)}</span>
 						</Badge>
 					)}
 				</li>
