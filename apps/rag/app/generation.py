@@ -47,7 +47,7 @@ from app.retrieval import RetrievalFilters, RetrievalService, get_retrieval_serv
 from app.security import ServicePrincipal, verify_service_jwt
 from app.security_screen import QueryBlockedError, screen_query
 from app.single_flight import SingleFlight, SingleFlightError
-from app.tracing import stage, traced
+from app.tracing import set_span_io, stage, traced
 
 # Backward-compat alias: the GN-1 ChatClient moved to app.providers (GN-4).
 ChatClient = OpenAIChatClient
@@ -592,6 +592,8 @@ class GenerationService:
         trace_id = principal.trace_id or str(uuid.uuid4())
         # SC-1 stage 1 runs before EVERYTHING (cache/retrieval/persistence).
         query = await self.screen(query, principal, trace_id)
+        # Trace input = the SCREENED query only (SC-1: masked before tracing).
+        set_span_io(input={"query": query, "k": k, "filters": filters})
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage (AFTER SC-1, BEFORE retrieval/LLM — contractual).
@@ -938,11 +940,18 @@ class GenerationService:
         trace_id = principal.trace_id or str(uuid.uuid4())
         # SC-1 stage 1 runs before EVERYTHING (cache/retrieval/persistence).
         query = await self.screen(query, principal, trace_id)
+        # Trace input = the SCREENED query only (SC-1: masked before tracing).
+        set_span_io(input={"query": query, "k": k, "filters": filters})
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage: a hit replays as one token event + final.
         if self._response_cache is not None:
-            cached = await self._response_cache.lookup(query=query, filters=filters)
+            async with stage("cache.lookup") as record:
+                cached = await self._response_cache.lookup(query=query, filters=filters)
+                record(
+                    hit=cached is not None,
+                    layer=cached.get("cacheLayer") if cached else None,
+                )
             if cached is not None:
                 payload = await self._serve_cached(
                     cached=cached,
@@ -952,6 +961,7 @@ class GenerationService:
                     trace_id=trace_id,
                     started=started,
                 )
+                set_span_io(output=payload)
                 yield _sse("token", {"delta": payload["answer"]})
                 yield _sse(
                     "final",
@@ -984,6 +994,7 @@ class GenerationService:
                         trace_id=trace_id,
                         started=started,
                     )
+                    set_span_io(output=payload)
                     yield _sse("token", {"delta": payload["answer"]})
                     yield _sse("final", {**payload, "ttftMs": payload["latencyMs"]})
                     return
@@ -1018,7 +1029,9 @@ class GenerationService:
         used_chunks = prep["used_chunks"]
 
         # Flow B route stage (GN-4/GN-5): decision recorded before generation.
-        client, routing = await self._route(query=query, chunks=prep["chunks"])
+        async with stage("routing") as record:
+            client, routing = await self._route(query=query, chunks=prep["chunks"])
+            record(**{k_: routing.get(k_) for k_ in ("tier", "model", "provider", "reason")})
         logger.info("chat.routing %s", json.dumps(routing))
 
         token_usage: dict[str, int] | None = None
@@ -1278,22 +1291,21 @@ class GenerationService:
         ).observe(latency_ms / 1000.0)
 
         # Final frame: citations + usage + ids (GN-3 contract with CH-2).
-        yield _sse(
-            "final",
-            {
-                "answer": answer_text,
-                "citations": citations,
-                "conversationId": conversation_id,
-                "messageId": message_id,
-                "traceId": trace_id,
-                "model": stream_client.model,
-                "tokenUsage": token_usage,
-                "isIDontKnow": is_i_dont_know,
-                "degraded": degraded,
-                "ttftMs": ttft_ms,
-                "latencyMs": latency_ms,
-            },
-        )
+        final = {
+            "answer": answer_text,
+            "citations": citations,
+            "conversationId": conversation_id,
+            "messageId": message_id,
+            "traceId": trace_id,
+            "model": stream_client.model,
+            "tokenUsage": token_usage,
+            "isIDontKnow": is_i_dont_know,
+            "degraded": degraded,
+            "ttftMs": ttft_ms,
+            "latencyMs": latency_ms,
+        }
+        set_span_io(output=final)
+        yield _sse("final", final)
 
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(verify_service_jwt)])

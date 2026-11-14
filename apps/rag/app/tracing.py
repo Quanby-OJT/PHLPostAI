@@ -105,13 +105,36 @@ def traced(
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             if _langfuse_client is not None:
-                with _langfuse_client.start_as_current_observation(name=name, as_type="span"):
-                    return await fn(*args, **kwargs)
+                with _langfuse_client.start_as_current_observation(
+                    name=name, as_type="span"
+                ) as span:
+                    result = await fn(*args, **kwargs)
+                    # Arguments are never recorded (they may hold the raw,
+                    # unmasked request); the return value is the output,
+                    # matching what langsmith's traceable records.
+                    try:
+                        span.update(output=result)
+                    except Exception:
+                        logger.debug("tracing.output_failed", exc_info=True)
+                    return result
             return await langsmith_wrapped(*args, **kwargs)
 
         return wrapper
 
     return decorate
+
+
+def set_span_io(*, input: Any = None, output: Any = None) -> None:
+    """Attach input/output to the current traced span (Langfuse; best-effort).
+
+    Callers pass already-screened data (SC-1 masking) — never the raw request.
+    """
+    if _langfuse_client is None:
+        return
+    try:
+        _langfuse_client.update_current_span(input=input, output=output)
+    except Exception:
+        logger.debug("tracing.set_io_failed", exc_info=True)
 
 
 @asynccontextmanager
