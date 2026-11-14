@@ -221,17 +221,21 @@ services:
       - WATSONX_API_VERSION=${WATSONX_API_VERSION:-2024-03-14}
       - PROVIDER_RPM_WATSONX=${PROVIDER_RPM_WATSONX:-60}
       - RAG_SERVICE_TOKEN_SECRET=${RAG_SERVICE_TOKEN_SECRET:-dev-rag-service-secret-change-in-production}
-      # Tracing (LangSmith default; set TRACING_PROVIDER=langfuse to switch)
-      - TRACING_PROVIDER=${TRACING_PROVIDER:-langsmith}
+      # Tracing: self-hosted Langfuse (langfuse-* services below). Set
+      # TRACING_PROVIDER=langsmith + LANGSMITH_API_KEY to use LangSmith instead.
+      - TRACING_PROVIDER=${TRACING_PROVIDER:-langfuse}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-ragp}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-dev}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-local-dev}
+      - LANGFUSE_HOST=${LANGFUSE_HOST_DOCKER:-http://langfuse-web:3000}
       # Pinned embedding constants (D1)
       - EMBEDDING_MODEL=text-embedding-3-large
       - EMBEDDING_DIMENSIONS=1536
+      # FND-1: agentic profile (grade -> rewrite -> groundedness loop that
+      # CNV-3 Confidence builds on). Override via RAG_PROFILE in root .env.
+      - RAG_PROFILE=${RAG_PROFILE:-agentic}
     networks:
       - app-network
     depends_on:
@@ -284,15 +288,18 @@ services:
       - WATSONX_API_VERSION=${WATSONX_API_VERSION:-2024-03-14}
       - PROVIDER_RPM_WATSONX=${PROVIDER_RPM_WATSONX:-60}
       - RAG_SERVICE_TOKEN_SECRET=${RAG_SERVICE_TOKEN_SECRET:-dev-rag-service-secret-change-in-production}
-      - TRACING_PROVIDER=${TRACING_PROVIDER:-langsmith}
+      - TRACING_PROVIDER=${TRACING_PROVIDER:-langfuse}
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
       - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-ragp}
       - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
-      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
-      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
-      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-pk-lf-local-dev}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-sk-lf-local-dev}
+      - LANGFUSE_HOST=${LANGFUSE_HOST_DOCKER:-http://langfuse-web:3000}
       - EMBEDDING_MODEL=text-embedding-3-large
       - EMBEDDING_DIMENSIONS=1536
+      # FND-1: agentic profile (grade -> rewrite -> groundedness loop that
+      # CNV-3 Confidence builds on). Override via RAG_PROFILE in root .env.
+      - RAG_PROFILE=${RAG_PROFILE:-agentic}
     networks:
       - app-network
     depends_on:
@@ -302,6 +309,29 @@ services:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully
+    # The image's HEALTHCHECK probes the API on :8000, which the worker does not
+    # serve. arq --check reads the worker's own health-check key from Redis.
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/arq", "--check", "app.worker.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Mailpit — local mail catcher (dev only)
+  # ----------------------------------------------------------
+  # The backend runs with NODE_ENV=production here, which refuses to boot
+  # without SMTP_HOST. Mailpit catches verification / password-reset mail.
+  # Inbox UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: philpost_ai-mailpit
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - app-network
     restart: unless-stopped
 
   # ----------------------------------------------------------
@@ -334,11 +364,19 @@ services:
       # backend's keys away from the rag worker's queue on the same db.
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-ragai}
+      # Dev mail goes to the bundled Mailpit; set SMTP_* in the root .env to use a real relay.
+      - SMTP_HOST=${SMTP_HOST:-mailpit}
+      - SMTP_PORT=${SMTP_PORT:-1025}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_SECURE=${SMTP_SECURE:-false}
     env_file:
       - apps/backend/.env
     networks:
       - app-network
     depends_on:
+      mailpit:
+        condition: service_started
       postgres:
         condition: service_healthy
       migrate:
@@ -361,6 +399,172 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Langfuse - self-hosted LLM tracing (profile "langfuse")
+  # ----------------------------------------------------------
+  # Traces stay on infrastructure PHLPost owns (TOR data ownership / no vendor
+  # lock-in). On by default via COMPOSE_PROFILES in the root .env.
+  # UI: http://localhost:3100 (login = LANGFUSE_INIT_USER_* in .env).
+  # Org, project and API keys are created on first boot from LANGFUSE_INIT_*,
+  # so no manual setup is needed. Own Postgres/Redis/ClickHouse/MinIO: nothing
+  # is shared with the app's stores. Values marked CHANGEME are dev-only
+  # defaults - override them in .env for any shared or deployed environment.
+  langfuse-web:
+    image: docker.io/langfuse/langfuse:${LANGFUSE_IMAGE_TAG:-4.72.0}
+    container_name: philpost_ai-langfuse-web
+    profiles: ["langfuse"]
+    depends_on: &langfuse-depends-on
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LANGFUSE_HOST_PORT:-3100}:3000"
+    environment: &langfuse-env
+      NEXTAUTH_URL: ${LANGFUSE_PUBLIC_URL:-http://localhost:3100}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-dev-langfuse-nextauth-secret} # CHANGEME
+      DATABASE_URL: postgresql://postgres:${LANGFUSE_DB_PASSWORD:-langfuse}@langfuse-postgres:5432/postgres
+      SALT: ${LANGFUSE_SALT:-dev-langfuse-salt} # CHANGEME
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000} # CHANGEME: openssl rand -hex 32
+      # No usage telemetry leaves the deployment.
+      TELEMETRY_ENABLED: "false"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "false"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_PASSWORD:-miniosecret} # CHANGEME
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-langfuseredis} # CHANGEME
+      REDIS_TLS_ENABLED: "false"
+      # First-boot provisioning (idempotent): org, project, API keys, admin user.
+      LANGFUSE_INIT_ORG_ID: phlpost
+      LANGFUSE_INIT_ORG_NAME: PHLPost
+      LANGFUSE_INIT_PROJECT_ID: phlpost-assist
+      LANGFUSE_INIT_PROJECT_NAME: PHLPost Assist
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-pk-lf-local-dev}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-sk-lf-local-dev}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@phlpost-assist.local}
+      LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-Langfuse Admin}
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-password123} # CHANGEME
+      # Accounts are provisioned, not self-registered.
+      AUTH_DISABLE_SIGNUP: "true"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  langfuse-worker:
+    image: docker.io/langfuse/langfuse-worker:${LANGFUSE_IMAGE_TAG:-4.72.0}
+    container_name: philpost_ai-langfuse-worker
+    profiles: ["langfuse"]
+    depends_on: *langfuse-depends-on
+    environment: *langfuse-env
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  langfuse-postgres:
+    image: docker.io/postgres:17
+    container_name: philpost_ai-langfuse-postgres
+    profiles: ["langfuse"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-langfuse} # CHANGEME
+      POSTGRES_DB: postgres
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - langfuse-postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  langfuse-redis:
+    image: docker.io/redis:7
+    container_name: philpost_ai-langfuse-redis
+    profiles: ["langfuse"]
+    command: >
+      --requirepass ${LANGFUSE_REDIS_PASSWORD:-langfuseredis}
+      --maxmemory-policy noeviction
+    volumes:
+      - langfuse-redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_PASSWORD:-langfuseredis}", "--no-auth-warning", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  langfuse-clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:26.3.62.3
+    container_name: philpost_ai-langfuse-clickhouse
+    profiles: ["langfuse"]
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${LANGFUSE_CLICKHOUSE_PASSWORD:-clickhouse} # CHANGEME
+    volumes:
+      - langfuse-clickhouse-data:/var/lib/clickhouse
+      - langfuse-clickhouse-logs:/var/log/clickhouse-server
+    networks:
+      - app-network
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio
+    container_name: philpost_ai-langfuse-minio
+    profiles: ["langfuse"]
+    entrypoint: sh
+    # Create the 'langfuse' bucket before starting the server.
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: ${LANGFUSE_MINIO_PASSWORD:-miniosecret} # CHANGEME
+    volumes:
+      - langfuse-minio-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
     restart: unless-stopped
 
   # ── OB-2 observability stack (opt-in): docker compose --profile observability up
@@ -431,3 +635,8 @@ networks:
 volumes:
   postgres-data:
   neo4j-data:
+  langfuse-postgres-data:
+  langfuse-redis-data:
+  langfuse-clickhouse-data:
+  langfuse-clickhouse-logs:
+  langfuse-minio-data:

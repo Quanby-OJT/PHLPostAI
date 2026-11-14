@@ -1,4 +1,5 @@
-"""Tracing bootstrap (Tech Plan §8): LangSmith by default, Langfuse optional.
+"""Tracing bootstrap (Tech Plan §8): Langfuse (self-hosted, used by this
+project's compose and env files) or LangSmith, chosen by TRACING_PROVIDER.
 
 Initialized once at startup so every traced operation (`traced(...)`) emits a
 trace for the configured provider. Later slices (IN-2/RT-1/GN-1) wrap their
@@ -6,6 +7,7 @@ pipeline steps with the same decorator — exactly one trace per request.
 """
 
 import functools
+import inspect
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -47,7 +49,7 @@ def init_tracing(settings: Settings) -> None:
             secret_key=settings.langfuse_secret_key.get_secret_value()
             if settings.langfuse_secret_key
             else None,
-            host=settings.langfuse_host,
+            base_url=settings.langfuse_host,
         )
         logger.info("Tracing initialized: langfuse (host=%s)", settings.langfuse_host)
 
@@ -69,10 +71,41 @@ def traced(
         # No-op unless LANGSMITH_TRACING is set by init_tracing (langsmith provider).
         langsmith_wrapped = traceable(name=name)(fn)
 
+        if inspect.isasyncgenfunction(fn):
+            # Streaming entry points (SSE): the span must stay open across
+            # every yielded item, not just until the first one.
+            # The inner generator is closed explicitly so a client disconnect
+            # (aclose on this wrapper) still reaches it and cancels the
+            # provider stream.
+            @functools.wraps(fn)
+            async def gen_wrapper(*args: Any, **kwargs: Any) -> Any:
+                if _langfuse_client is not None:
+                    with _langfuse_client.start_as_current_observation(name=name, as_type="span"):
+                        inner = fn(*args, **kwargs)
+                        try:
+                            async for item in inner:
+                                yield item
+                        finally:
+                            await inner.aclose()
+                    return
+                # langsmith's traceable generator wrapper does not forward
+                # aclose(), so trace the real generator with a context manager.
+                from langsmith.run_helpers import trace as ls_trace
+
+                inner = fn(*args, **kwargs)
+                with ls_trace(name=name):
+                    try:
+                        async for item in inner:
+                            yield item
+                    finally:
+                        await inner.aclose()
+
+            return gen_wrapper  # type: ignore[return-value]
+
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             if _langfuse_client is not None:
-                with _langfuse_client.start_as_current_span(name=name):
+                with _langfuse_client.start_as_current_observation(name=name, as_type="span"):
                     return await fn(*args, **kwargs)
             return await langsmith_wrapped(*args, **kwargs)
 
@@ -98,20 +131,29 @@ async def stage(name: str, **attributes: Any):
         outputs.update(values)
 
     if _langfuse_client is not None:
+        # Enter/exit the span manually so an exception raised by the request
+        # body propagates unchanged; only tracing's own failures are swallowed.
+        lf_cm = None
+        lf_span = None
         try:
-            with _langfuse_client.start_as_current_span(name=name) as span:
-                try:
-                    yield record
-                finally:
-                    try:
-                        span.update(input=attributes or None, output=outputs or None)
-                    except Exception:
-                        logger.debug("tracing.stage_update_failed", exc_info=True)
-            return
+            lf_cm = _langfuse_client.start_as_current_observation(name=name, as_type="span")
+            lf_span = lf_cm.__enter__()
         except Exception:
+            lf_cm = None
             logger.debug("tracing.stage_failed", exc_info=True)
+        try:
             yield record
-            return
+        finally:
+            if lf_cm is not None:
+                try:
+                    lf_span.update(input=attributes or None, output=outputs or None)
+                except Exception:
+                    logger.debug("tracing.stage_update_failed", exc_info=True)
+                try:
+                    lf_cm.__exit__(None, None, None)
+                except Exception:
+                    logger.debug("tracing.stage_exit_failed", exc_info=True)
+        return
 
     span_cm = None
     run_tree = None

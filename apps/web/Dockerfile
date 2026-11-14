@@ -47,7 +47,14 @@ ENV NEXT_PUBLIC_API_VERSION=$NEXT_PUBLIC_API_VERSION
 
 # Build the project
 COPY --from=prepare /app/out/full/ .
-RUN pnpm --filter @repo/web build
+# Build web's workspace deps first (@repo/auth, @repo/contracts, ...): their
+# package exports point at dist/, so web cannot resolve them unbuilt.
+RUN pnpm turbo run build --filter=@repo/web^...
+# Web itself is built outside turbo: turbo's strict env mode would strip the
+# NEXT_PUBLIC_* build args and SKIP_ENV_VALIDATION. Server-only secrets
+# (BETTER_AUTH_*) are runtime env, so validation is skipped for this build
+# step only; the runner still validates at boot.
+RUN SKIP_ENV_VALIDATION=true pnpm --filter @repo/web build
 
 # ========================================
 # Runner Stage - Minimal production image

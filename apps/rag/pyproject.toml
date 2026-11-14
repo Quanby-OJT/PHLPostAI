@@ -13,7 +13,6 @@ dependencies = [
     "langsmith>=0.3",
     "langfuse>=3.0",
     "pyjwt>=2.10",
-    "langchain-community>=0.3",
     "langchain-text-splitters>=0.3",
     "openai>=1.60",
     "pypdf>=5.1",
@@ -32,6 +31,7 @@ dependencies = [
     "neo4j>=6.2.0",
     "pypdfium2>=5.12.0",
     "httpx>=0.28",
+    "langchain-core>=1.0",
 ]
 
 [dependency-groups]

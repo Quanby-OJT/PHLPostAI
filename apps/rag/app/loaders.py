@@ -59,28 +59,19 @@ def _decode_text(raw: bytes) -> str:
 def normalize_pdf(raw: bytes, filename: str, source_uri: str) -> dict[str, Any]:
     """IN-1's PDF normalization (sync — run in a thread).
 
-    PyPDFLoader reads from a path, so the bytes are staged in a temp dir for
-    the duration of the parse. Raises on corrupt/unreadable input.
+    Uses pypdf directly (same extraction PyPDFLoader did, without the
+    langchain-community dependency). Raises on corrupt/unreadable input.
     """
-    from langchain_community.document_loaders import PyPDFLoader
+    from pypdf import PdfReader
 
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pdf_path = os.path.join(tmp_dir, "upload.pdf")
-        with open(pdf_path, "wb") as handle:
-            handle.write(raw)
-        pages = PyPDFLoader(pdf_path).load()
+    reader = PdfReader(io.BytesIO(raw))
+    pages = [page.extract_text(extraction_mode="plain").strip() for page in reader.pages]
 
-    text = SEGMENT_SEPARATOR.join(page.page_content for page in pages)
+    text = SEGMENT_SEPARATOR.join(pages)
     return {
         **_base_metadata(filename, source_uri),
         "pageCount": len(pages),
-        "pages": [
-            {
-                "page": page.metadata.get("page", index),
-                "chars": len(page.page_content),
-            }
-            for index, page in enumerate(pages)
-        ],
+        "pages": [{"page": index, "chars": len(content)} for index, content in enumerate(pages)],
         "text": text,
     }
 

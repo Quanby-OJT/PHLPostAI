@@ -519,7 +519,7 @@ class GenerationService:
             "agentic": agentic_trace,
         }
 
-    @traced(name="rag.chat")
+    @traced(name="groundedness.gate")
     async def _grounding_gate(
         self,
         *,
@@ -576,6 +576,9 @@ class GenerationService:
         marker["outcome"] = "regenerated"
         return answer2, citations2, marker
 
+    # One root trace per /chat call (TOR: "wrapped as one traceable per /chat
+    # call"); every stage() span nests under it.
+    @traced(name="rag.chat")
     async def answer(
         self,
         *,
@@ -914,6 +917,7 @@ class GenerationService:
         # per request records model, tokens, and latency (Tech Plan §8).
         return payload
 
+    @traced(name="rag.chat")
     async def answer_stream(
         self,
         *,
@@ -1065,22 +1069,35 @@ class GenerationService:
                 # aborts the completion — no orphaned spend).
                 from contextlib import aclosing
 
-                async with aclosing(stream_client.stream(stream_messages)) as stream:
-                    async for item in stream:
-                        if isinstance(item, tuple):  # ("__usage__", usage) sentinel
-                            token_usage = item[1]
-                            continue
-                        if ttft_ms is None:
-                            ttft_ms = round((time.perf_counter() - started) * 1000, 3)
-                            logger.info(
-                                "chat.stream_ttft %s",
-                                json.dumps({"ttftMs": ttft_ms, "model": stream_client.model}),
-                            )
-                            from app.metrics import CHAT_TTFT
+                async with stage(
+                    "model.call",
+                    model=stream_client.model,
+                    provider=getattr(stream_client, "provider", None),
+                    stream=True,
+                ) as record:
+                    async with aclosing(stream_client.stream(stream_messages)) as stream:
+                        async for item in stream:
+                            if isinstance(item, tuple):  # ("__usage__", usage) sentinel
+                                token_usage = item[1]
+                                continue
+                            if ttft_ms is None:
+                                ttft_ms = round((time.perf_counter() - started) * 1000, 3)
+                                logger.info(
+                                    "chat.stream_ttft %s",
+                                    json.dumps({"ttftMs": ttft_ms, "model": stream_client.model}),
+                                )
+                                from app.metrics import CHAT_TTFT
 
-                            CHAT_TTFT.observe(ttft_ms / 1000.0)
-                        parts.append(item)
-                        yield _sse("token", {"delta": item})
+                                CHAT_TTFT.observe(ttft_ms / 1000.0)
+                            parts.append(item)
+                            yield _sse("token", {"delta": item})
+                    record(
+                        tokenUsage=token_usage,
+                        costUsd=compute_cost_usd(
+                            self._settings, model=stream_client.model, token_usage=token_usage
+                        ),
+                        ttftMs=ttft_ms,
+                    )
                 answer_text = "".join(parts).strip()
                 if not answer_text:
                     raise RuntimeError(
