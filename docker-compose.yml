@@ -1,0 +1,431 @@
+# ==========================================================
+# TURBOREPO DEVELOPMENT ENVIRONMENT
+# ==========================================================
+# This Docker Compose configuration sets up the full application stack
+# for local development: web, backend, rag (internal-only Python service),
+# postgres (pgvector), and redis — all on app-network.
+#
+# Startup order: postgres -> migrate (pnpm db:migrate, one-shot) -> backend + rag
+#
+# Single entrypoint (default): Nginx reverse proxy on http://localhost
+#   /api/* -> backend (NestJS),  /* -> web (Next.js)
+#   (rag has NO Nginx route — internal Docker network only)
+#
+# SWAPPING THE PROXY
+# ------------------
+# The bundled Nginx is gated behind the "docker-proxy" compose profile,
+# enabled by default via COMPOSE_PROFILES in the root .env. To use your
+# OWN/external Nginx instead, set COMPOSE_PROFILES= (empty) in .env — the
+# nginx container won't start, freeing port 80. web/backend are always
+# published on 127.0.0.1:3001 / :3000, so a host Nginx can reach them.
+#
+# Edit routing live: ./nginx/nginx.conf is volume-mounted; after changes
+#   docker compose restart nginx
+#
+# Usage:
+#   docker-compose up -d --build      # Build + start all services
+#   docker-compose down                # Stop and remove containers
+#   docker-compose logs -f            # Follow logs
+# ==========================================================
+
+services:
+  # ----------------------------------------------------------
+  # Reverse Proxy (Nginx) — single entrypoint, toggleable
+  # ----------------------------------------------------------
+  # Routes /api/* -> backend:3000, everything else -> web:3001.
+  # Access the whole stack at http://localhost
+  #
+  # Gated by the "docker-proxy" profile. ON by default (COMPOSE_PROFILES
+  # in .env). Set COMPOSE_PROFILES= empty to disable and use external Nginx.
+  nginx:
+    image: nginx:alpine
+    container_name: rag-ai-nginx
+    profiles: ["docker-proxy"]
+    ports:
+      - "80:80" # single published port (clean URLs, no :port)
+      - "443:443" # TLS, used by the production config
+    # Upstream hosts, so one config serves both dev topologies. Defaults are the
+    # compose service names; override in the root .env to point at the host when
+    # only Nginx runs in Docker and the apps run under `pnpm dev`:
+    #   WEB_UPSTREAM=host.docker.internal:3001
+    #   BACKEND_UPSTREAM=host.docker.internal:3000
+    environment:
+      - WEB_UPSTREAM=${WEB_UPSTREAM:-web:3001}
+      - BACKEND_UPSTREAM=${BACKEND_UPSTREAM:-backend:3000}
+    # Lets the container reach apps running on the host, which is what the
+    # host.docker.internal upstreams above resolve through.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # NGINX_CONF defaults to the HTTP-only dev config so a fresh clone works with
+      # no certificates. Point NGINX_CONF at ./nginx/nginx.conf for the
+      # TLS-terminating production config, and mount certificates alongside.
+      #
+      # Mounted as a TEMPLATE, not straight into conf.d: the image's entrypoint
+      # runs envsubst over /etc/nginx/templates and writes the result to
+      # conf.d/default.conf. Only names that exist in the environment are
+      # substituted, so Nginx's own $host / $remote_addr survive untouched.
+      - ${NGINX_CONF:-./nginx/nginx.dev.conf}:/etc/nginx/templates/default.conf.template:ro
+      # Certificates and the ACME webroot. Both are optional locally; the dev
+      # config never reads them.
+      - ${NGINX_CERTS_DIR:-./nginx/certs}:/etc/nginx/certs:ro
+      - ${NGINX_ACME_WEBROOT:-./nginx/certbot}:/var/www/certbot
+    networks:
+      - app-network
+    # (rag has NO Nginx route — internal Docker network only.)
+    depends_on:
+      - web
+      - backend
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Web Application (Next.js)
+  # ----------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Build-time arguments for Next.js (inlined during build)
+        - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+        - NEXT_PUBLIC_API_VERSION=${NEXT_PUBLIC_API_VERSION}
+    container_name: rag-ai-web
+    # Bound to loopback so an external/host Nginx can reach it when the
+    # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
+    # still reaches it by service name (web:3001) over the internal network.
+    ports:
+      - "127.0.0.1:3001:3001"
+    environment:
+      # Server Configuration
+      - NODE_ENV=production
+      # Next.js standalone server defaults to 3000 — pin it to 3001 so it
+      # matches the Nginx upstream and EXPOSE.
+      - PORT=3001
+      - HOSTNAME=0.0.0.0
+
+      # Server-side (SSR) calls stay on the internal Docker network
+      - INTERNAL_API_BASE_URL=http://backend:3000/api
+
+      # Public URLs (Client-side accessible, baked at build time)
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+      - NEXT_PUBLIC_API_VERSION=${NEXT_PUBLIC_API_VERSION}
+    env_file:
+      - apps/web/.env
+    networks:
+      - app-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # PostgreSQL (pgvector) — in-network database
+  # ----------------------------------------------------------
+  # pgvector/pgvector:pg16 ships the vector extension; the first migration
+  # runs CREATE EXTENSION IF NOT EXISTS vector.
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rag-ai-postgres
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-ragai}
+    # Published on loopback for local tooling (drizzle studio, psql). The
+    # in-network services reach it by name (postgres:5432). Change
+    # POSTGRES_HOST_PORT if a host Postgres already occupies 5432.
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ragai}",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Redis — infra baseline (no functional consumer in R1)
+  # ----------------------------------------------------------
+  redis:
+    image: redis:alpine
+    container_name: rag-ai-redis
+    networks:
+      - app-network
+    # Published for local `pnpm dev` (native rag expects redis://localhost:6379).
+    # Change REDIS_HOST_PORT in the root .env if 6379 is taken on the host.
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Migrations (one-shot) — pnpm db:migrate equivalent
+  # ----------------------------------------------------------
+  # Applies the ordered Drizzle migration history (packages/db/src/migrations)
+  # and exits. backend + rag wait for it to complete successfully.
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    container_name: rag-ai-migrate
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ----------------------------------------------------------
+  # RAG Service (Python/FastAPI) — INTERNAL ONLY
+  # ----------------------------------------------------------
+  # No published ports and no Nginx route: only reachable on app-network
+  # (the backend calls http://rag:8000 with a signed service JWT).
+  rag:
+    build:
+      context: .
+      dockerfile: apps/rag/Dockerfile
+    container_name: rag-ai-rag
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # GN-4 model routing: strong tier (Anthropic) is optional — without the
+      # key the router serves everything cheap-fast and records why.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - STRONG_MODEL=${STRONG_MODEL:-claude-opus-4-8}
+      - STRONG_MODEL_PROVIDER=${STRONG_MODEL_PROVIDER:-anthropic}
+      # Optional tertiary failover. Defaults off, so no IBM calls are made.
+      - WATSONX_ENABLED=${WATSONX_ENABLED:-false}
+      - IBM_CLOUD_API_KEY=${IBM_CLOUD_API_KEY:-}
+      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID:-}
+      - WATSONX_URL=${WATSONX_URL:-https://jp-tok.ml.cloud.ibm.com}
+      - WATSONX_MODEL=${WATSONX_MODEL:-meta-llama/llama-4-maverick-17b-128e-instruct-fp8}
+      - WATSONX_API_VERSION=${WATSONX_API_VERSION:-2024-03-14}
+      - PROVIDER_RPM_WATSONX=${PROVIDER_RPM_WATSONX:-60}
+      - RAG_SERVICE_TOKEN_SECRET=${RAG_SERVICE_TOKEN_SECRET:-dev-rag-service-secret-change-in-production}
+      # Tracing (LangSmith default; set TRACING_PROVIDER=langfuse to switch)
+      - TRACING_PROVIDER=${TRACING_PROVIDER:-langsmith}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-ragp}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      # Pinned embedding constants (D1)
+      - EMBEDDING_MODEL=text-embedding-3-large
+      - EMBEDDING_DIMENSIONS=1536
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python3",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).status == 200 else 1)",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # RAG Worker (arq) — background ingestion jobs (IN-7)
+  # ----------------------------------------------------------
+  # Separate PROCESS from the API replicas so heavy corpus work (chunk ->
+  # embed -> index) never blocks or degrades /chat request workers. Same
+  # image + env as `rag`; only the command differs.
+  rag-worker:
+    build:
+      context: .
+      dockerfile: apps/rag/Dockerfile
+    container_name: rag-ai-rag-worker
+    command: ["/app/.venv/bin/arq", "app.worker.WorkerSettings"]
+    environment:
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
+      - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # GN-4 model routing: strong tier (Anthropic) is optional — without the
+      # key the router serves everything cheap-fast and records why.
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - STRONG_MODEL=${STRONG_MODEL:-claude-opus-4-8}
+      - STRONG_MODEL_PROVIDER=${STRONG_MODEL_PROVIDER:-anthropic}
+      - WATSONX_ENABLED=${WATSONX_ENABLED:-false}
+      - IBM_CLOUD_API_KEY=${IBM_CLOUD_API_KEY:-}
+      - WATSONX_PROJECT_ID=${WATSONX_PROJECT_ID:-}
+      - WATSONX_URL=${WATSONX_URL:-https://jp-tok.ml.cloud.ibm.com}
+      - WATSONX_MODEL=${WATSONX_MODEL:-meta-llama/llama-4-maverick-17b-128e-instruct-fp8}
+      - WATSONX_API_VERSION=${WATSONX_API_VERSION:-2024-03-14}
+      - PROVIDER_RPM_WATSONX=${PROVIDER_RPM_WATSONX:-60}
+      - RAG_SERVICE_TOKEN_SECRET=${RAG_SERVICE_TOKEN_SECRET:-dev-rag-service-secret-change-in-production}
+      - TRACING_PROVIDER=${TRACING_PROVIDER:-langsmith}
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY:-}
+      - LANGSMITH_PROJECT=${LANGSMITH_PROJECT:-ragp}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-https://cloud.langfuse.com}
+      - EMBEDDING_MODEL=text-embedding-3-large
+      - EMBEDDING_DIMENSIONS=1536
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # Backend API (NestJS)
+  # ----------------------------------------------------------
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: rag-ai-backend
+    # Bound to loopback so an external/host Nginx can reach it when the
+    # bundled proxy is disabled. Not exposed to the LAN. The Docker Nginx
+    # still reaches it by service name (backend:3000) over the internal network.
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Server Configuration
+      - NODE_ENV=production
+      - PORT=3000
+      # In-network Postgres (compose service) — overrides any host-oriented
+      # DATABASE_URL from apps/backend/.env so backend, rag, and the migrate
+      # step all target the same database.
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-ragai}
+      # Internal RAG service (Docker network only; no Nginx route)
+      - RAG_SERVICE_URL=http://rag:8000
+      - RAG_SERVICE_TOKEN_SECRET=${RAG_SERVICE_TOKEN_SECRET:-dev-rag-service-secret-change-in-production}
+      # Shared throttle counters + RBAC permission cache. Points at the `redis`
+      # service this file already starts (passwordless in dev — the rag Python
+      # service connects to the same instance). REDIS_KEY_PREFIX namespaces the
+      # backend's keys away from the rag worker's queue on the same db.
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - REDIS_KEY_PREFIX=${REDIS_KEY_PREFIX:-ragai}
+    env_file:
+      - apps/backend/.env
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # Redis is a plain cache, so this only orders startup — the app degrades
+      # deliberately when the store is unreachable rather than refusing to boot.
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:3000/api/v1/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # ── OB-2 observability stack (opt-in): docker compose --profile observability up
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: ["observability"]
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    profiles: ["observability"]
+    volumes:
+      - ./ops/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: ["observability"]
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      # Dashboards + datasource as code (OB-2 AC).
+      - ./ops/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./ops/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+    ports:
+      - "127.0.0.1:3006:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # ── CE-5 Graph RAG store (opt-in): docker compose --profile graph up
+  # Only needed when GRAPH_RAG_ENABLED=true (RAG_PROFILE=full); baseline
+  # deployments never start it. The graph is DERIVED data — rebuildable from
+  # Postgres via an ingestion re-run, never migrated.
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: rag-ai-neo4j
+    profiles: ["graph"]
+    environment:
+      - NEO4J_AUTH=neo4j/devpassword
+    ports:
+      - "127.0.0.1:7687:7687" # bolt (rag service)
+      - "127.0.0.1:7474:7474" # browser (dev convenience)
+    volumes:
+      - neo4j-data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  neo4j-data:
