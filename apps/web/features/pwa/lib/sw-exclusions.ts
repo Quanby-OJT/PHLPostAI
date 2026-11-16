@@ -32,7 +32,6 @@ export const AUTHENTICATED_ROUTES = [
 	"/dashboard",
 	"/account",
 	"/user-management",
-	"/todos",
 	"/submit-ticket",
 	"/session",
 	// RAG product routes — all require a session.

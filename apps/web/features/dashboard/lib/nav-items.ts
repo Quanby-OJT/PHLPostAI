@@ -6,7 +6,6 @@ import {
 	FolderLibraryIcon,
 	Key01Icon,
 	Settings02Icon,
-	Task01Icon,
 	Ticket01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
@@ -37,12 +36,6 @@ export const navItems: readonly DashboardNavItem[] = [
 		label: "Submit Ticket",
 		href: "/submit-ticket",
 		icon: Ticket01Icon,
-	},
-	{
-		// Example module: ungated since F3 removed the legacy `posts:*` keys.
-		label: "Todos / Posts",
-		href: "/todos",
-		icon: Task01Icon,
 	},
 	{
 		// Corpus list + PDF upload (IN-1). Visible with read access; the upload
