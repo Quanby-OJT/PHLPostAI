@@ -21,7 +21,6 @@ import {
 	roles,
 	schema,
 	tickets,
-	todos,
 	userRoles,
 	users,
 } from "./schema.js"
@@ -97,37 +96,6 @@ async function seedDatabase() {
 			email: "sam@turbo-template.local",
 			emailVerified: false,
 			image: null,
-			createdAt: now,
-			updatedAt: now,
-		},
-	]
-
-	const seedTodos: Array<typeof todos.$inferInsert> = [
-		{
-			title: "Review onboarding checklist",
-			completed: true,
-			authorId: "seed-user-admin",
-			createdAt: now,
-			updatedAt: now,
-		},
-		{
-			title: "Verify backend health endpoint",
-			completed: false,
-			authorId: "seed-user-admin",
-			createdAt: now,
-			updatedAt: now,
-		},
-		{
-			title: "Connect mobile app to local API",
-			completed: false,
-			authorId: "seed-user-alex",
-			createdAt: now,
-			updatedAt: now,
-		},
-		{
-			title: "Draft release notes for staging",
-			completed: false,
-			authorId: "seed-user-sam",
 			createdAt: now,
 			updatedAt: now,
 		},
@@ -373,7 +341,6 @@ async function seedDatabase() {
 			}
 			userRoleCount = seedUserRoles.length
 
-			await tx.delete(todos).where(inArray(todos.authorId, seededUserIds))
 
 			await tx
 				.delete(tickets)
@@ -381,7 +348,6 @@ async function seedDatabase() {
 					or(inArray(tickets.email, seededTicketEmails), inArray(tickets.authorId, seededUserIds))
 				)
 
-			await tx.insert(todos).values(seedTodos)
 			await tx.insert(tickets).values(seedTickets)
 		})
 
@@ -395,7 +361,7 @@ async function seedDatabase() {
 				: "Seed password taken from SEED_ADMIN_PASSWORD (not printed)."
 
 		console.log(
-			`Seeded ${seedUsers.length} users, ${seedCredentialAccounts.length} credential accounts, ${seedTodos.length} todos, and ${seedTickets.length} tickets.\n` +
+			`Seeded ${seedUsers.length} users, ${seedCredentialAccounts.length} credential accounts, and ${seedTickets.length} tickets.\n` +
 				`RBAC: ${seedRoles.length} roles, ${seedPermissions.length} permissions, ${rolePermissionCount} role-permission mappings, ${userRoleCount} user-role assignments.\n${
 					credentialNote
 				}`

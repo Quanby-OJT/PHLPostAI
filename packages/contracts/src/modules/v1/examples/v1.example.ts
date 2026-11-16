@@ -1,7 +1,6 @@
 import { oc } from "@orpc/contract"
 
 import { featurePreviewContract } from "./feature-preview/feature-preview.contract.js"
-import { todoContract } from "./todos/todos.contract.js"
 
 /**
  * V1 contract router (versioned paths: /v1/todos, /v1/health)
@@ -9,7 +8,6 @@ import { todoContract } from "./todos/todos.contract.js"
  */
 export const v1Example = oc.prefix("/example").router(
 	oc.router({
-		todo: todoContract,
 		featurePreview: featurePreviewContract,
 	})
 )

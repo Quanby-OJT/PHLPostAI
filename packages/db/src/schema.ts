@@ -105,22 +105,6 @@ export const verifications = createTable(
 )
 
 // ============================================================================
-// TODOs
-// ============================================================================
-
-export const todos = createTable("todos", t => ({
-	id: t.serial("id").primaryKey(),
-	title: t.text("title").notNull(),
-	completed: t.boolean("completed").notNull().default(false),
-	authorId: t
-		.text("author_id")
-		.notNull()
-		.references(() => users.id, { onDelete: "cascade" }),
-	createdAt: t.timestamp("created_at").notNull().defaultNow(),
-	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
-}))
-
-// ============================================================================
 // TICKETS
 // ============================================================================
 
@@ -742,7 +726,6 @@ export const relations = defineRelations(
 		users,
 		sessions,
 		accounts,
-		todos,
 		tickets,
 		idempotencyKeys,
 		roles,
@@ -765,12 +748,6 @@ export const relations = defineRelations(
 		accounts: {
 			user: r.one.users({
 				from: r.accounts.userId,
-				to: r.users.id,
-			}),
-		},
-		todos: {
-			author: r.one.users({
-				from: r.todos.authorId,
 				to: r.users.id,
 			}),
 		},
@@ -819,7 +796,6 @@ export const schema = Object.assign(
 		sessions,
 		accounts,
 		verifications,
-		todos,
 		tickets,
 		idempotencyKeys,
 		roles,
