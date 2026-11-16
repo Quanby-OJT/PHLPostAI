@@ -6,7 +6,6 @@ import {
 	FolderLibraryIcon,
 	Key01Icon,
 	Settings02Icon,
-	Ticket01Icon,
 	UserMultipleIcon,
 } from "@hugeicons/core-free-icons"
 import { type IconSvgElement } from "@hugeicons/react"
@@ -31,11 +30,6 @@ export const navItems: readonly DashboardNavItem[] = [
 		label: "Dashboard",
 		href: "/dashboard",
 		icon: DashboardSquare01Icon,
-	},
-	{
-		label: "Submit Ticket",
-		href: "/submit-ticket",
-		icon: Ticket01Icon,
 	},
 	{
 		// Corpus list + PDF upload (IN-1). Visible with read access; the upload
