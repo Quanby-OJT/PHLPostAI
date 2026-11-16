@@ -152,9 +152,9 @@ This template ships four RAG architectures in ONE codebase. Set
 
 | `RAG_PROFILE` | What you get | Extra infra | Cost/latency |
 |---|---|---|---|
-| `baseline` (default) | hybrid retrieval + grounded generation — the core template | none | reference point |
+| `baseline` (code default) | hybrid retrieval + grounded generation — the core template | none | reference point |
 | `contextual` | + LLM-generated chunk context in both retrieval indexes | none | +1 cheap LLM call per chunk at ingest (cached) |
-| `agentic` | + self-correcting retrieval loop (grade → rewrite → groundedness gate) | none | +2–5 cheap LLM calls / +3.4–7.5 s per uncached question |
+| `agentic` (PHLPost default, FND-1) | + self-correcting retrieval loop (grade → rewrite → groundedness gate) | none | +2–5 cheap LLM calls / +3.4–7.5 s per uncached question |
 | `full` | + Graph RAG (Neo4j) + multimodal (page images + vision answers) | `docker compose --profile graph up -d neo4j` + `NEO4J_PASSWORD` | + extraction/caption calls at ingest (cached); ~5× on vision-worthy pages |
 
 Rules that make this safe:
@@ -204,7 +204,7 @@ infrastructure.
 | `PROVIDER_RPM_WATSONX`        | ❌       | RAG         | Shared Watsonx request budget         |
 | `RAG_SERVICE_TOKEN_SECRET`    | ✅       | Backend, RAG | Shared HS256 secret for the service JWT |
 | `RAG_SERVICE_URL`             | ✅       | Backend     | Internal RAG base URL (`http://rag:8000` in Docker) |
-| `LANGSMITH_API_KEY`           | ✅       | RAG         | Tracing key (or Langfuse keys with `TRACING_PROVIDER=langfuse`) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | ✅ | RAG | Tracing keys for the self-hosted Langfuse (dev defaults provisioned by compose; UI http://localhost:3100). `TRACING_PROVIDER=langsmith` + `LANGSMITH_API_KEY` switches to LangSmith |
 | `POSTGRES_USER/PASSWORD/DB`   | ❌       | Root/Docker | Compose postgres credentials (also build the injected `DATABASE_URL`) |
 
 Copy from `.env.example` in each app: `apps/backend/.env`, `apps/web/.env`, `packages/db/.env`, `apps/rag/.env`.

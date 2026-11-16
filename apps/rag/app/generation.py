@@ -47,7 +47,7 @@ from app.retrieval import RetrievalFilters, RetrievalService, get_retrieval_serv
 from app.security import ServicePrincipal, verify_service_jwt
 from app.security_screen import QueryBlockedError, screen_query
 from app.single_flight import SingleFlight, SingleFlightError
-from app.tracing import stage, traced
+from app.tracing import set_span_io, stage, traced
 
 # Backward-compat alias: the GN-1 ChatClient moved to app.providers (GN-4).
 ChatClient = OpenAIChatClient
@@ -519,7 +519,7 @@ class GenerationService:
             "agentic": agentic_trace,
         }
 
-    @traced(name="rag.chat")
+    @traced(name="groundedness.gate")
     async def _grounding_gate(
         self,
         *,
@@ -576,6 +576,9 @@ class GenerationService:
         marker["outcome"] = "regenerated"
         return answer2, citations2, marker
 
+    # One root trace per /chat call (TOR: "wrapped as one traceable per /chat
+    # call"); every stage() span nests under it.
+    @traced(name="rag.chat")
     async def answer(
         self,
         *,
@@ -589,6 +592,8 @@ class GenerationService:
         trace_id = principal.trace_id or str(uuid.uuid4())
         # SC-1 stage 1 runs before EVERYTHING (cache/retrieval/persistence).
         query = await self.screen(query, principal, trace_id)
+        # Trace input = the SCREENED query only (SC-1: masked before tracing).
+        set_span_io(input={"query": query, "k": k, "filters": filters})
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage (AFTER SC-1, BEFORE retrieval/LLM — contractual).
@@ -914,6 +919,7 @@ class GenerationService:
         # per request records model, tokens, and latency (Tech Plan §8).
         return payload
 
+    @traced(name="rag.chat")
     async def answer_stream(
         self,
         *,
@@ -934,11 +940,18 @@ class GenerationService:
         trace_id = principal.trace_id or str(uuid.uuid4())
         # SC-1 stage 1 runs before EVERYTHING (cache/retrieval/persistence).
         query = await self.screen(query, principal, trace_id)
+        # Trace input = the SCREENED query only (SC-1: masked before tracing).
+        set_span_io(input={"query": query, "k": k, "filters": filters})
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage: a hit replays as one token event + final.
         if self._response_cache is not None:
-            cached = await self._response_cache.lookup(query=query, filters=filters)
+            async with stage("cache.lookup") as record:
+                cached = await self._response_cache.lookup(query=query, filters=filters)
+                record(
+                    hit=cached is not None,
+                    layer=cached.get("cacheLayer") if cached else None,
+                )
             if cached is not None:
                 payload = await self._serve_cached(
                     cached=cached,
@@ -948,6 +961,7 @@ class GenerationService:
                     trace_id=trace_id,
                     started=started,
                 )
+                set_span_io(output=payload)
                 yield _sse("token", {"delta": payload["answer"]})
                 yield _sse(
                     "final",
@@ -980,6 +994,7 @@ class GenerationService:
                         trace_id=trace_id,
                         started=started,
                     )
+                    set_span_io(output=payload)
                     yield _sse("token", {"delta": payload["answer"]})
                     yield _sse("final", {**payload, "ttftMs": payload["latencyMs"]})
                     return
@@ -1014,7 +1029,9 @@ class GenerationService:
         used_chunks = prep["used_chunks"]
 
         # Flow B route stage (GN-4/GN-5): decision recorded before generation.
-        client, routing = await self._route(query=query, chunks=prep["chunks"])
+        async with stage("routing") as record:
+            client, routing = await self._route(query=query, chunks=prep["chunks"])
+            record(**{k_: routing.get(k_) for k_ in ("tier", "model", "provider", "reason")})
         logger.info("chat.routing %s", json.dumps(routing))
 
         token_usage: dict[str, int] | None = None
@@ -1065,22 +1082,35 @@ class GenerationService:
                 # aborts the completion — no orphaned spend).
                 from contextlib import aclosing
 
-                async with aclosing(stream_client.stream(stream_messages)) as stream:
-                    async for item in stream:
-                        if isinstance(item, tuple):  # ("__usage__", usage) sentinel
-                            token_usage = item[1]
-                            continue
-                        if ttft_ms is None:
-                            ttft_ms = round((time.perf_counter() - started) * 1000, 3)
-                            logger.info(
-                                "chat.stream_ttft %s",
-                                json.dumps({"ttftMs": ttft_ms, "model": stream_client.model}),
-                            )
-                            from app.metrics import CHAT_TTFT
+                async with stage(
+                    "model.call",
+                    model=stream_client.model,
+                    provider=getattr(stream_client, "provider", None),
+                    stream=True,
+                ) as record:
+                    async with aclosing(stream_client.stream(stream_messages)) as stream:
+                        async for item in stream:
+                            if isinstance(item, tuple):  # ("__usage__", usage) sentinel
+                                token_usage = item[1]
+                                continue
+                            if ttft_ms is None:
+                                ttft_ms = round((time.perf_counter() - started) * 1000, 3)
+                                logger.info(
+                                    "chat.stream_ttft %s",
+                                    json.dumps({"ttftMs": ttft_ms, "model": stream_client.model}),
+                                )
+                                from app.metrics import CHAT_TTFT
 
-                            CHAT_TTFT.observe(ttft_ms / 1000.0)
-                        parts.append(item)
-                        yield _sse("token", {"delta": item})
+                                CHAT_TTFT.observe(ttft_ms / 1000.0)
+                            parts.append(item)
+                            yield _sse("token", {"delta": item})
+                    record(
+                        tokenUsage=token_usage,
+                        costUsd=compute_cost_usd(
+                            self._settings, model=stream_client.model, token_usage=token_usage
+                        ),
+                        ttftMs=ttft_ms,
+                    )
                 answer_text = "".join(parts).strip()
                 if not answer_text:
                     raise RuntimeError(
@@ -1261,22 +1291,21 @@ class GenerationService:
         ).observe(latency_ms / 1000.0)
 
         # Final frame: citations + usage + ids (GN-3 contract with CH-2).
-        yield _sse(
-            "final",
-            {
-                "answer": answer_text,
-                "citations": citations,
-                "conversationId": conversation_id,
-                "messageId": message_id,
-                "traceId": trace_id,
-                "model": stream_client.model,
-                "tokenUsage": token_usage,
-                "isIDontKnow": is_i_dont_know,
-                "degraded": degraded,
-                "ttftMs": ttft_ms,
-                "latencyMs": latency_ms,
-            },
-        )
+        final = {
+            "answer": answer_text,
+            "citations": citations,
+            "conversationId": conversation_id,
+            "messageId": message_id,
+            "traceId": trace_id,
+            "model": stream_client.model,
+            "tokenUsage": token_usage,
+            "isIDontKnow": is_i_dont_know,
+            "degraded": degraded,
+            "ttftMs": ttft_ms,
+            "latencyMs": latency_ms,
+        }
+        set_span_io(output=final)
+        yield _sse("final", final)
 
 
 router = APIRouter(prefix="/internal", dependencies=[Depends(verify_service_jwt)])

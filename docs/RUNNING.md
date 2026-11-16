@@ -16,16 +16,18 @@ Only the database and Redis run in Docker; apps run natively with hot reload.
 > 502 on chat.
 
 ```powershell
-cd D:\PROJECTS\RAG_AI
+cd D:\PROJECTS\PHLPostAI
 
-# 1. Infra (postgres/pgvector + redis)
-docker compose up -d postgres redis
+# 1. Infra (postgres/pgvector + redis) + self-hosted Langfuse tracing
+docker compose up -d postgres redis langfuse-web langfuse-worker
 
 # 2. Migrations — one-shot container; only needed after schema changes
 docker compose up migrate --no-deps
 
-# 3. Seed roles/permissions + bootstrap admin — only on a fresh/empty DB
-pnpm db:seed
+# 3. Seed roles/permissions + bootstrap admin — only on a fresh/empty DB.
+#    Without SEED_ADMIN_PASSWORD the seed generates a random password and
+#    prints it once. Add --force-password to reset existing seed users.
+$env:SEED_ADMIN_PASSWORD = "password123"; pnpm db:seed
 
 # 4. All dev servers (ports per your .env; template default 3000/8000/3001)
 pnpm dev
@@ -80,7 +82,8 @@ you have overridden them.
 | API reference | http://localhost:3000/api/v1/docs |
 | RAG health    | http://localhost:8000/health      |
 
-**Login (seeded admin):** `admin@turbo-template.local` / `password123`
+**Login (seeded admin):** `admin@turbo-template.local` / `password123` (when seeded with
+`SEED_ADMIN_PASSWORD=password123` as above; otherwise the password the seed printed)
 
 Requirements: `uv` on PATH for the Python RAG service. `OPENAI_API_KEY` must
 be set in the root `.env` (Docker) and `apps/rag/.env` (native) — chat and
@@ -100,6 +103,10 @@ docker compose ps   # wait: migrate exits 0, backend + rag healthy
 - Single URL via Nginx: http://localhost (port 80 must be free — see
   README "Run on a single port" to disable the bundled proxy)
 - Direct ports still published: web :3001, backend :3000
+- Outgoing mail (verification, password reset) is caught by Mailpit:
+  http://localhost:8025. Set `SMTP_*` in the root `.env` to use a real relay.
+- Stop any native `pnpm dev` / uvicorn first: a leftover process on
+  :3001 or :8000 shadows the containers.
 - Seed on fresh DB: set `DATABASE_URL` at the compose-published Postgres
   port, then `pnpm db:seed`
 
@@ -130,11 +137,13 @@ curl http://localhost:8000/health          # rag: database + redis "up"
 5. **Audit** —
 
    ```powershell
-   docker exec rag-ai-postgres psql -U postgres -d ragai -c "select action, actor_type, created_at from audit_log order by created_at desc limit 20;"
+   docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select action, actor_type, created_at from audit_log order by created_at desc limit 20;"
    ```
 
    Expect `corpus.document.upload`, `chat.query.submit`, `rbac.denied` rows.
-6. **Tracing** — LangSmith project `ragp` shows `rag.chat` traces.
+6. **Tracing** — self-hosted Langfuse at http://localhost:3100 (login
+   `admin@phlpost-assist.local` / `password123` from the root `.env`), project
+   `PHLPost Assist` shows one trace per chat and ingestion request.
 
 ### Automated tests
 
