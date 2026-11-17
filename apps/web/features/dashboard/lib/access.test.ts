@@ -89,8 +89,6 @@ describe("navItems", () => {
 		expect(navItems).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ label: "Dashboard", href: "/dashboard" }),
-				expect.objectContaining({ label: "Submit Ticket", href: "/submit-ticket" }),
-				expect.objectContaining({ label: "Todos / Posts", href: "/todos" }),
 				expect.objectContaining({
 					label: "Corpus",
 					href: "/corpus",
@@ -114,8 +112,6 @@ describe("navItems", () => {
 	it("filters visible items from the shared access helper", () => {
 		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual([
 			"Dashboard",
-			"Submit Ticket",
-			"Todos / Posts",
 		])
 
 		expect(
@@ -156,8 +152,6 @@ describe("navItems", () => {
 			)
 		).toEqual([
 		"Dashboard",
-		"Submit Ticket",
-		"Todos / Posts",
 		"Corpus",
 		"Chat",
 		"User Management",
@@ -170,8 +164,6 @@ describe("navItems", () => {
 
 	it("resolves mobile header titles from dashboard routes", () => {
 		expect(getDashboardRouteTitle("/dashboard")).toBe("Dashboard")
-		expect(getDashboardRouteTitle("/submit-ticket")).toBe("Submit Ticket")
-		expect(getDashboardRouteTitle("/todos")).toBe("Todos / Posts")
 		expect(getDashboardRouteTitle("/corpus")).toBe("Corpus")
 		expect(getDashboardRouteTitle("/chat")).toBe("Chat")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")

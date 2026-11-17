@@ -4,32 +4,28 @@ import { apiKeysContract } from "./apikeys/apikeys.contract.js"
 import { chatContract } from "./chat/chat.contract.js"
 import { corpusContract } from "./corpus/corpus.contract.js"
 import { evalContract } from "./eval/eval.contract.js"
-import { v1Example } from "./examples/v1.example.js"
 import { healthContract } from "./health/health.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { opsContract } from "./ops/ops.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
 import { reportsContract } from "./reports/reports.contract.js"
-import { ticketContract } from "./tickets/tickets.contract.js"
 
 /**
- * V1 contract router (versioned paths: /v1/todos, /v1/health, /v1/tickets)
+ * V1 contract router (versioned paths: /v1/health, /v1/chat, etc.)
  * Assembles all v1 feature contracts and applies the /v1 prefix
  */
 export const v1Contract = oc.prefix("/v1").router(
-	oc.router({
-		health: healthContract,
-		example: v1Example,
-		me: meContract,
-		rbac: rbacContract,
-		ticket: ticketContract,
-		corpus: corpusContract,
-		chat: chatContract,
-		apikeys: apiKeysContract,
-		eval: evalContract,
-		ops: opsContract,
-		reports: reportsContract,
-	})
+    oc.router({
+        health: healthContract,
+        me: meContract,
+        rbac: rbacContract,
+        corpus: corpusContract,
+        chat: chatContract,
+        apikeys: apiKeysContract,
+        eval: evalContract,
+        ops: opsContract,
+        reports: reportsContract,
+    })
 )
 
 export type V1Contract = typeof v1Contract

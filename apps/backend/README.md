@@ -15,34 +15,28 @@ NestJS API server with oRPC contracts, Better Auth, and Drizzle ORM.
 
 ```
 apps/backend/src/
-├── bootstrap.ts             # App creation and startup orchestrator
-├── main.ts                  # Entry point
-├── app.module.ts            # Root module
-├── common/                  # Reusable NestJS modules
-│   ├── database/            # Database module, providers
-│   ├── decorators/          # Custom decorators
-│   ├── filters/             # Global exception filters
-│   └── orpc/                # oRPC integration module
-├── config/                  # App configuration
+├── bootstrap.ts            # App creation and startup orchestrator
+├── main.ts                 # Entry point
+├── app.module.ts           # Root module
+├── common/                 # Reusable NestJS modules
+│   ├── database/           # Database module, providers
+│   ├── decorators/         # Custom decorators
+│   ├── filters/            # Global exception filters
+│   └── orpc/               # oRPC integration module
+├── config/                 # App configuration
 │   ├── api-versions.config.ts  # Version registry and contract re-exports
 │   ├── app.config.ts           # CORS, body parser, graceful shutdown
 │   ├── auth.config.ts          # Better Auth middleware and routes
 │   ├── env.config.ts           # Environment validation
 │   └── swagger.config.ts       # OpenAPI doc generation (Scalar)
-├── modules/                 # Feature modules by API version
+├── modules/                # Feature modules by API version
 │   └── v1/
 │       ├── v1.module.ts
-│       ├── health/
-│       │   ├── health.module.ts
-│       │   ├── health.controller.ts
-│       │   └── health.service.ts
-│       └── examples/
-│           └── todos/
-│               ├── todos.module.ts
-│               ├── todos.controller.ts
-│               ├── todos.service.ts
-│               └── todos.controller.spec.ts
-└── utils/                   # Pure utility functions
+│       └── health/
+│           ├── health.module.ts
+│           ├── health.controller.ts
+│           └── health.service.ts
+└── utils/                 # Pure utility functions
     └── openapi.ts
 ```
 
