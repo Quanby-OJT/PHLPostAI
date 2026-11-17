@@ -9,6 +9,7 @@ import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permission
 
 import { RagGatewayService } from "../corpus/rag-gateway.service"
 import { ChatHistoryService } from "./chat-history.service"
+import { CustomerChatService } from "./customer-chat.service"
 import { ChatController } from "./chat.controller"
 
 const mockChatInput = { query: "How many vacation days?", k: 2 }
@@ -92,6 +93,7 @@ describe("ChatController", () => {
 				{ provide: RbacService, useValue: rbacService },
 				{ provide: RagGatewayService, useValue: ragGatewayService },
 				{ provide: ChatHistoryService, useValue: { listConversations: jest.fn(), getConversation: jest.fn() } },
+				{ provide: CustomerChatService, useValue: { maskPii: (q: string) => q, createSession: jest.fn() } },
 			],
 		}).compile()
 
@@ -245,7 +247,7 @@ describe("ChatController", () => {
 			const request = { id: "req-1" } as never
 			const response = { on: jest.fn() } as never
 
-			await expect(
+		  await expect(
 				controller.streamQuery({ nope: true }, session, request, response)
 			).rejects.toMatchObject({ status: 400 })
 		})
