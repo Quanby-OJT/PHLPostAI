@@ -5,6 +5,7 @@ import { chatContract } from "./chat/chat.contract.js"
 import { corpusContract } from "./corpus/corpus.contract.js"
 import { evalContract } from "./eval/eval.contract.js"
 import { healthContract } from "./health/health.contract.js"
+import { knowledgeContract } from "./knowledge/knowledge.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { opsContract } from "./ops/ops.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
@@ -25,6 +26,7 @@ export const v1Contract = oc.prefix("/v1").router(
         eval: evalContract,
         ops: opsContract,
         reports: reportsContract,
+        knowledge: knowledgeContract,
     })
 )
 

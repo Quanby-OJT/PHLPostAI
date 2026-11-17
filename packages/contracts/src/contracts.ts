@@ -70,7 +70,7 @@ export type {
 	StartReembedRequest,
 } from "./modules/v1/corpus/corpus.schema.js"
 
-// Chat (generation) contract + schemas
+
 export { chatContract } from "./modules/v1/chat/chat.contract.js"
 export {
 	ChatQueryInputSchema,
@@ -91,7 +91,7 @@ export type {
 	ConversationDetail,
 } from "./modules/v1/chat/chat.schema.js"
 
-// API keys (security, SC-3) contract + schemas
+
 export { RetrievalFiltersSchema } from "./modules/v1/chat/chat.schema.js"
 export type { RetrievalFilters } from "./modules/v1/chat/chat.schema.js"
 
@@ -107,7 +107,7 @@ export type {
 	CreateApiKeyResponse,
 } from "./modules/v1/apikeys/apikeys.schema.js"
 
-// Golden evaluation set (evaluation, EV-1) contract + schemas
+
 export { evalContract } from "./modules/v1/eval/eval.contract.js"
 export {
 	GoldenItemSchema,
@@ -144,11 +144,11 @@ export type {
 	PromoteBaselineRequest,
 } from "./modules/v1/eval/eval.schema.js"
 
-// Ops console (OB-5)
+
 export { opsContract, ConfigEntrySchema, EffectiveConfigSchema } from "./modules/v1/ops/ops.contract.js"
 export type { ConfigEntry, EffectiveConfig } from "./modules/v1/ops/ops.contract.js"
 
-// Reporting (RP-1 framework)
+
 export {
 	reportsContract,
 	ReportDefinitionSchema,
@@ -178,12 +178,11 @@ export type {
 	ReportFile,
 } from "./modules/v1/reports/reports.contract.js"
 
-// Current-user access schemas
+
 export { meContract } from "./modules/v1/me/me.contract.js"
 export { MePermissionsSchema } from "./modules/v1/me/me.schema.js"
 export type { MePermissions } from "./modules/v1/me/me.schema.js"
 
-// Future versions:
-// export { v2Contract, type V2Contract } from "./modules/v2/v2.contract.js"
-// export const v2 = { ... }
-// export type { Todo as V2Todo, ... } from "./modules/v2/..."
+
+export { knowledgeContract } from "./modules/v1/knowledge/knowledge.contract.js"
+export * from "./modules/v1/knowledge/knowledge.schema.js"

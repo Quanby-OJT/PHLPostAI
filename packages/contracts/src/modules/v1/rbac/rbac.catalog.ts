@@ -11,14 +11,25 @@ import { z } from "zod"
 // Role names
 // ---------------------------------------------------------------------------
 
-/** Canonical role names (DOMAIN-MODEL §VI). Order is significant for display only. */
+/**
+ * Canonical role names (DOMAIN-MODEL §2 "Seeded roles"). The first ten are the
+ * PHLPost staff roles; `Developer/Integrator` and `End User` are template roles
+ * kept for internal testing and API keys (FND-2 technical notes). Order is
+ * significant for display only.
+ */
 export const ROLE_NAMES = [
 	"System Administrator",
 	"Knowledge Manager",
+	"Knowledge Approver",
+	"Customer Service Agent",
+	"Customer Service Supervisor",
+	"Scam Reviewer",
+	"Management Viewer",
 	"Quality Analyst",
+	"Data Protection Officer",
+	"Auditor/Viewer",
 	"Developer/Integrator",
 	"End User",
-	"Auditor/Viewer",
 ] as const
 
 /** Zod enum validating a role name. */
@@ -52,6 +63,7 @@ export const PERMISSION_NAMES = [
 	"users.roles.manage",
 	// Audit
 	"audit.log.view",
+	"audit.log.export",
 	// Corpus / ingestion
 	"corpus.documents.upload",
 	"corpus.documents.read",
@@ -74,6 +86,40 @@ export const PERMISSION_NAMES = [
 	"reports.reports.view",
 	"reports.reports.export",
 	"reports.schedules.manage",
+	// ── PHLPost modules (DOMAIN-MODEL §2 catalog, FND-2) ──────────────────────
+	// Knowledge base
+	"knowledge.articles.manage",
+	"knowledge.articles.approve",
+	"knowledge.rates.manage",
+	"knowledge.gaps.view",
+	// Channels
+	"channels.channels.manage",
+	// Assistant settings
+	"settings.assistant.manage",
+	"settings.escalation.manage",
+	"settings.retention.manage",
+	// Conversations
+	"conversations.transcripts.view",
+	// Escalations
+	"escalations.queue.view",
+	"escalations.conversations.handle",
+	"escalations.connectors.manage",
+	// Scam protection
+	"scam.indicators.manage",
+	"scam.reports.view",
+	"scam.reports.validate",
+	// Tracking
+	"tracking.connectors.manage",
+	"tracking.explanations.manage",
+	// Analytics
+	"analytics.dashboard.view",
+	"analytics.kpi.manage",
+	"analytics.summaries.generate",
+	"analytics.summaries.approve",
+	"analytics.monitoring.view",
+	// Privacy
+	"privacy.requests.manage",
+	"privacy.exports.create",
 ] as const
 
 /** Zod enum validating a permission name. */
@@ -81,3 +127,12 @@ export const PermissionNameSchema = z.enum(PERMISSION_NAMES)
 
 /** A valid permission name. */
 export type PermissionName = z.infer<typeof PermissionNameSchema>
+
+/**
+ * The module of a permission key: the first dotted segment
+ * (`knowledge.articles.approve` -> `knowledge`). The roles screen groups its
+ * permission checklist by this value.
+ */
+export function permissionModule(permission: string): string {
+	return permission.split(".")[0] ?? permission
+}

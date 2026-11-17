@@ -70,6 +70,21 @@ def build_metadata_filter(
     return " AND ".join(clauses), params
 
 
+# ── KB-1 approved-knowledge filter (Flow E) ────────────────────────────────
+# Retrieval only returns chunks whose document belongs to an APPROVED version
+# of an ACTIVE Knowledge Article (DOMAIN-MODEL §5.2). Always applied, in every
+# arm, and not configurable: unapproved or retired content must never reach a
+# customer. The predicate reads the knowledge tables, so approving or
+# deactivating a version takes effect the moment its transaction commits.
+APPROVED_KNOWLEDGE_PREDICATE = """EXISTS (
+    SELECT 1 FROM knowledge_article_versions kav
+    JOIN knowledge_articles ka ON ka.id = kav.article_id
+    WHERE kav.document_id = chunks.document_id
+      AND kav.status = 'approved'
+      AND ka.status = 'active'
+)"""
+
+
 def _vector_sql(filter_clause: str, column: str = "embedding") -> str:
     """Cosine similarity = 1 - cosine distance. ORDER BY the raw `<=>`
     distance so the HNSW index (vector_cosine_ops) drives the scan; LIMIT
@@ -79,7 +94,10 @@ def _vector_sql(filter_clause: str, column: str = "embedding") -> str:
     join = "JOIN documents d ON d.id = chunks.document_id" if filter_clause else ""
     # RT-6: parent chunks exist only as swap targets — never searched.
     not_parent = "chunks.metadata->>'role' IS DISTINCT FROM 'parent'"
-    where = f"WHERE {not_parent}" + (f" AND {filter_clause}" if filter_clause else "")
+    where = (
+        f"WHERE {not_parent} AND {APPROVED_KNOWLEDGE_PREDICATE}"
+        + (f" AND {filter_clause}" if filter_clause else "")
+    )
     return f"""
 SELECT chunks.id, chunks.document_id, chunks.content, chunks.metadata,
        chunks.chunk_index, chunks.content_hash, chunks.parent_chunk_id,
@@ -104,7 +122,8 @@ SELECT chunks.id, chunks.document_id, chunks.content, chunks.metadata,
        ts_rank_cd(chunks.tsv, websearch_to_tsquery('english', $1)) AS rank
 FROM chunks {join}
 WHERE chunks.tsv @@ websearch_to_tsquery('english', $1)
-  AND chunks.metadata->>'role' IS DISTINCT FROM 'parent' {extra}
+  AND chunks.metadata->>'role' IS DISTINCT FROM 'parent'
+  AND {APPROVED_KNOWLEDGE_PREDICATE} {extra}
 ORDER BY rank DESC
 LIMIT $2
 """
@@ -257,7 +276,8 @@ SELECT chunks.id, chunks.document_id, chunks.content, chunks.metadata,
        chunks.chunk_index, chunks.content_hash, chunks.parent_chunk_id
 FROM chunks {join}
 WHERE chunks.content_hash = ANY($1::text[])
-  AND chunks.metadata->>'role' IS DISTINCT FROM 'parent' {extra}
+  AND chunks.metadata->>'role' IS DISTINCT FROM 'parent'
+  AND {APPROVED_KNOWLEDGE_PREDICATE} {extra}
 """
         conn = await self._connect()
         try:

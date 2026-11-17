@@ -62,6 +62,7 @@ const buildContext = (session?: unknown, user?: unknown): ExecutionContext =>
 				user,
 				method: "POST",
 				originalUrl: "/api/v1/rbac/users/u2/roles",
+				ip: "203.0.113.7",
 			}),
 		}),
 	}) as unknown as ExecutionContext
@@ -213,7 +214,11 @@ describe("RbacGuard", () => {
 			action: "rbac.denied",
 			resourceType: "route",
 			resourceId: "POST /api/v1/rbac/users/u2/roles",
-			after: { requiredPermissions: ["users.roles.manage"] },
+			after: {
+				outcome: "denied",
+				requiredPermissions: ["users.roles.manage"],
+				ip: "203.0.113.7",
+			},
 		})
 	})
 
@@ -236,7 +241,11 @@ describe("RbacGuard", () => {
 				actorId: "u1",
 				action: "rbac.denied",
 				resourceType: "route",
-				after: { requiredPermissions: ["corpus.documents.upload", "corpus.ingest.run"] },
+				after: {
+					outcome: "denied",
+					requiredPermissions: ["corpus.documents.upload", "corpus.ingest.run"],
+					ip: "203.0.113.7",
+				},
 			})
 		)
 	})

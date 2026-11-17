@@ -696,6 +696,89 @@ export const reportFiles = createTable(
 	t => [index("report_files_created_at_idx").on(t.createdAt)]
 )
 
+// ============================================================================
+// KNOWLEDGE BASE (knowledge epic — KB-1, DOMAIN-MODEL §4 + §5.2)
+// ============================================================================
+
+/** Version states (DOMAIN-MODEL §5.2). */
+export type KnowledgeVersionState =
+	| "draft"
+	| "in_review"
+	| "returned"
+	| "approved"
+	| "superseded"
+	| "deactivated"
+
+/**
+ * One piece of PHLPost-approved content the assistant may answer from
+ * (DOMAIN-MODEL `knowledge_articles`). `currentVersionId` points at the serving
+ * `approved` version; `status` is `active` until the article is retired.
+ * Written only by the knowledge module (KnowledgeService).
+ */
+export const knowledgeArticles = createTable(
+	"knowledge_articles",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		title: t.text("title").notNull(),
+		// Inquiry Category code (`tracking`, `rates`, `postal-id`, ...).
+		category: t.text("category").notNull(),
+		languages: t.jsonb("languages").$type<string[]>().notNull().default([]),
+		currentVersionId: t
+			.uuid("current_version_id")
+			.references((): AnyPgColumn => knowledgeArticleVersions.id, { onDelete: "set null" }),
+		status: t
+			.text("status")
+			.notNull()
+			.default("active")
+			.$type<"active" | "deactivated">(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [index("knowledge_articles_status_idx").on(t.status)]
+)
+
+/**
+ * One version of a Knowledge Article (DOMAIN-MODEL `knowledge_article_versions`,
+ * state machine §5.2, Flow E). Only an `approved` version has a `documentId`
+ * and is retrievable: the RAG service's retrieval filter joins this table, so a
+ * status flip here is what puts content in or out of answers. `indexingJobId`
+ * and `indexingRequestedBy` track the ingestion job started on approval;
+ * `indexError` keeps the reason when it fails (the version stays `in_review`).
+ */
+export const knowledgeArticleVersions = createTable(
+	"knowledge_article_versions",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		articleId: t
+			.uuid("article_id")
+			.notNull()
+			.references(() => knowledgeArticles.id, { onDelete: "cascade" }),
+		version: t.integer("version").notNull(),
+		body: t.text("body").notNull(),
+		language: t.text("language").notNull(),
+		status: t.text("status").notNull().default("draft").$type<KnowledgeVersionState>(),
+		submittedBy: t.text("submitted_by").references(() => users.id, { onDelete: "set null" }),
+		approvedBy: t.text("approved_by").references(() => users.id, { onDelete: "set null" }),
+		approvedAt: t.timestamp("approved_at", { withTimezone: true }),
+		documentId: t.uuid("document_id").references(() => documents.id, { onDelete: "set null" }),
+		reviewNote: t.text("review_note"),
+		indexingJobId: t
+			.uuid("indexing_job_id")
+			.references(() => ingestionJobs.id, { onDelete: "set null" }),
+		indexingRequestedBy: t
+			.text("indexing_requested_by")
+			.references(() => users.id, { onDelete: "set null" }),
+		indexError: t.text("index_error"),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		unique("knowledge_article_versions_article_version_unique").on(t.articleId, t.version),
+		index("knowledge_article_versions_status_idx").on(t.status),
+		index("knowledge_article_versions_document_idx").on(t.documentId),
+	]
+)
+
 export const relations = defineRelations(
 	{
 		users,
@@ -788,6 +871,8 @@ export const schema = Object.assign(
 		reembedMigrations,
 		reportSchedules,
 		reportFiles,
+		knowledgeArticles,
+		knowledgeArticleVersions,
 	},
 	relations
 )

@@ -146,7 +146,8 @@ describe("ChatController", () => {
 				action: "rbac.denied",
 				resourceType: "route",
 				resourceId: "POST /api/v1/chat/query",
-				after: { requiredPermissions: ["chat.query.submit"] },
+				// FND-2: the denial also records its outcome and the client IP.
+				after: { outcome: "denied", requiredPermissions: ["chat.query.submit"], ip: null },
 			})
 		})
 

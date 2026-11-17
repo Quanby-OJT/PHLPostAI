@@ -8,6 +8,7 @@ import { CorpusModule } from "./corpus/corpus.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
 import { EvalModule } from "./eval/eval.module"
 import { HealthModule } from "./health/health.module"
+import { KnowledgeModule } from "./knowledge/knowledge.module"
 import { MeModule } from "./me/me.module"
 import { OpsModule } from "./ops/ops.module"
 import { ReportsModule } from "./reports/reports.module"
@@ -20,6 +21,7 @@ import { RbacAdminModule } from "./rbac/rbac.module"
         CorpusModule,
         EvalModule,
         HealthModule,
+        KnowledgeModule,
         MeModule,
         OpsModule,
         ReportsModule,
