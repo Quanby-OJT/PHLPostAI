@@ -60,7 +60,12 @@ export class RbacGuard implements CanActivate {
 			url?: string
 			session?: { user?: { id?: string } }
 			user?: { id?: string }
+			ip?: string
+			socket?: { remoteAddress?: string }
 		}>()
+		// Address Express resolved through `trust proxy` (bootstrap.ts), so behind
+		// Nginx this is the client, not the proxy. FND-2: every denial records it.
+		const ip = request.ip ?? request.socket?.remoteAddress ?? null
 		// ── SC-3: API-key principals share this guard (Flow E, one interface).
 		// A request carrying x-api-key authenticates as the key: the key's
 		// SCOPES (not the owner's roles) gate the route, revocation is checked
@@ -88,7 +93,9 @@ export class RbacGuard implements CanActivate {
 					action: inScope ? "integration.request" : "rbac.denied",
 					resourceType: "route",
 					resourceId: route,
-					after: inScope ? { scopes: requiredPermissions } : { requiredPermissions },
+					after: inScope
+						? { scopes: requiredPermissions }
+						: { outcome: "denied", requiredPermissions, ip },
 				})
 			} catch {
 				// best-effort; the decision below is authoritative
@@ -143,7 +150,9 @@ export class RbacGuard implements CanActivate {
 				action: "rbac.denied",
 				resourceType: "route",
 				resourceId: route,
-				after: { requiredPermissions },
+				// FND-2 AC: the denial records the outcome, the key(s), the actor
+				// (actorId above) and the IP address.
+				after: { outcome: "denied", requiredPermissions, ip },
 			})
 		} catch {
 			// Swallow: denial auditing is best-effort; the 403 below is authoritative.

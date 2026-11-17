@@ -2,7 +2,7 @@
 import "dotenv/config"
 
 import { randomBytes, scryptSync } from "node:crypto"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, notInArray } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 
@@ -43,6 +43,14 @@ async function hashPassword(password: string): Promise<string> {
 	})
 
 	return `${saltHex}:${key.toString("hex")}`
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+	if (a.size !== b.size) return false
+	for (const value of a) {
+		if (!b.has(value)) return false
+	}
+	return true
 }
 
 async function seedDatabase() {
@@ -111,12 +119,21 @@ async function seedDatabase() {
 	}))
 
 	const roleDescriptions: Record<RoleName, string> = {
-		"System Administrator": "Super-administrator; full access via role-name short-circuit",
-		"Knowledge Manager": "Curates the corpus: upload/read documents, run ingestion and re-embedding",
-		"Quality Analyst": "Maintains the golden set, runs evaluations, approves the regression gate",
-		"Developer/Integrator": "Provisions and revokes own API credentials",
-		"End User": "Asks questions via chat and reads own conversation history",
-		"Auditor/Viewer": "Read-only: audit trail, reports, and ops dashboards",
+		"System Administrator": "Everything; full access via the role-name short-circuit",
+		"Knowledge Manager":
+			"Writes knowledge articles, rate tables and status explanations; reads knowledge gaps",
+		"Knowledge Approver": "Reviews and approves knowledge article versions",
+		"Customer Service Agent": "Works the escalation queue and handles live chats",
+		"Customer Service Supervisor":
+			"Agent work plus transcripts, escalation rules, the dashboard and reports",
+		"Scam Reviewer": "Maintains scam indicators and validates scam reports",
+		"Management Viewer": "Reads dashboards and reports; drafts and approves summaries",
+		"Quality Analyst": "Runs evaluations and watches AI performance and KPI definitions",
+		"Data Protection Officer":
+			"Handles privacy requests, retention and exports; reads and exports the audit log",
+		"Auditor/Viewer": "Read-only: audit trail, reports and the dashboard",
+		"Developer/Integrator": "Template role for internal testing: provisions own API credentials",
+		"End User": "Template role for internal testing: asks questions via chat",
 	}
 
 	const seedRoles: Array<typeof roles.$inferInsert> = ROLE_NAMES.map(name => ({
@@ -130,6 +147,7 @@ async function seedDatabase() {
 		"users.accounts.manage": "Create/disable users",
 		"users.roles.manage": "Define roles, assign permissions",
 		"audit.log.view": "Read audit trail",
+		"audit.log.export": "Export the audit trail",
 		"corpus.documents.upload": "Add sources to the corpus",
 		"corpus.documents.read": "View corpus sources",
 		"corpus.ingest.run": "Trigger ingestion/re-index jobs",
@@ -146,6 +164,30 @@ async function seedDatabase() {
 		"reports.reports.view": "View reports",
 		"reports.reports.export": "Export reports",
 		"reports.schedules.manage": "Schedule report generation",
+		"knowledge.articles.manage": "Write, edit, submit and deactivate knowledge articles",
+		"knowledge.articles.approve": "Approve or return knowledge article versions",
+		"knowledge.rates.manage": "Maintain the postal rate table",
+		"knowledge.gaps.view": "View knowledge gaps from unanswered questions",
+		"channels.channels.manage": "Enable, disable and configure channels",
+		"settings.assistant.manage": "Change assistant settings",
+		"settings.escalation.manage": "Set escalation rules, business hours and holidays",
+		"settings.retention.manage": "Set retention periods per data class",
+		"conversations.transcripts.view": "Read conversation transcripts with their AI trace",
+		"escalations.queue.view": "View the escalation queue",
+		"escalations.conversations.handle": "Claim, reply to and close escalated chats",
+		"escalations.connectors.manage": "Configure outbound helpdesk connectors",
+		"scam.indicators.manage": "Maintain risk indicators and official contacts",
+		"scam.reports.view": "View scam reports",
+		"scam.reports.validate": "Set a finding on a scam report",
+		"tracking.connectors.manage": "Configure tracking connectors",
+		"tracking.explanations.manage": "Maintain status explanations",
+		"analytics.dashboard.view": "View the management dashboard",
+		"analytics.kpi.manage": "Maintain KPI definitions",
+		"analytics.summaries.generate": "Generate AI-drafted management summaries",
+		"analytics.summaries.approve": "Approve management summaries",
+		"analytics.monitoring.view": "View AI performance monitoring",
+		"privacy.requests.manage": "Handle privacy requests",
+		"privacy.exports.create": "Create data export bundles",
 	}
 
 	const seedPermissions: Array<typeof permissions.$inferInsert> = PERMISSION_NAMES.map(name => ({
@@ -155,9 +197,77 @@ async function seedDatabase() {
 		updatedAt: now,
 	}))
 
-	// Role -> permission names (DOMAIN-MODEL §VI). System Administrator omitted:
-	// granted everything via the ADMIN_ROLE short-circuit in the RBAC guard.
+	/** Every catalog key under a module prefix (`scam` -> all `scam.*` keys). */
+	const allIn = (module: string): PermissionName[] =>
+		PERMISSION_NAMES.filter(name => name.startsWith(`${module}.`))
+
+	const agentGrants: PermissionName[] = [
+		"escalations.queue.view",
+		"escalations.conversations.handle",
+	]
+
+	// Default grants per role (DOMAIN-MODEL §2 "Seeded roles"). System
+	// Administrator is omitted: it holds everything through the ADMIN_ROLE
+	// short-circuit. Wildcard grants in DOMAIN-MODEL (`scam.*`, `eval.*`,
+	// `privacy.*`) are expanded to their concrete catalog keys, because the
+	// `permissions` table and the roles screen only hold catalog keys; the
+	// effective access is identical. Channels, connectors and
+	// settings.assistant.manage stay with the System Administrator only.
 	const rolePermissionNames: Partial<Record<RoleName, PermissionName[]>> = {
+		"Knowledge Manager": [
+			"knowledge.articles.manage",
+			"knowledge.rates.manage",
+			"knowledge.gaps.view",
+			"tracking.explanations.manage",
+			"corpus.documents.read",
+		],
+		"Knowledge Approver": [
+			"knowledge.articles.approve",
+			"knowledge.gaps.view",
+			"corpus.documents.read",
+		],
+		"Customer Service Agent": agentGrants,
+		"Customer Service Supervisor": [
+			...agentGrants,
+			"conversations.transcripts.view",
+			"settings.escalation.manage",
+			"analytics.dashboard.view",
+			"reports.reports.view",
+			"reports.reports.export",
+		],
+		"Scam Reviewer": allIn("scam"),
+		"Management Viewer": [
+			"analytics.dashboard.view",
+			"analytics.summaries.generate",
+			"analytics.summaries.approve",
+			"reports.reports.view",
+			"reports.reports.export",
+		],
+		"Quality Analyst": [
+			...allIn("eval"),
+			"analytics.monitoring.view",
+			"analytics.kpi.manage",
+			"conversations.transcripts.view",
+			"ops.dashboards.view",
+		],
+		"Data Protection Officer": [
+			...allIn("privacy"),
+			"settings.retention.manage",
+			"audit.log.view",
+			"audit.log.export",
+			"conversations.transcripts.view",
+		],
+		"Auditor/Viewer": ["audit.log.view", "reports.reports.view", "analytics.dashboard.view"],
+		"Developer/Integrator": ["apikeys.keys.manage"],
+		"End User": ["chat.query.submit", "chat.history.read"],
+	}
+
+	// The template's original default grants for roles whose defaults changed
+	// in FND-2. A database seeded before FND-2 still holds these; when a role's
+	// grants are EXACTLY this set, nobody has edited it, so it is safe to move
+	// it to the new defaults. Any other set means an admin changed the role,
+	// and the seed leaves it alone.
+	const legacyTemplateGrants: Partial<Record<RoleName, PermissionName[]>> = {
 		"Knowledge Manager": [
 			"corpus.documents.upload",
 			"corpus.documents.read",
@@ -171,8 +281,6 @@ async function seedDatabase() {
 			"eval.gate.approve",
 			"ops.dashboards.view",
 		],
-		"Developer/Integrator": ["apikeys.keys.manage"],
-		"End User": ["chat.query.submit", "chat.history.read"],
 		"Auditor/Viewer": [
 			"audit.log.view",
 			"reports.reports.view",
@@ -242,13 +350,12 @@ async function seedDatabase() {
 				}
 			}
 
-			// F3 breaking replacement (single-tenant fresh build): drop the legacy
-			// colon-key catalog (`posts:*`, `users:read`, ...) and the old
-			// Admin/Manager/User roles entirely, then reseed the dotted-key catalog.
-			await tx.delete(rolePermissions)
-			await tx.delete(userRoles)
-			await tx.delete(permissions)
-			await tx.delete(roles)
+			// Idempotent catalog sync (FND-2): roles and permissions are upserted by
+			// name, never deleted and recreated, so re-running the seed creates no
+			// duplicates and keeps every grant an admin made on the roles screen.
+			const existingRoleNames = new Set(
+				(await tx.select({ name: roles.name }).from(roles)).map(row => row.name)
+			)
 
 			for (const role of seedRoles) {
 				await tx
@@ -270,26 +377,52 @@ async function seedDatabase() {
 					})
 			}
 
+			// Keys that left the catalog can never be granted (unknown keys fail
+			// closed), so drop them; their role grants go with them (FK cascade).
+			await tx.delete(permissions).where(notInArray(permissions.name, [...PERMISSION_NAMES]))
+
 			const roleRows = await tx.select().from(roles)
 			const permissionRows = await tx.select().from(permissions)
 			const roleIdByName = new Map<string, number>(roleRows.map(r => [r.name, r.id]))
 			const permissionIdByName = new Map<string, number>(permissionRows.map(p => [p.name, p.id]))
+			const permissionNameById = new Map<number, string>(permissionRows.map(p => [p.id, p.name]))
 
-			const seedRolePermissions: Array<typeof rolePermissions.$inferInsert> = []
-			for (const [roleName, permNames] of Object.entries(rolePermissionNames)) {
+			const grantRows = await tx.select().from(rolePermissions)
+			const grantedByRoleId = new Map<number, Set<string>>()
+			for (const row of grantRows) {
+				const name = permissionNameById.get(row.permissionId)
+				if (name === undefined) continue
+				const set = grantedByRoleId.get(row.roleId) ?? new Set<string>()
+				set.add(name)
+				grantedByRoleId.set(row.roleId, set)
+			}
+
+			for (const [roleName, defaults] of Object.entries(rolePermissionNames) as Array<
+				[RoleName, PermissionName[]]
+			>) {
 				const roleId = roleIdByName.get(roleName)
-				if (roleId === undefined || !permNames) continue
-				for (const permName of permNames) {
+				if (roleId === undefined) continue
+
+				const current = grantedByRoleId.get(roleId) ?? new Set<string>()
+				const isNewRole = !existingRoleNames.has(roleName)
+				const legacy = legacyTemplateGrants[roleName]
+				const isUntouchedLegacy =
+					legacy !== undefined && sameSet(current, new Set<string>(legacy))
+
+				// A role that already existed keeps its grants (an admin may have
+				// changed them), except an untouched pre-FND-2 template default.
+				if (!isNewRole && !isUntouchedLegacy) continue
+
+				if (isUntouchedLegacy) {
+					await tx.delete(rolePermissions).where(eq(rolePermissions.roleId, roleId))
+				}
+				for (const permName of defaults) {
 					const permissionId = permissionIdByName.get(permName)
 					if (permissionId === undefined) continue
-					seedRolePermissions.push({ roleId, permissionId })
+					await tx.insert(rolePermissions).values({ roleId, permissionId }).onConflictDoNothing()
+					rolePermissionCount += 1
 				}
 			}
-
-			for (const row of seedRolePermissions) {
-				await tx.insert(rolePermissions).values(row).onConflictDoNothing()
-			}
-			rolePermissionCount = seedRolePermissions.length
 
 			const seedUserRoles: Array<typeof userRoles.$inferInsert> = []
 			for (const assignment of userRoleAssignments) {
@@ -315,7 +448,7 @@ async function seedDatabase() {
 
 		console.log(
 			`Seeded ${seedUsers.length} users and ${seedCredentialAccounts.length} credential accounts.\n` +
-				`RBAC: ${seedRoles.length} roles, ${seedPermissions.length} permissions, ${rolePermissionCount} role-permission mappings, ${userRoleCount} user-role assignments.\n${
+				`RBAC: ${seedRoles.length} roles, ${seedPermissions.length} permissions, ${rolePermissionCount} default grants written (existing roles keep their grants), ${userRoleCount} user-role assignments.\n${
 					credentialNote
 				}`
 		)

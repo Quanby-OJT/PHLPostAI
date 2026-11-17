@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 
-import type { PermissionName } from "@repo/contracts"
+import { permissionModule, type PermissionName } from "@repo/contracts"
 
 import { Checkbox } from "@/core/components/ui/checkbox"
 import { Field, FieldLabel } from "@/core/components/ui/field"
@@ -17,13 +17,15 @@ interface PermissionChecklistProps {
 export function PermissionChecklist({ value, onChange, disabled }: PermissionChecklistProps) {
 	const { data: permissions, isLoading, isError, error } = usePermissionsQuery()
 
+	// FND-2: one group per module (`knowledge.articles.approve` -> `knowledge`),
+	// in catalog order, so new PHLPost modules appear as their own groups.
 	const grouped = useMemo(() => {
 		const groups = new Map<string, PermissionName[]>()
 		for (const permission of permissions ?? []) {
-			const resource = permission.name.split(":")[0] ?? "other"
-			const list = groups.get(resource) ?? []
+			const moduleName = permissionModule(permission.name)
+			const list = groups.get(moduleName) ?? []
 			list.push(permission.name)
-			groups.set(resource, list)
+			groups.set(moduleName, list)
 		}
 		return Array.from(groups.entries())
 	}, [permissions])
@@ -52,11 +54,11 @@ export function PermissionChecklist({ value, onChange, disabled }: PermissionChe
 
 	return (
 		<div className="flex flex-col gap-4">
-			{grouped.map(([resource, names]) => (
-				<div key={resource} className="flex flex-col gap-2">
-					<p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-						{resource}
-					</p>
+			{grouped.map(([moduleName, names]) => (
+				<fieldset key={moduleName} className="flex flex-col gap-2">
+					<legend className="text-muted-foreground mb-2 text-xs font-medium tracking-wide uppercase">
+						{moduleName}
+					</legend>
 					<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
 						{names.map(name => (
 							<Field key={name} orientation="horizontal">
@@ -72,7 +74,7 @@ export function PermissionChecklist({ value, onChange, disabled }: PermissionChe
 							</Field>
 						))}
 					</div>
-				</div>
+				</fieldset>
 			))}
 		</div>
 	)
