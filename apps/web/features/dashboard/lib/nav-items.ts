@@ -41,6 +41,14 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "corpus.documents.read",
 	},
 	{
+		// KB-1: authoring for knowledge.articles.manage, the review queue for
+		// knowledge.articles.approve. Each route is guarded server-side.
+		label: "Knowledge base",
+		href: "/knowledge",
+		icon: FolderLibraryIcon,
+		requiredPermission: ["knowledge.articles.manage", "knowledge.articles.approve"],
+	},
+	{
 		// Grounded Q&A over the corpus (CH-1). Only users who can ask see it;
 		// the chat route itself is guarded server-side by chat.query.submit.
 		label: "Chat",

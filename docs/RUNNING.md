@@ -178,6 +178,28 @@ path, never by re-ingesting in place:
    shadow AND context (tsv falls back to raw text); serving is never touched.
 5. Compare the before/after eval runs — see docs/CONTEXTUAL-RETRIEVAL-RESULTS.md.
 
+## Knowledge base (KB-1)
+
+The assistant answers only from **approved** Knowledge Article versions. The
+RAG retrieval filter (`apps/rag/app/chunks.py`, `APPROVED_KNOWLEDGE_PREDICATE`)
+returns a chunk only when its document belongs to an `approved` version of an
+`active` article, so files uploaded on the Corpus screen are no longer used
+for answers.
+
+To try the flow locally you need two different users (the submitter cannot
+approve their own version). On **User Management**, give one user the
+*Knowledge Manager* role and another the *Knowledge Approver* role, then:
+
+1. As the manager, open **Knowledge base → Articles → New article**, write
+   the text (or **Start from a file**: DOCX, PDF, HTML) and **Submit for review**.
+2. As the approver, open **Knowledge base → Review queue** and **Approve**.
+   The version shows *Indexing…* while the ingestion job runs and becomes
+   *Approved* when it finishes (the RAG worker must be running). If indexing
+   fails, the version stays in review with the reason, and the previous
+   approved version keeps serving.
+3. **Deactivate** removes the article from answers at once and clears the
+   response cache. If the cache cannot be cleared, nothing changes.
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous

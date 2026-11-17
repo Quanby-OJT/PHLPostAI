@@ -146,6 +146,16 @@ describe("navItems", () => {
 
 		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain("Chat")
 
+		// KB-1: managers and approvers both reach the knowledge base.
+		for (const key of ["knowledge.articles.manage", "knowledge.articles.approve"]) {
+			expect(
+				getAccessibleNavItems({ roles: [], permissions: [key] }).map(item => item.label)
+			).toContain("Knowledge base")
+		}
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain(
+			"Knowledge base"
+		)
+
 		expect(
 			getAccessibleNavItems({ roles: ["System Administrator"], permissions: [] }).map(
 				item => item.label
@@ -153,6 +163,7 @@ describe("navItems", () => {
 		).toEqual([
 		"Dashboard",
 		"Corpus",
+		"Knowledge base",
 		"Chat",
 		"User Management",
 		"Evaluation",

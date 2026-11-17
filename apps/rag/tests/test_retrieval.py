@@ -612,9 +612,11 @@ def test_filtered_sql_joins_documents_in_both_arms():
     for sql in (vector, keyword):
         assert "JOIN documents d ON d.id = chunks.document_id" in sql
         assert "d.doc_type = ANY($3::text[])" in sql
-    # Unfiltered SQL has no join at all (identical to the RT-2 base path).
-    assert "JOIN" not in _vector_sql("")
-    assert "JOIN" not in _keyword_sql("")
+    # Unfiltered SQL never joins `documents` (identical to the RT-2 base
+    # path). KB-1's approved-knowledge predicate is an EXISTS subquery on the
+    # knowledge tables, not a join of `documents` into the main query.
+    assert "JOIN documents" not in _vector_sql("")
+    assert "JOIN documents" not in _keyword_sql("")
 
 
 async def test_filters_reach_both_arms_pre_fusion(settings):

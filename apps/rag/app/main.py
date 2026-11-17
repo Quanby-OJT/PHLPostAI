@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from app import evaluation, generation, ingest, reembed, report_render, retrieval
+from app import evaluation, generation, ingest, knowledge, reembed, report_render, retrieval
 from app import health as health_checks
 from app.config import Settings, get_settings
 from app.documents import DocumentsRepository
@@ -111,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(ingest.router)
+    app.include_router(knowledge.router)
     app.include_router(generation.router)
     app.include_router(retrieval.router)
     app.include_router(evaluation.router)

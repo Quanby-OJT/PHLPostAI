@@ -39,6 +39,15 @@ SELECT id, source_uri, doc_type, content_hash, status, metadata, error, ingested
 FROM documents WHERE id = $1
 """
 
+# KB-1: de-index a retired Knowledge Article document. Its chunks go and the
+# row returns to `registered`, so identical content approved again re-indexes
+# (the upsert guard only shields `indexed` rows).
+_DEINDEX_CHUNKS_SQL = "DELETE FROM chunks WHERE document_id = $1"
+_DEINDEX_DOCUMENT_SQL = """
+UPDATE documents SET status = 'registered', error = NULL WHERE id = $1
+RETURNING id
+"""
+
 _AUDIT_INSERT_SQL = """
 INSERT INTO audit_log (actor_id, actor_type, action, resource_type, resource_id, before, after)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -283,6 +292,30 @@ class DocumentsRepository:
         finally:
             await conn.close()
         return _row_to_dict(row) if row else None
+
+    async def deindex_document(self, document_id: str) -> int | None:
+        """Delete a document's chunks and mark it `registered` in ONE
+        transaction. Returns the number of chunks removed, or None when the
+        document does not exist."""
+        conn = await self._connect()
+        try:
+            async with conn.transaction():
+                status = await with_hard_timeout(
+                    conn.execute(_DEINDEX_CHUNKS_SQL, document_id),
+                    seconds=self._settings.db_timeout_seconds,
+                    operation="documents.deindex_chunks",
+                )
+                row = await with_hard_timeout(
+                    conn.fetchrow(_DEINDEX_DOCUMENT_SQL, document_id),
+                    seconds=self._settings.db_timeout_seconds,
+                    operation="documents.deindex_document",
+                )
+        finally:
+            await conn.close()
+        if row is None:
+            return None
+        # asyncpg returns e.g. "DELETE 12".
+        return int(status.split()[-1]) if status else 0
 
     async def mark_document_failed(self, document_id: str, reason: str) -> dict[str, Any] | None:
         """Record a chunk/embed/index failure — the document must never be

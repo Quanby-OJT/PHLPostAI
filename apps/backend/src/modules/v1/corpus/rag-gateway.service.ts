@@ -409,6 +409,83 @@ export class RagGatewayService {
 		}
 	}
 
+	/**
+	 * KB-1: normalize an uploaded DOCX/PDF/HTML file with the template loaders
+	 * and return its text, WITHOUT ingesting it (it seeds a draft only):
+	 * POST {RAG_SERVICE_URL}/internal/knowledge/extract.
+	 */
+	async extractText(input: IngestForwardInput): Promise<unknown> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.traceId,
+		})
+		const form = new FormData()
+		form.append(
+			"file",
+			new Blob([new Uint8Array(input.buffer)], { type: input.contentType }),
+			input.filename
+		)
+		return this.forward("/internal/knowledge/extract", {
+			headers: { authorization: `Bearer ${token}`, "x-request-id": input.requestId },
+			body: form,
+			failureMessage: "Text extraction failed",
+		})
+	}
+
+	/**
+	 * KB-1 (Flow E): clear the response cache by bumping the corpus generation
+	 * (CP-2): POST {RAG_SERVICE_URL}/internal/cache/invalidate. Throws when the
+	 * cache could not be cleared, so callers can refuse to commit.
+	 */
+	async invalidateResponseCache(input: {
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+		reason: string
+	}): Promise<unknown> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.requestId,
+		})
+		return this.forward("/internal/cache/invalidate", {
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+				"x-request-id": input.requestId,
+			},
+			body: JSON.stringify({ reason: input.reason }),
+			failureMessage: "Response cache invalidation failed",
+		})
+	}
+
+	/**
+	 * KB-1: de-index a retired document through the ingestion service (its
+	 * chunks are deleted there; this module never writes chunks):
+	 * POST {RAG_SERVICE_URL}/internal/documents/{id}/deindex.
+	 */
+	async deindexDocument(input: {
+		documentId: string
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+	}): Promise<unknown> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.requestId,
+		})
+		return this.forward(`/internal/documents/${encodeURIComponent(input.documentId)}/deindex`, {
+			headers: { authorization: `Bearer ${token}`, "x-request-id": input.requestId },
+			body: "",
+			failureMessage: "Document de-index failed",
+		})
+	}
+
 	/** Shared transport: hard timeout + uniform error mapping. */
 	private async forward(
 		path: string,

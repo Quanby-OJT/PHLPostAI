@@ -125,8 +125,8 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `conversations` *(template)* | + `customer_session_id`, `channel_code`, `status`, `language`, `resolved_by`, `closed_at`, `legal_hold` | State machine 5.1. `user_id` stays null for customers. |
 | `messages` *(template)* | + `sender`, `agent_id?`, `inquiry_category`, `is_eligible`, `confidence`, `language`, `answer_kind` (`answer`/`uncertain`/`refusal`/`tool`) | Insert-only. Personal data is masked before storage. |
 | `inquiry_categories` | `code`, `name`, `is_eligible`, `is_active` | Changing `is_eligible` applies to new messages only. |
-| `knowledge_articles` | `title`, `category`, `languages`, `current_version_id`, `status` | State machine 5.2. |
-| `knowledge_article_versions` | `article_id`, `version`, `body`, `language`, `status`, `submitted_by`, `approved_by`, `document_id?` | Only an `approved` version has a `document_id` and is retrievable. |
+| `knowledge_articles` | `title`, `category`, `languages`, `current_version_id?`, `status` (`active`/`deactivated`) | `current_version_id` points at the serving `approved` version. Deactivating the article retires its approved version (5.2); a deactivated article accepts no new drafts, submissions, or approvals. |
+| `knowledge_article_versions` | `article_id`, `version`, `body`, `language`, `status`, `submitted_by?`, `approved_by?`, `approved_at?`, `document_id?`, `review_note?`, `indexing_job_id?`, `indexing_requested_by?`, `index_error?` | State machine 5.2. Only an `approved` version has a `document_id` and is retrievable. `indexing_*` track the ingestion job started on approval; `index_error` keeps the reason when indexing fails (Flow E failure branch). `review_note` is the approver's reason for returning a version. |
 | `rate_entries` | `service_code`, `zone`, `weight_min_g`, `weight_max_g`, `price_centavos`, `effective_from`, `effective_to?`, `status` | Prices are quoted from here only. Changes go through approval like articles. |
 | `tracking_lookups` | `message_id`, `connector_code`, `tracking_number_hash`, `outcome` (`found`/`not_found`/`unavailable`), `status_code?`, `latency_ms` | The raw tracking number is not stored. |
 | `status_explanations` | `status_code`, `language`, `explanation`, `next_steps`, `is_active` | Unknown codes fall back to the raw official description. |
@@ -177,11 +177,13 @@ Once a Conversation is `agent_active`, the assistant never posts another answer 
 
 ```
 draft ──► in_review ──► approved ──► deactivated
-  ▲           │
-  └── returned┘
+  ▲           │             │
+  └── returned┘             └──► superseded
 ```
 
-Editing an approved article creates a new `draft` version; the approved version keeps serving until the new one is approved. Approval indexes the version; deactivation removes its chunks from retrieval in the same transaction and clears the response cache. The submitter cannot approve their own version.
+Editing an approved article creates a new `draft` version; the approved version keeps serving until the new one is approved. Approval indexes the version: the version stays `in_review` while the ingestion job runs, and becomes `approved` only when indexing succeeds; at that moment the previously approved version becomes `superseded` (Flow E). If indexing fails the version stays `in_review` with `index_error` set and the previous approved version keeps serving. Deactivation removes its chunks from retrieval in the same transaction and clears the response cache. The submitter cannot approve their own version. Editing a `returned` version moves it back to `draft`.
+
+`knowledge_articles.status`: `active` → `deactivated`. Retrieval only returns chunks whose document belongs to an `approved` version of an `active` article (filter in the RAG service).
 
 ### 5.3 Escalation
 
