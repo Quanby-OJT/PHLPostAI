@@ -256,6 +256,29 @@ export const documents = createTable("documents", t => ({
 }))
 
 // ============================================================================
+// CUSTOMER SESSIONS (CNV-1)
+// ============================================================================
+
+/**
+ * Anonymous public customer chat sessions (DOMAIN-MODEL `customer_sessions`).
+ * Keyed by a random token stored hashed (`token_hash`).
+ * Strict privacy invariant: CARRIES NO IDENTITY (no name, email, or phone).
+ */
+export const customer_sessions = createTable("customer_sessions", t => ({
+	id: t.uuid("id").primaryKey().defaultRandom(),
+	tokenHash: t.text("token_hash").notNull().unique(),
+	channelCode: t.text("channel_code").notNull().default("web-widget"),
+	language: t.text("language").notNull().default("en"),
+	consentedAt: t.timestamp("consented_at", { withTimezone: true }),
+	lastSeenAt: t.timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
+// ============================================================================
+// CONVERSATIONS + MESSAGES (generation — Flow B, GN-1)
+// ============================================================================
+
+// ============================================================================
 // CHUNKS (ingestion — Flow A, IN-2)
 // ============================================================================
 
