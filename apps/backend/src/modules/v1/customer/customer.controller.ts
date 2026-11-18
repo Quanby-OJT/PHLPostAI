@@ -8,6 +8,7 @@ import {
 	Req,
 	Res,
 	UnauthorizedException,
+	UseGuards,
 } from "@nestjs/common"
 import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
@@ -21,6 +22,7 @@ import { env } from "@/config/env.config"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
+import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ConversationService } from "./conversation.service"
 import { CustomerChatService, type RagAnswerEnvelope } from "./customer-chat.service"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
@@ -55,6 +57,7 @@ export class CustomerController {
 
 	@AllowAnonymous()
 	@StrictThrottle()
+	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.session.start)
 	async startSession() {
 		return implement(v1.customer.session.start).handler(async ({ input }) => {
@@ -73,6 +76,7 @@ export class CustomerController {
 
 	@AllowAnonymous()
 	@StrictThrottle()
+	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.chat.send)
 	async sendMessage(
 		@Headers("x-customer-session") sessionToken: string | undefined,
@@ -126,6 +130,7 @@ export class CustomerController {
 	@Post("v1/customer/chat/stream")
 	@AllowAnonymous()
 	@StrictThrottle()
+	@UseGuards(AllowedOriginGuard)
 	async streamMessage(
 		@Body() body: unknown,
 		@Headers("x-customer-session") sessionToken: string | undefined,
