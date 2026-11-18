@@ -59,7 +59,7 @@ export default function RootLayout({
 }>) {
 	return (
 		<html lang="en" className={figtree.variable} suppressHydrationWarning>
-			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+			<body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
 				<SerwistRegistrationProvider>
 					<AuthProvider>
 						<QueryProvider>
