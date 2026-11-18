@@ -20,6 +20,7 @@ import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
+import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { AllowedOriginGuard } from "./allowed-origin.guard"
@@ -57,6 +58,7 @@ export class CustomerController {
 
 	@AllowAnonymous()
 	@StrictThrottle()
+	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.session.start)
 	async startSession() {
@@ -76,6 +78,7 @@ export class CustomerController {
 
 	@AllowAnonymous()
 	@StrictThrottle()
+	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.chat.send)
 	async sendMessage(
@@ -130,6 +133,7 @@ export class CustomerController {
 	@Post("v1/customer/chat/stream")
 	@AllowAnonymous()
 	@StrictThrottle()
+	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
 	async streamMessage(
 		@Body() body: unknown,
