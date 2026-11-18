@@ -15,10 +15,14 @@ import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
+import { AllowAnonymous } from "@/shared/decorators/allow-anonymous.decorator" // Ensure path matches your project setup
 
 import { RagGatewayService, toORPCError } from "../corpus/rag-gateway.service"
 import { ChatHistoryService } from "./chat-history.service"
 import { CustomerChatService } from "./customer-chat.service"
+
+const ALLOWED_LANGUAGES = ["en", "fil", "ceb", "ilo"] as const
+const ALLOWED_CHANNELS = ["web-widget", "web"] as const
 
 @Controller()
 export class ChatController {
@@ -73,17 +77,26 @@ export class ChatController {
     }
 
     @Post("v1/customer/session")
+    @AllowAnonymous()
     @StrictThrottle()
     async createCustomerSession(
         @Body() body?: { channelCode?: string; language?: string }
     ) {
-        return this.customerChatService.createSession(
-            body?.channelCode ?? "web",
-            body?.language ?? "en"
-        )
+        const channelCode = body?.channelCode ?? "web-widget"
+        const language = body?.language ?? "en"
+
+        if (!ALLOWED_CHANNELS.includes(channelCode as any)) {
+            throw new BadRequestException(`Invalid channelCode. Allowed values: ${ALLOWED_CHANNELS.join(", ")}`)
+        }
+        if (!ALLOWED_LANGUAGES.includes(language as any)) {
+            throw new BadRequestException(`Invalid language. Allowed values: ${ALLOWED_LANGUAGES.join(", ")}`)
+        }
+
+        return this.customerChatService.createSession(channelCode, language)
     }
 
     @Post("v1/customer/chat/stream")
+    @AllowAnonymous()
     @StrictThrottle()
     async streamCustomerQuery(
         @Body() body: unknown,

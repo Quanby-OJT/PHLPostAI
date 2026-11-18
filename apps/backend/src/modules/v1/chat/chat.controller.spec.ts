@@ -1,4 +1,4 @@
-import { ForbiddenException, type ExecutionContext } from "@nestjs/common"
+import { ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common"
 import { Reflector } from "@nestjs/core"
 import { Test, type TestingModule } from "@nestjs/testing"
 
@@ -55,7 +55,18 @@ jest.mock("@/config/env.config", () => ({
 }))
 
 jest.mock("@/common/database/database.client", () => ({
-	db: {},
+	db: {
+		select: jest.fn().mockReturnValue({
+			from: jest.fn().mockReturnValue({
+				where: jest.fn().mockReturnValue({
+					limit: jest.fn().mockResolvedValue([]),
+				}),
+			}),
+		}),
+		insert: jest.fn().mockReturnValue({
+			values: jest.fn().mockResolvedValue([{ id: "session-1" }]),
+		}),
+	},
 }))
 
 jest.mock("@/common/rbac/rbac.service", () => ({
@@ -82,6 +93,7 @@ describe("ChatController", () => {
 	let controller: ChatController
 	let rbacService: { getUserAccess: jest.Mock }
 	let ragGatewayService: { submitChatQuery: jest.Mock }
+	let customerChatService: CustomerChatService
 
 	beforeEach(async () => {
 		rbacService = { getUserAccess: jest.fn() }
@@ -93,11 +105,15 @@ describe("ChatController", () => {
 				{ provide: RbacService, useValue: rbacService },
 				{ provide: RagGatewayService, useValue: ragGatewayService },
 				{ provide: ChatHistoryService, useValue: { listConversations: jest.fn(), getConversation: jest.fn() } },
-				{ provide: CustomerChatService, useValue: { maskPii: (q: string) => q, createSession: jest.fn() } },
+				{
+					provide: CustomerChatService,
+					useValue: new CustomerChatService(),
+				},
 			],
 		}).compile()
 
 		controller = module.get(ChatController)
+		customerChatService = module.get(CustomerChatService)
 	})
 
 	describe("authorization metadata (fail-closed key)", () => {
@@ -141,14 +157,12 @@ describe("ChatController", () => {
 			await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(ForbiddenException)
 
 			expect(guardRbac.hasAllPermissions).toHaveBeenCalledWith("user-1", ["chat.query.submit"])
-			// Flow E: the denial lands on the append-only audit spine.
 			expect(auditService.writeAudit).toHaveBeenCalledWith({
 				actorId: "user-1",
 				actorType: "system",
 				action: "rbac.denied",
 				resourceType: "route",
 				resourceId: "POST /api/v1/chat/query",
-				// FND-2: the denial also records its outcome and the client IP.
 				after: { outcome: "denied", requiredPermissions: ["chat.query.submit"], ip: null },
 			})
 		})
@@ -220,6 +234,32 @@ describe("ChatController", () => {
 		})
 	})
 
+	describe("Customer Endpoints & PII Masking (CNV-1)", () => {
+		it("rejects streamCustomerQuery with 401 when session token is missing", async () => {
+			await expect(
+				controller.streamCustomerQuery({}, "", {} as never, {} as never)
+			).rejects.toBeInstanceOf(UnauthorizedException)
+		})
+
+		it("masks PII robustly (phones with spaces/dashes, emails, and IDs)", () => {
+			const sample = "Contact me at test@example.com or phone +63 917 123 4567 or track ID ABC123456"
+			const masked = customerChatService.maskPii(sample)
+
+			expect(masked).toContain("[REDACTED_EMAIL]")
+			expect(masked).toContain("[REDACTED_PHONE]")
+			expect(masked).toContain("[REDACTED_ID]")
+			expect(masked).not.toContain("test@example.com")
+			expect(masked).not.toContain("+63 917 123 4567")
+		})
+
+		it("creates a customer session with default channel web-widget", async () => {
+			const session = await customerChatService.createSession()
+			expect(session.sessionToken).toBeDefined()
+			expect(session.channelCode).toBe("web-widget")
+			expect(session.language).toBe("en")
+		})
+	})
+
 	describe("history endpoints (CH-3)", () => {
 		it.each(["listHistory", "getHistory"] as const)(
 			"requires chat.history.read on %s (own-scope enforced in the service)",
@@ -247,7 +287,7 @@ describe("ChatController", () => {
 			const request = { id: "req-1" } as never
 			const response = { on: jest.fn() } as never
 
-		  await expect(
+		  	await expect(
 				controller.streamQuery({ nope: true }, session, request, response)
 			).rejects.toMatchObject({ status: 400 })
 		})
