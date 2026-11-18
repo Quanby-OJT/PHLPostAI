@@ -154,7 +154,23 @@ const config: NextConfig = {
 			})
 		}
 
-		return [{ source: "/:path*", headers }]
+		// CHN-1: /assistant may be framed by the sites in ASSISTANT_EMBED_ORIGINS (space-separated).
+		const embedOrigins = (process.env.ASSISTANT_EMBED_ORIGINS ?? "http://localhost http://localhost:3001").trim()
+		const assistantHeaders = headers
+			.filter(header => header.key !== "X-Frame-Options")
+			.map(header =>
+				header.key === "Content-Security-Policy"
+					? {
+							...header,
+							value: csp.replace("frame-ancestors 'none'", "frame-ancestors 'self' " + embedOrigins),
+						}
+					: header
+			)
+
+		return [
+			{ source: "/((?!assistant).*)", headers },
+			{ source: "/assistant/:path*", headers: assistantHeaders },
+		]
 	},
 }
 

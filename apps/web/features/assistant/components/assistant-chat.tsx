@@ -217,10 +217,20 @@ export function AssistantChat() {
 		[accepted, appendFinal, busy, conversationId, ensureSession, question, waitSeconds]
 	)
 
+	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
+	useEffect(() => {
+		if (window.parent === window) return
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") window.parent.postMessage({ type: "phlpost-widget-close" }, "*")
+		}
+		document.addEventListener("keydown", onKeyDown)
+		return () => document.removeEventListener("keydown", onKeyDown)
+	}, [])
+
 	if (!ready) return null
 
 	return (
-		<div className="mx-auto flex h-dvh max-w-3xl flex-col gap-3 p-3 sm:p-4">
+		<div className="fixed inset-0 mx-auto flex max-w-3xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
 			<header className="border-b pb-3">
 				<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
 				<p className="text-sm">
