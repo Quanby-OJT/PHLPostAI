@@ -74,7 +74,7 @@ VALIDATION_FAILED_ANSWER = (
 # a failed groundedness check — stricter grounding, honest refusal otherwise.
 _STRICT_GROUNDING_SUFFIX = (
     " STRICT MODE: Only state facts that appear in the context blocks. If the "
-    "context does not fully support an answer, reply exactly: \"I don't know.\""
+    'context does not fully support an answer, reply exactly: "I don\'t know."'
 )
 
 
@@ -87,6 +87,7 @@ class ConversationAccessError(Exception):
         super().__init__(f"Conversation {conversation_id} is not accessible")
         self.conversation_id = conversation_id
         self.found = found
+
 
 # Grounded LCEL prompt (langchain-core ChatPromptTemplate): the model may use
 # ONLY the numbered context blocks, must cite them as [n], and must answer
@@ -234,6 +235,7 @@ class GenerationService:
         conversation_id: str | None,
         trace_id: str,
         started: float,
+        persist: bool = True,
     ) -> dict[str, Any]:
         """CP-1 hit path: the cached grounded answer returns WITHOUT any
         retrieval or LLM call; the turn is still persisted (the user asked)
@@ -248,18 +250,20 @@ class GenerationService:
                 }
             ),
         )
-        conversation_id, message_id = await self._repository.persist_turn(
-            user_id=principal.sub,
-            query=query,
-            answer=cached["answer"],
-            citations=cached.get("citations", []),
-            retrieved_chunks=[],
-            used_chunks=[],
-            token_usage=None,
-            trace_id=trace_id,
-            model_used=cached.get("model", "cache"),
-            conversation_id=conversation_id,
-        )
+        message_id: str | None = None
+        if persist:
+            conversation_id, message_id = await self._repository.persist_turn(
+                user_id=principal.sub,
+                query=query,
+                answer=cached["answer"],
+                citations=cached.get("citations", []),
+                retrieved_chunks=[],
+                used_chunks=[],
+                token_usage=None,
+                trace_id=trace_id,
+                model_used=cached.get("model", "cache"),
+                conversation_id=conversation_id,
+            )
         await self._repository.write_audit(
             actor_id=principal.sub,
             actor_type=principal.actor_type,
@@ -278,6 +282,10 @@ class GenerationService:
         return {
             "answer": cached["answer"],
             "citations": cached.get("citations", []),
+            # SC-1: the screened form is the only one that leaves this service,
+            # so a caller that persists the turn itself (CNV-1) stores masked
+            # text without re-implementing the screen.
+            "screenedQuery": query,
             "conversationId": conversation_id,
             "messageId": message_id,
             "traceId": trace_id,
@@ -375,9 +383,7 @@ class GenerationService:
         rows = await repository.fetch_bytes(image_ids)
         if not rows:
             return None
-        parts: list[dict[str, Any]] = [
-            {"type": "text", "text": messages[-1]["content"]}
-        ]
+        parts: list[dict[str, Any]] = [{"type": "text", "text": messages[-1]["content"]}]
         for image_id in image_ids:
             row = rows.get(image_id)
             if row is None:
@@ -566,9 +572,7 @@ class GenerationService:
             marker["outcome"] = "idk"
             return I_DONT_KNOW_ANSWER, [], marker
         citations2 = await self._build_citations(answer2, used_chunks)
-        problems = validate_output(
-            answer2, citations=citations2, chunk_count=len(used_chunks)
-        )
+        problems = validate_output(answer2, citations=citations2, chunk_count=len(used_chunks))
         if problems:
             logger.warning("chat.regenerated_validation_failed %s", json.dumps(problems))
             marker["outcome"] = "idk"
@@ -587,6 +591,7 @@ class GenerationService:
         principal: ServicePrincipal,
         conversation_id: str | None = None,
         filters: dict[str, Any] | None = None,
+        persist: bool = True,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         trace_id = principal.trace_id or str(uuid.uuid4())
@@ -612,6 +617,7 @@ class GenerationService:
                     conversation_id=conversation_id,
                     trace_id=trace_id,
                     started=started,
+                    persist=persist,
                 )
 
         # ── CP-3 single-flight stage (Flow C): concurrent identical misses
@@ -631,6 +637,7 @@ class GenerationService:
                     trace_id=trace_id,
                     started=started,
                     filters=filters,
+                    persist=persist,
                 )
                 holder["payload"] = payload
                 return _sharable_entry(payload)
@@ -650,6 +657,7 @@ class GenerationService:
                     principal=principal,
                     conversation_id=conversation_id,
                     trace_id=trace_id,
+                    persist=persist,
                     started=started,
                 )
 
@@ -661,6 +669,7 @@ class GenerationService:
             trace_id=trace_id,
             started=started,
             filters=filters,
+            persist=persist,
         )
 
     async def _single_flight(self) -> "SingleFlight | None":
@@ -683,9 +692,11 @@ class GenerationService:
         trace_id: str,
         started: float,
         filters: dict[str, Any] | None,
+        persist: bool = True,
     ) -> dict[str, Any]:
         """The uncoalesced miss path: retrieve → budget → route → generate →
-        validate → persist → audit → (CP-1 store)."""
+        validate → persist → audit → (CP-1 store). `persist=False` skips the
+        conversations/messages write for callers that own those rows (CNV-1)."""
         prep = await self._prepare(query=query, k=k, filters=filters)
         chunks = prep["chunks"]
         retrieved_record = prep["retrieved_record"]
@@ -721,9 +732,7 @@ class GenerationService:
             )
             if image_ids:
                 try:
-                    vision_messages = await self._vision_messages(
-                        prep["messages"], image_ids
-                    )
+                    vision_messages = await self._vision_messages(prep["messages"], image_ids)
                     if vision_messages is not None:
                         async with stage(
                             "model.vision_call",
@@ -808,9 +817,7 @@ class GenerationService:
                         client=client,
                         messages=prep["messages"],
                     )
-                    record(
-                        **{k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")}
-                    )
+                    record(**{k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")})
             except Exception:
                 # Flow H: the gate is an enhancer — a broken gate ships the
                 # draft, never an error.
@@ -824,18 +831,20 @@ class GenerationService:
             if vision_answered and self._vision_client is not None
             else client.model
         )
-        conversation_id, message_id = await self._repository.persist_turn(
-            user_id=principal.sub,
-            query=query,
-            answer=answer_text,
-            citations=citations,
-            retrieved_chunks=retrieved_record,
-            used_chunks=used_record,
-            token_usage=token_usage,
-            trace_id=trace_id,
-            model_used=model_used,
-            conversation_id=conversation_id,
-        )
+        message_id: str | None = None
+        if persist:
+            conversation_id, message_id = await self._repository.persist_turn(
+                user_id=principal.sub,
+                query=query,
+                answer=answer_text,
+                citations=citations,
+                retrieved_chunks=retrieved_record,
+                used_chunks=used_record,
+                token_usage=token_usage,
+                trace_id=trace_id,
+                model_used=model_used,
+                conversation_id=conversation_id,
+            )
 
         is_i_dont_know = _is_i_dont_know(answer_text)
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -878,8 +887,7 @@ class GenerationService:
                 **(
                     {
                         "grounding": {
-                            k_: grounding[k_]
-                            for k_ in ("grounded", "regenerated", "outcome")
+                            k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")
                         }
                     }
                     if grounding
@@ -892,13 +900,16 @@ class GenerationService:
 
         from app.metrics import CHAT_MODE_LATENCY
 
-        CHAT_MODE_LATENCY.labels(
-            mode="agentic" if self._agentic is not None else "linear"
-        ).observe(latency_ms / 1000.0)
+        CHAT_MODE_LATENCY.labels(mode="agentic" if self._agentic is not None else "linear").observe(
+            latency_ms / 1000.0
+        )
 
         payload = {
             "answer": answer_text,
             "citations": citations,
+            # See _serve_cached: the screened (masked) question, for callers
+            # that persist the turn themselves.
+            "screenedQuery": query,
             "conversationId": conversation_id,
             "messageId": message_id,
             "traceId": trace_id,
@@ -928,6 +939,7 @@ class GenerationService:
         principal: ServicePrincipal,
         conversation_id: str | None = None,
         filters: dict[str, Any] | None = None,
+        persist: bool = True,
     ) -> Any:
         """SSE mode (GN-3): yields `token` events as the provider streams,
         then ONE `final` event carrying citations, usage, ids, TTFT and
@@ -1046,17 +1058,11 @@ class GenerationService:
         stream_client = client
         stream_messages = prep["messages"]
         vision_marker: dict[str, Any] | None = None
-        if (
-            used_chunks
-            and self._settings.multimodal_enabled
-            and self._vision_client is not None
-        ):
+        if used_chunks and self._settings.multimodal_enabled and self._vision_client is not None:
             image_ids = self._image_chunk_ids(used_chunks)
             if image_ids:
                 try:
-                    vision_messages = await self._vision_messages(
-                        prep["messages"], image_ids
-                    )
+                    vision_messages = await self._vision_messages(prep["messages"], image_ids)
                     if vision_messages is not None:
                         stream_client = self._vision_client
                         stream_messages = vision_messages
@@ -1119,9 +1125,7 @@ class GenerationService:
             except Exception as exc:
                 # Alternate B2 mid-stream: bounded degradation on the final
                 # frame; the trace records the failure path.
-                logger.warning(
-                    "chat.stream_degraded model=%s reason=%s", stream_client.model, exc
-                )
+                logger.warning("chat.stream_degraded model=%s reason=%s", stream_client.model, exc)
                 answer_text = DEGRADED_ANSWER
                 degraded = True
 
@@ -1183,13 +1187,8 @@ class GenerationService:
                     "chat.grounding %s",
                     json.dumps(
                         {
-                            **{
-                                k_: grounding[k_]
-                                for k_ in ("grounded", "regenerated", "outcome")
-                            },
-                            "durationMs": round(
-                                (time.perf_counter() - verdict_started) * 1000, 3
-                            ),
+                            **{k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")},
+                            "durationMs": round((time.perf_counter() - verdict_started) * 1000, 3),
                         }
                     ),
                 )
@@ -1198,18 +1197,20 @@ class GenerationService:
                 logger.warning("chat.grounding_gate_degraded", exc_info=True)
                 grounding = None
 
-        conversation_id, message_id = await self._repository.persist_turn(
-            user_id=principal.sub,
-            query=query,
-            answer=answer_text,
-            citations=citations,
-            retrieved_chunks=prep["retrieved_record"],
-            used_chunks=prep["used_record"],
-            token_usage=token_usage,
-            trace_id=trace_id,
-            model_used=stream_client.model,
-            conversation_id=conversation_id,
-        )
+        message_id: str | None = None
+        if persist:
+            conversation_id, message_id = await self._repository.persist_turn(
+                user_id=principal.sub,
+                query=query,
+                answer=answer_text,
+                citations=citations,
+                retrieved_chunks=prep["retrieved_record"],
+                used_chunks=prep["used_record"],
+                token_usage=token_usage,
+                trace_id=trace_id,
+                model_used=stream_client.model,
+                conversation_id=conversation_id,
+            )
 
         is_i_dont_know = _is_i_dont_know(answer_text)
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
@@ -1272,8 +1273,7 @@ class GenerationService:
                 **(
                     {
                         "grounding": {
-                            k_: grounding[k_]
-                            for k_ in ("grounded", "regenerated", "outcome")
+                            k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")
                         }
                     }
                     if grounding
@@ -1286,14 +1286,17 @@ class GenerationService:
 
         from app.metrics import CHAT_MODE_LATENCY
 
-        CHAT_MODE_LATENCY.labels(
-            mode="agentic" if self._agentic is not None else "linear"
-        ).observe(latency_ms / 1000.0)
+        CHAT_MODE_LATENCY.labels(mode="agentic" if self._agentic is not None else "linear").observe(
+            latency_ms / 1000.0
+        )
 
         # Final frame: citations + usage + ids (GN-3 contract with CH-2).
         final = {
             "answer": answer_text,
             "citations": citations,
+            # See _serve_cached: the screened (masked) question, for callers
+            # that persist the turn themselves.
+            "screenedQuery": query,
             "conversationId": conversation_id,
             "messageId": message_id,
             "traceId": trace_id,
@@ -1321,9 +1324,7 @@ def get_provider_bucket(request: Request) -> Any:
     if not hasattr(request.app.state, "provider_bucket"):
         from app.provider_bucket import build_provider_bucket
 
-        request.app.state.provider_bucket = build_provider_bucket(
-            request.app.state.settings
-        )
+        request.app.state.provider_bucket = build_provider_bucket(request.app.state.settings)
     return request.app.state.provider_bucket
 
 
@@ -1350,6 +1351,11 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = Field(default=None, alias="conversationId")
     # RT-4: restrict retrieval to a corpus subset (never an unfiltered fallback).
     filters: RetrievalFilters | None = Field(default=None)
+    # CNV-1: the public chat path owns its own conversations/messages rows
+    # (they are keyed to a customer_session, not to a users row), so it asks
+    # this service to answer WITHOUT persisting. Defaults to True, which keeps
+    # the authenticated staff path exactly as it was.
+    persist: bool = Field(default=True)
 
     model_config = {"populate_by_name": True}
 
@@ -1443,6 +1449,7 @@ async def chat(
             principal=principal,
             conversation_id=payload.conversation_id,
             filters=payload.filters.to_query_filters() if payload.filters else None,
+            persist=payload.persist,
         )
     except QueryBlockedError as exc:
         from fastapi import HTTPException
@@ -1512,6 +1519,7 @@ async def chat_stream(
             principal=principal,
             conversation_id=payload.conversation_id,
             filters=payload.filters.to_query_filters() if payload.filters else None,
+            persist=payload.persist,
         ),
         media_type="text/event-stream",
         headers={"cache-control": "no-cache", "x-accel-buffering": "no"},

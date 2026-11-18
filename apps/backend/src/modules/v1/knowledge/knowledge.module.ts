@@ -12,5 +12,8 @@ import { KnowledgeService } from "./knowledge.service"
 	imports: [RbacModule],
 	controllers: [KnowledgeController],
 	providers: [KnowledgeService, KnowledgeRepository, RagGatewayService],
+	// CNV-1 resolves citations to article titles through this repository rather
+	// than querying the knowledge tables itself (DOMAIN-MODEL §6 ownership).
+	exports: [KnowledgeRepository],
 })
 export class KnowledgeModule {}

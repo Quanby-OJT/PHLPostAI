@@ -5,6 +5,7 @@ import { env } from "@/config/env.config"
 import { ApiKeysV1Module } from "./apikeys/apikeys.module"
 import { ChatModule } from "./chat/chat.module"
 import { CorpusModule } from "./corpus/corpus.module"
+import { CustomerModule } from "./customer/customer.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
 import { EvalModule } from "./eval/eval.module"
 import { HealthModule } from "./health/health.module"
@@ -19,6 +20,7 @@ import { RbacAdminModule } from "./rbac/rbac.module"
         ApiKeysV1Module,
         ChatModule,
         CorpusModule,
+        CustomerModule,
         EvalModule,
         HealthModule,
         KnowledgeModule,

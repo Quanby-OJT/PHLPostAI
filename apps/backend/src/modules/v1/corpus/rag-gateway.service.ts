@@ -1,11 +1,13 @@
-import { createHmac } from "node:crypto"
 import {
 	BadGatewayException,
 	GatewayTimeoutException,
 	HttpException,
 	Injectable,
 } from "@nestjs/common"
+import { createHmac } from "node:crypto"
 import { ORPCError } from "@orpc/server"
+
+import { env } from "@/config/env.config"
 
 /**
  * Map an upstream HttpException onto the oRPC error vocabulary so oRPC
@@ -16,23 +18,23 @@ export function toORPCError(error: unknown): never {
 	if (error instanceof HttpException) {
 		const status = error.getStatus()
 		const code =
-			status === 403
-				? ("FORBIDDEN" as const)
-				: status === 404
-					? ("NOT_FOUND" as const)
-					: status === 409
-						? ("CONFLICT" as const)
-						: status === 429
-							? ("TOO_MANY_REQUESTS" as const)
-							: status >= 400 && status < 500
-								? ("BAD_REQUEST" as const)
-								: ("INTERNAL_SERVER_ERROR" as const)
+			status === 401
+				? ("UNAUTHORIZED" as const)
+				: status === 403
+					? ("FORBIDDEN" as const)
+					: status === 404
+						? ("NOT_FOUND" as const)
+						: status === 409
+							? ("CONFLICT" as const)
+							: status === 429
+								? ("TOO_MANY_REQUESTS" as const)
+								: status >= 400 && status < 500
+									? ("BAD_REQUEST" as const)
+									: ("INTERNAL_SERVER_ERROR" as const)
 		throw new ORPCError(code, { message: error.message })
 	}
 	throw error
 }
-
-import { env } from "@/config/env.config"
 
 /** Principal + correlation context carried by the service JWT (Tech Plan §5, D4). */
 export interface ServiceTokenClaims {
@@ -40,6 +42,12 @@ export interface ServiceTokenClaims {
 	permissions: readonly string[]
 	requestId: string
 	traceId: string
+	/**
+	 * The audit actorType the RAG service records for this principal. Defaults
+	 * to "user"; CNV-1 passes "customer" so a public turn is never attributed
+	 * to a staff account in the audit spine.
+	 */
+	actorType?: "user" | "customer"
 }
 
 export interface IngestForwardInput {
@@ -63,6 +71,15 @@ export interface ChatForwardInput {
 	permissions: readonly string[]
 	requestId: string
 	traceId: string
+	/** See ServiceTokenClaims.actorType. */
+	actorType?: "user" | "customer"
+	/**
+	 * CNV-1: when false the RAG service answers WITHOUT writing
+	 * conversations/messages, because the public path's rows are owned by
+	 * `ConversationService` (and a customer has no `users` row to key them to).
+	 * Omitted means the template behaviour: the RAG service persists.
+	 */
+	persist?: boolean
 }
 
 function base64UrlJson(value: unknown): string {
@@ -94,7 +111,7 @@ export class RagGatewayService {
 			requestId: claims.requestId,
 			traceId: claims.traceId,
 			// The audit actorType the RAG service records for this principal.
-			actorType: "user",
+			actorType: claims.actorType ?? "user",
 			iat: nowSeconds,
 			exp: nowSeconds + env.RAG_SERVICE_TOKEN_TTL_SECONDS,
 		})
@@ -122,7 +139,7 @@ export class RagGatewayService {
 
 		return this.forward("/internal/ingest", {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"x-request-id": input.requestId,
 			},
 			body: form,
@@ -141,11 +158,12 @@ export class RagGatewayService {
 			permissions: input.permissions,
 			requestId: input.requestId,
 			traceId: input.traceId,
+			actorType: input.actorType,
 		})
 
 		return this.forward("/internal/chat", {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -154,6 +172,7 @@ export class RagGatewayService {
 				...(input.k !== undefined && { k: input.k }),
 				...(input.conversationId !== undefined && { conversationId: input.conversationId }),
 				...(input.filters !== undefined && { filters: input.filters }),
+				...(input.persist !== undefined && { persist: input.persist }),
 			}),
 			failureMessage: "RAG chat failed",
 		})
@@ -180,7 +199,7 @@ export class RagGatewayService {
 
 		return this.forward(`/internal/jobs/${input.jobId}/rerun`, {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"x-request-id": input.requestId,
 			},
 			body: "",
@@ -210,7 +229,7 @@ export class RagGatewayService {
 
 		return this.forward("/internal/retrieve", {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -248,7 +267,7 @@ export class RagGatewayService {
 
 		return this.forward("/internal/eval/retrieval", {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -282,7 +301,7 @@ export class RagGatewayService {
 		return this.forward("/internal/config", {
 			method: "GET",
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"x-request-id": input.requestId,
 			},
 			failureMessage: "RAG config fetch failed",
@@ -308,7 +327,7 @@ export class RagGatewayService {
 		return (await this.forward("/internal/reports/render", {
 			method: "POST",
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -344,7 +363,7 @@ export class RagGatewayService {
 		return this.forward(path, {
 			method: input.action === "status" ? "GET" : "POST",
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -383,7 +402,7 @@ export class RagGatewayService {
 				{
 					method: "GET",
 					headers: {
-						authorization: `Bearer ${token}`,
+						"authorization": `Bearer ${token}`,
 						"x-request-id": input.requestId,
 					},
 					signal: AbortSignal.timeout(env.RAG_SERVICE_TIMEOUT_MS),
@@ -428,7 +447,7 @@ export class RagGatewayService {
 			input.filename
 		)
 		return this.forward("/internal/knowledge/extract", {
-			headers: { authorization: `Bearer ${token}`, "x-request-id": input.requestId },
+			headers: { "authorization": `Bearer ${token}`, "x-request-id": input.requestId },
 			body: form,
 			failureMessage: "Text extraction failed",
 		})
@@ -453,7 +472,7 @@ export class RagGatewayService {
 		})
 		return this.forward("/internal/cache/invalidate", {
 			headers: {
-				authorization: `Bearer ${token}`,
+				"authorization": `Bearer ${token}`,
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
@@ -480,7 +499,7 @@ export class RagGatewayService {
 			traceId: input.requestId,
 		})
 		return this.forward(`/internal/documents/${encodeURIComponent(input.documentId)}/deindex`, {
-			headers: { authorization: `Bearer ${token}`, "x-request-id": input.requestId },
+			headers: { "authorization": `Bearer ${token}`, "x-request-id": input.requestId },
 			body: "",
 			failureMessage: "Document de-index failed",
 		})
@@ -515,9 +534,10 @@ export class RagGatewayService {
 			throw new BadGatewayException("RAG service is unreachable")
 		}
 
-		const body = (await response.json().catch(() => null)) as
-			| { detail?: unknown; message?: unknown }
-			| null
+		const body = (await response.json().catch(() => null)) as {
+			detail?: unknown
+			message?: unknown
+		} | null
 
 		if (!response.ok) {
 			const detail = body?.detail ?? body?.message
