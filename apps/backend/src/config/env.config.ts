@@ -114,6 +114,11 @@ export const env = createEnv({
 		// RP-4: Prometheus (OB-2) range API for the cache & performance report.
 		PROMETHEUS_URL: z.string().url().default("http://localhost:9090"),
 
+		// CNV-1: a Customer Session lapses after this many minutes of silence
+		// (DOMAIN-MODEL `customer_sessions`: "Expire after inactivity"). Measured
+		// from `last_seen_at`, which every public call refreshes.
+		CUSTOMER_SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(30),
+
 		// Authentication.
 		// Same schema object the @repo/auth package validates with — the two
 		// processes sign the same sessions, so their rules must never drift.

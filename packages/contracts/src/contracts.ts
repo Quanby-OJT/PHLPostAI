@@ -186,3 +186,27 @@ export type { MePermissions } from "./modules/v1/me/me.schema.js"
 
 export { knowledgeContract } from "./modules/v1/knowledge/knowledge.contract.js"
 export * from "./modules/v1/knowledge/knowledge.schema.js"
+
+export { customerContract } from "./modules/v1/customer/customer.contract.js"
+export {
+	CUSTOMER_CHANNEL_CODES,
+	CUSTOMER_LANGUAGES,
+	CustomerChannelCodeSchema,
+	CustomerLanguageSchema,
+	CustomerAnswerKindSchema,
+	StartCustomerSessionRequestSchema,
+	CustomerSessionSchema,
+	CustomerChatRequestSchema,
+	CustomerAnswerSourceSchema,
+	CustomerAnswerSchema,
+} from "./modules/v1/customer/customer.schema.js"
+export type {
+	CustomerChannelCode,
+	CustomerLanguage,
+	CustomerAnswerKind,
+	StartCustomerSessionRequest,
+	CustomerSession,
+	CustomerChatRequest,
+	CustomerAnswerSource,
+	CustomerAnswer,
+} from "./modules/v1/customer/customer.schema.js"

@@ -134,14 +134,19 @@ curl http://localhost:8000/health          # rag: database + redis "up"
 4. **Chat (Flow B)** — question answerable from corpus → grounded answer
    with `[n]` citation chips. Off-corpus question → fixed "I don't know"
    (B1). Rapid sends → 429 rate-limit banner.
-5. **Audit** —
+5. **Public chat (Flow A, CNV-1)** — open http://localhost:3001/assistant with
+   no account. A question covered by an approved article streams an answer and
+   names the articles under it; an uncovered question answers "I don't have
+   that information" with no sources. See *Public customer chat* below for the
+   masking and refusal checks.
+6. **Audit** —
 
    ```powershell
    docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select action, actor_type, created_at from audit_log order by created_at desc limit 20;"
    ```
 
    Expect `corpus.document.upload`, `chat.query.submit`, `rbac.denied` rows.
-6. **Tracing** — self-hosted Langfuse at http://localhost:3100 (login
+7. **Tracing** — self-hosted Langfuse at http://localhost:3100 (login
    `admin@phlpost-assist.local` / `password123` from the root `.env`), project
    `PHLPost Assist` shows one trace per chat and ingestion request.
 
@@ -199,6 +204,64 @@ approve their own version). On **User Management**, give one user the
    approved version keeps serving.
 3. **Deactivate** removes the article from answers at once and clears the
    response cache. If the cache cannot be cleared, nothing changes.
+
+## Public customer chat (CNV-1)
+
+The customer-facing assistant lives at **http://localhost:3001/assistant** and
+needs no account — it is the one public write surface in the API. Open it, ask
+a question covered by an approved article, and the answer streams in with the
+titles of the articles it used underneath.
+
+The page authenticates with a **Customer Session** token, which it fetches on
+first use and keeps in `localStorage`. The session row carries no name, email,
+or phone; only a SHA-256 hash of the token is stored, and the session lapses
+after `CUSTOMER_SESSION_IDLE_MINUTES` (default 30) of silence — after which
+the page transparently opens a new one.
+
+Endpoints (no permission key; `x-customer-session` instead of a staff session):
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/customer/session` | Open a session; returns the token once |
+| `POST /api/v1/customer/chat/message` | Ask a question, non-streamed JSON |
+| `POST /api/v1/customer/chat/stream` | Ask a question, SSE `token` + `final` |
+
+Exercising it from a terminal:
+
+```powershell
+# 1. Open a session
+$token = (curl -s -X POST http://localhost:3000/api/v1/customer/session `
+  -H "content-type: application/json" -d '{}' | ConvertFrom-Json).sessionToken
+
+# 2. Ask something your approved articles cover
+curl -s -X POST http://localhost:3000/api/v1/customer/chat/message `
+  -H "content-type: application/json" -H "x-customer-session: $token" `
+  -d '{"query":"How much is Express Mail up to 500 grams?"}'
+
+# 3. No token -> 401
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/v1/customer/chat/message `
+  -H "content-type: application/json" -d '{"query":"hello"}'
+```
+
+What to expect:
+
+- A covered question returns `answerKind: "answer"` with `sources` naming the
+  approved articles.
+- A question no approved article covers returns the grounded "I don't know"
+  with `answerKind: "uncertain"` and no sources — it never invents one.
+- Personal data is masked by the RAG service's screen **before** anything is
+  stored or traced, so `messages.content` holds `[PHONE]` / `[EMAIL]`, never
+  the real values. Check with:
+  `docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select sender, answer_kind, content from messages order by created_at desc limit 4;"`
+- A question that tries to override the assistant's instructions is refused
+  (`answerKind: "refusal"`) and recorded twice: `chat.query.blocked` from the
+  RAG service and `chat.query.refused` against the conversation.
+
+Conversations and messages for these turns are written only by
+`ConversationService` (`apps/backend/src/modules/v1/customer/`). The RAG
+service is called with `persist: false` on this path, since a customer has no
+`users` row to key a turn to — `conversations.user_id` stays null and
+`customer_session_id` identifies the chat instead.
 
 ## Troubleshooting
 

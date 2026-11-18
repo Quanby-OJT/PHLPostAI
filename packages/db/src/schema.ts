@@ -380,20 +380,66 @@ export const jobDocuments = createTable(
 // ============================================================================
 
 /**
- * One End User chat session (DOMAIN-MODEL `conversations`). R1 is single-turn:
- * every /chat request creates a NEW conversation (Core Flows, Flow B). Schema
- * is OWNED by the generation epic — `generation` owns writes; `reporting` and
- * `observability` read only (cross-epic rule). Rows are written by the Python
- * RAG service (no Python migrations — Drizzle owns DDL).
+ * Anonymous public chat session (DOMAIN-MODEL `customer_sessions`, CNV-1).
+ *
+ * Privacy invariant: this row CARRIES NO IDENTITY — no name, email, or phone.
+ * The customer holds a random token and only its SHA-256 hash is stored, so a
+ * database read cannot reconstruct a live token. `last_seen_at` is the idle
+ * clock: the session lapses after CUSTOMER_SESSION_IDLE_MINUTES of silence
+ * (DOMAIN-MODEL: "Expire after inactivity"), checked on every public call
+ * rather than trusting the token's age alone.
  */
-export const conversations = createTable("conversations", t => ({
+export const customerSessions = createTable("customer_sessions", t => ({
 	id: t.uuid("id").primaryKey().defaultRandom(),
-	userId: t
-		.text("user_id")
-		.notNull()
-		.references(() => users.id, { onDelete: "cascade" }),
+	tokenHash: t.text("token_hash").notNull().unique(),
+	channelCode: t.text("channel_code").notNull().default("web"),
+	language: t.text("language").notNull().default("en"),
+	consentedAt: t.timestamp("consented_at", { withTimezone: true }),
+	lastSeenAt: t.timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
 	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }))
+
+/** Conversation state machine (DOMAIN-MODEL §5.1). CNV-1 only ever sets `ai_active`. */
+export const CONVERSATION_STATUSES = [
+	"ai_active",
+	"resolved_by_ai",
+	"escalation_requested",
+	"agent_active",
+	"resolved_by_agent",
+	"contact_captured",
+	"abandoned",
+] as const
+
+/**
+ * One chat session (DOMAIN-MODEL `conversations`). Two kinds of owner share the
+ * table and exactly one is set on any row: a staff `user_id` (the template's
+ * authenticated /chat path, rows written by the Python RAG service) or a
+ * `customer_session_id` (the public CNV-1 path, rows written by the backend's
+ * `ConversationService`). `user_id` is therefore nullable and stays null for
+ * customers, as DOMAIN-MODEL requires.
+ *
+ * `status` is the §5.1 state machine; only `ConversationService` writes it.
+ */
+export const conversations = createTable(
+	"conversations",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		userId: t.text("user_id").references(() => users.id, { onDelete: "cascade" }),
+		// CNV-1: set for public customer chats; null for staff conversations.
+		customerSessionId: t
+			.uuid("customer_session_id")
+			.references(() => customerSessions.id, { onDelete: "cascade" }),
+		// The channel the turn arrived on. CHN-1/CHN-2 add more codes.
+		channelCode: t.text("channel_code"),
+		status: t
+			.text("status")
+			.notNull()
+			.default("ai_active")
+			.$type<(typeof CONVERSATION_STATUSES)[number]>(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [index("conversations_customer_session_id_idx").on(t.customerSessionId)]
+)
 
 /**
  * One turn in a conversation (DOMAIN-MODEL `messages`). The assistant row
@@ -415,6 +461,19 @@ export const messages = createTable(
 			.text("role")
 			.notNull()
 			.$type<"user" | "assistant">(),
+		/**
+		 * Who produced the turn (DOMAIN-MODEL `messages.sender`, CNV-1). Set on
+		 * public customer turns; null on the template's staff rows, which carry
+		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`.
+		 */
+		sender: t.text("sender").$type<"customer" | "assistant" | "agent">(),
+		/**
+		 * What the assistant produced (DOMAIN-MODEL `messages.answer_kind`).
+		 * CNV-1 writes `answer` for a grounded reply, `uncertain` for the grounded
+		 * "I don't have that information", and `refusal` when screening blocked the
+		 * question. `tool` arrives with TRK-1; CNV-3 refines `uncertain`.
+		 */
+		answerKind: t.text("answer_kind").$type<"answer" | "uncertain" | "refusal" | "tool">(),
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
 		retrievedChunks: t.jsonb("retrieved_chunks").$type<unknown>(),

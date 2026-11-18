@@ -337,6 +337,41 @@ export class KnowledgeRepository {
 		}
 	}
 
+	/**
+	 * Map document ids onto the APPROVED articles they belong to (CNV-1 AC1:
+	 * the customer is shown article titles, not internal document ids). Only
+	 * approved versions of active articles are returned — the same gate
+	 * retrieval applies — so a retired article can never be named as a source.
+	 */
+	async resolveArticleSources(
+		documentIds: string[]
+	): Promise<Map<string, { articleId: string; title: string }>> {
+		const sources = new Map<string, { articleId: string; title: string }>()
+		if (documentIds.length === 0) return sources
+
+		const rows = await db
+			.select({
+				documentId: knowledgeArticleVersions.documentId,
+				articleId: knowledgeArticles.id,
+				title: knowledgeArticles.title,
+			})
+			.from(knowledgeArticleVersions)
+			.innerJoin(knowledgeArticles, eq(knowledgeArticles.id, knowledgeArticleVersions.articleId))
+			.where(
+				and(
+					inArray(knowledgeArticleVersions.documentId, documentIds),
+					eq(knowledgeArticleVersions.status, "approved"),
+					eq(knowledgeArticles.status, "active")
+				)
+			)
+
+		for (const row of rows) {
+			if (row.documentId)
+				sources.set(row.documentId, { articleId: row.articleId, title: row.title })
+		}
+		return sources
+	}
+
 	/** Whether any approved version of an active article still uses this document. */
 	async isDocumentServing(documentId: string): Promise<boolean> {
 		const [row] = await db

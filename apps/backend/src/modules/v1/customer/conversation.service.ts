@@ -1,0 +1,151 @@
+import { Injectable } from "@nestjs/common"
+import { and, eq, sql } from "drizzle-orm"
+
+import type { CustomerAnswerKind } from "@repo/contracts"
+import { conversations, messages } from "@repo/db/schema"
+
+import { db } from "@/common/database/database.client"
+
+export type ConversationRow = typeof conversations.$inferSelect
+export type MessageRow = typeof messages.$inferSelect
+
+export interface RecordTurnInput {
+	conversationId: string
+	/** The SCREENED question — masked by the RAG service before it got here. */
+	maskedQuery: string
+	answer: string
+	answerKind: CustomerAnswerKind
+	citations?: unknown
+	retrievedChunks?: unknown
+	usedChunks?: unknown
+	tokenUsage?: unknown
+	traceId?: string | null
+	modelUsed?: string | null
+}
+
+/**
+ * The ONLY writer of `conversations.status` and of `messages` (CNV-1
+ * technical notes; DOMAIN-MODEL §6 ownership table). Every other epic reads
+ * these tables or goes through this service — escalation (ESC-*), analytics
+ * (ANL-*), and the admin transcript view (ADM-3) all depend on that being
+ * true, because a second writer would make the §5.1 state machine
+ * unenforceable.
+ *
+ * `messages` is INSERT-only: a turn is corrected by appending, never by
+ * editing history.
+ */
+@Injectable()
+export class ConversationService {
+	/**
+	 * Open a conversation for a customer session, in `ai_active` (§5.1 entry
+	 * state). CNV-1 never leaves that state; ESC-1 drives the rest.
+	 */
+	async startCustomerConversation(input: {
+		customerSessionId: string
+		channelCode: string
+	}): Promise<ConversationRow> {
+		const [row] = await db
+			.insert(conversations)
+			.values({
+				userId: null,
+				customerSessionId: input.customerSessionId,
+				channelCode: input.channelCode,
+				status: "ai_active",
+			})
+			.returning()
+		if (!row) throw new Error("Failed to open conversation")
+		return row
+	}
+
+	/**
+	 * Fetch a conversation that belongs to THIS customer session. A session may
+	 * only append to its own conversation: passing someone else's id returns
+	 * null and the caller answers 404, so conversation ids are not a way to
+	 * read another customer's chat.
+	 */
+	async findOwnedByCustomerSession(
+		conversationId: string,
+		customerSessionId: string
+	): Promise<ConversationRow | null> {
+		const [row] = await db
+			.select()
+			.from(conversations)
+			.where(
+				and(
+					eq(conversations.id, conversationId),
+					eq(conversations.customerSessionId, customerSessionId)
+				)
+			)
+			.limit(1)
+		return row ?? null
+	}
+
+	/**
+	 * Append one customer turn and the assistant's reply in ONE transaction, so
+	 * a half-written turn is never visible (same contract as the template's
+	 * Python `persist_turn`).
+	 *
+	 * `maskedQuery` must already be the screened form: this service stores what
+	 * it is handed, and CNV-1 AC3 depends on the caller handing it the masked
+	 * text the RAG service produced, never the raw input.
+	 */
+	async recordTurn(
+		input: RecordTurnInput
+	): Promise<{ customerMessageId: string; assistantMessageId: string }> {
+		return db.transaction(async tx => {
+			const [turnRow] = await tx
+				.select({
+					nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1`,
+				})
+				.from(messages)
+				.where(eq(messages.conversationId, input.conversationId))
+			// An aggregate always returns one row; coalesce handles the empty
+			// conversation, so this fallback is belt-and-braces for the types.
+			const nextTurn = turnRow?.nextTurn ?? 0
+
+			const [customerRow] = await tx
+				.insert(messages)
+				.values({
+					conversationId: input.conversationId,
+					// `role` is the template's column (read by the staff history
+					// endpoints); `sender` is the DOMAIN-MODEL name. Both are written so
+					// neither reader needs to know which path created the row.
+					role: "user",
+					sender: "customer",
+					content: input.maskedQuery,
+					traceId: input.traceId ?? null,
+					turnIndex: nextTurn,
+				})
+				.returning({ id: messages.id })
+
+			const [assistantRow] = await tx
+				.insert(messages)
+				.values({
+					conversationId: input.conversationId,
+					role: "assistant",
+					sender: "assistant",
+					answerKind: input.answerKind,
+					content: input.answer,
+					citations: input.citations ?? null,
+					retrievedChunks: input.retrievedChunks ?? null,
+					usedChunks: input.usedChunks ?? null,
+					tokenUsage: input.tokenUsage ?? null,
+					traceId: input.traceId ?? null,
+					modelUsed: input.modelUsed ?? null,
+					turnIndex: nextTurn + 1,
+				})
+				.returning({ id: messages.id })
+
+			if (!customerRow || !assistantRow) throw new Error("Failed to record turn")
+			return { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
+		})
+	}
+
+	/** Move a conversation along the §5.1 state machine. */
+	async setStatus(
+		conversationId: string,
+		status: (typeof conversations.$inferInsert)["status"]
+	): Promise<void> {
+		await db.update(conversations).set({ status }).where(eq(conversations.id, conversationId))
+	}
+}
