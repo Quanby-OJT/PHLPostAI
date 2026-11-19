@@ -7,6 +7,15 @@ import { booleanFromEnv, exactlyTrueFromEnv, isApiDocsEnabled } from "@/config/a
 
 export { isApiDocsEnabled }
 
+function isValidRegex(pattern: string): boolean {
+	try {
+		new RegExp(pattern)
+		return true
+	} catch {
+		return false
+	}
+}
+
 /**
  * Type-safe environment variable validation for Backend API
  *
@@ -123,6 +132,18 @@ export const env = createEnv({
 		// (DOMAIN-MODEL `customer_sessions`: "Expire after inactivity"). Measured
 		// from `last_seen_at`, which every public call refreshes.
 		CUSTOMER_SESSION_IDLE_MINUTES: z.coerce.number().int().positive().default(30),
+
+		// TRK-1: tracking connector and the tracking-number format rules.
+		TRACKING_CONNECTOR: z.string().min(1).default("mock"),
+		TRACKING_LOOKUP_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+		TRACKING_NUMBER_PATTERN: z
+			.string()
+			.default("^[A-Z]{2}[0-9]{9}[A-Z]{2}$")
+			.refine(isValidRegex, "TRACKING_NUMBER_PATTERN must be a valid regular expression"),
+		TRACKING_KEYWORDS: z
+			.string()
+			.default("track,tracking,trace,where is my,nasaan ang,nasaan na,nasan na,asan na"),
+		TRACKING_NUMBER_HASH_SECRET: z.string().min(16).optional(),
 
 		// Authentication.
 		// Same schema object the @repo/auth package validates with — the two

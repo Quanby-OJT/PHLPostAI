@@ -18,3 +18,5 @@ import { env } from "@/config/env.config"
  * ```
  */
 export const db = drizzle(env.DATABASE_URL, { schema })
+
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]

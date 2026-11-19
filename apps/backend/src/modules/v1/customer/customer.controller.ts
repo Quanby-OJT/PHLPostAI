@@ -94,6 +94,14 @@ export class CustomerController {
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
+			if (this.customerChatService.isTrackingQuestion(input.query)) {
+				try {
+					return await this.answerTracking(session, conversation.id, input.query, correlationId)
+				} catch (error) {
+					return toORPCError(error)
+				}
+			}
+
 			let envelope: RagAnswerEnvelope
 			try {
 				envelope = (await this.ragGatewayService.submitChatQuery({
@@ -148,6 +156,22 @@ export class CustomerController {
 		}
 		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
+
+		// A tracking turn is answered from the connector, not streamed.
+		if (this.customerChatService.isTrackingQuestion(parsed.data.query)) {
+			try {
+				const turn = await this.answerTracking(
+					session,
+					conversation.id,
+					parsed.data.query,
+					correlationId
+				)
+				response.status(200).json(turn)
+			} catch {
+				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
+			}
+			return
+		}
 
 		const token = this.ragGatewayService.mintServiceToken({
 			sub: this.principalFor(session),
@@ -251,6 +275,29 @@ export class CustomerController {
 			}
 		} finally {
 			response.end()
+		}
+	}
+
+	/** TRK-1: answer from the tracking connector; a screened-out question is still refused. */
+	private async answerTracking(
+		session: CustomerSessionRow,
+		conversationId: string,
+		query: string,
+		correlationId: string
+	): Promise<CustomerAnswer> {
+		try {
+			const turn = await this.customerChatService.answerTracking({
+				conversationId,
+				query,
+				principal: this.principalFor(session),
+				permissions: CUSTOMER_SERVICE_PERMISSIONS,
+				correlationId,
+			})
+			return { ...turn, conversationId }
+		} catch (error) {
+			const refusal = await this.refuseIfScreened(error, session, conversationId, correlationId)
+			if (refusal) return refusal
+			throw error
 		}
 	}
 

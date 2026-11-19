@@ -901,6 +901,30 @@ export const knowledgeArticleVersions = createTable(
 	]
 )
 
+export type TrackingLookupOutcome = "found" | "not_found" | "unavailable"
+
+/** One tracking connector call (TRK-1). The raw tracking number is never stored. */
+export const trackingLookups = createTable(
+	"tracking_lookups",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		messageId: t
+			.uuid("message_id")
+			.notNull()
+			.references(() => messages.id, { onDelete: "cascade" }),
+		connectorCode: t.text("connector_code").notNull(),
+		trackingNumberHash: t.text("tracking_number_hash").notNull(),
+		outcome: t.text("outcome").notNull().$type<TrackingLookupOutcome>(),
+		statusCode: t.text("status_code"),
+		latencyMs: t.integer("latency_ms").notNull(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("tracking_lookups_message_idx").on(t.messageId),
+		index("tracking_lookups_number_hash_idx").on(t.trackingNumberHash),
+	]
+)
+
 export const relations = defineRelations(
 	{
 		users,
@@ -996,6 +1020,7 @@ export const schema = Object.assign(
 		reportFiles,
 		knowledgeArticles,
 		knowledgeArticleVersions,
+		trackingLookups,
 	},
 	relations
 )
