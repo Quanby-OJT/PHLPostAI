@@ -5,7 +5,7 @@ import { appConfig, restrictEnvAccess } from "@repo/eslint-config/next"
 /** @type {import("eslint").Linter.Config[]} */
 export default defineConfig(
 	{
-		ignores: [".next/**"],
+		ignores: [".next/**", "public/**"],
 	},
 	appConfig,
 	restrictEnvAccess

@@ -263,6 +263,53 @@ service is called with `persist: false` on this path, since a customer has no
 `users` row to key a turn to — `conversations.user_id` stays null and
 `customer_session_id` identifies the chat instead.
 
+## Tracking lookups (TRK-1)
+
+A customer question about a tracking number is answered from a **tracking
+connector**, not from the model, so it works without an OpenAI key. Flow B
+steps 1 to 3 and 6: extract the number, look it up with a hard timeout, reply,
+and store a `tracking_lookups` row.
+
+Routing: until CNV-2 classifies messages into categories, a message counts as
+a tracking question when it contains a valid tracking number or one of
+`TRACKING_KEYWORDS`. Tracking turns are still screened by the RAG service
+(`POST /internal/chat/screen`) before anything is stored.
+
+The `mock` connector (`apps/backend/src/modules/v1/tracking/connectors/mock/`)
+has these seed records:
+
+| Tracking number | Result |
+| --- | --- |
+| `RR123456789PH` | In transit, Manila Central Post Office |
+| `EE987654321PH` | Out for delivery, Quezon City Post Office |
+| `CP111222333PH` | Delivered, Cebu City Post Office |
+| `RR000000000PH` | Never answers (tests the timeout) |
+| any other valid number | No record found |
+
+Try it at http://localhost:3001/assistant:
+
+- "Where is RR123456789PH?" shows the status, place and time.
+- "Where is RR999999999PH?" says no record was found.
+- "Where is my parcel?" or "track RR12345PH678" asks for the tracking number,
+  with no lookup.
+- "Track RR000000000PH" says the tracking system can't be reached after
+  `TRACKING_LOOKUP_TIMEOUT_MS`.
+
+Each lookup stores the connector, outcome, status code, latency and an
+HMAC-SHA256 hash of the number, never the number itself. The stored customer
+message has the number replaced with `[TRACKING_NUMBER]`. Check with:
+`docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select connector_code, outcome, status_code, latency_ms, tracking_number_hash from tracking_lookups order by created_at desc limit 5;"`
+
+Settings (`apps/backend/.env`, all optional):
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TRACKING_CONNECTOR` | `mock` | Which registered connector answers lookups |
+| `TRACKING_LOOKUP_TIMEOUT_MS` | `5000` | Hard timeout for one lookup |
+| `TRACKING_NUMBER_PATTERN` | `^[A-Z]{2}[0-9]{9}[A-Z]{2}$` | Valid tracking-number format (UPU S10) |
+| `TRACKING_KEYWORDS` | `track,tracking,trace,where is my,…` | Words that mark a tracking question |
+| `TRACKING_NUMBER_HASH_SECRET` | `BETTER_AUTH_SECRET` | Key for the tracking-number hash |
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous

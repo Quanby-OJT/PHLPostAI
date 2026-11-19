@@ -4,7 +4,7 @@ import { and, eq, sql } from "drizzle-orm"
 import type { CustomerAnswerKind } from "@repo/contracts"
 import { conversations, messages } from "@repo/db/schema"
 
-import { db } from "@/common/database/database.client"
+import { db, type DbTransaction } from "@/common/database/database.client"
 
 export type ConversationRow = typeof conversations.$inferSelect
 export type MessageRow = typeof messages.$inferSelect
@@ -21,6 +21,11 @@ export interface RecordTurnInput {
 	tokenUsage?: unknown
 	traceId?: string | null
 	modelUsed?: string | null
+	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
+	onRecorded?: (
+		tx: DbTransaction,
+		ids: { customerMessageId: string; assistantMessageId: string }
+	) => Promise<void>
 }
 
 /**
@@ -137,7 +142,9 @@ export class ConversationService {
 				.returning({ id: messages.id })
 
 			if (!customerRow || !assistantRow) throw new Error("Failed to record turn")
-			return { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
+			const ids = { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
+			if (input.onRecorded) await input.onRecorded(tx, ids)
+			return ids
 		})
 	}
 

@@ -1524,3 +1524,34 @@ async def chat_stream(
         media_type="text/event-stream",
         headers={"cache-control": "no-cache", "x-accel-buffering": "no"},
     )
+
+
+class ScreenRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/chat/screen", dependencies=[Depends(rate_limit("rate_limit_chat"))])
+async def screen_only(
+    payload: ScreenRequest,
+    request: Request,
+    principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
+    repository: Annotated[ConversationsRepository, Depends(get_conversations_repository)],
+) -> dict[str, Any]:
+    """TRK-1: the SC-1 screen without retrieval or generation, for tool turns
+    (tracking) that the backend answers itself. Same audit on a block."""
+    from fastapi import HTTPException
+
+    result = screen_query(payload.query, request.app.state.settings)
+    if result.blocked:
+        assert result.injection is not None
+        await repository.write_audit(
+            actor_id=principal.sub,
+            actor_type=principal.actor_type,
+            action="chat.query.blocked",
+            resource_type="query",
+            resource_id=principal.trace_id or str(uuid.uuid4()),
+            before=None,
+            after={"injection": result.injection, "action": "block"},
+        )
+        raise HTTPException(status_code=400, detail=str(QueryBlockedError(result.injection)))
+    return {"screenedQuery": result.query, "piiTypes": result.pii_types}

@@ -191,5 +191,23 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 
 			expect(inserted[1]?.values.answerKind).toBe("refusal")
 		})
+
+		it("runs the caller's hook inside the same transaction with both message ids (TRK-1)", async () => {
+			const onRecorded = jest.fn().mockResolvedValue(undefined)
+
+			await service.recordTurn({
+				conversationId: "conversation-1",
+				maskedQuery: "where is [TRACKING_NUMBER]",
+				answer: "Status: In transit",
+				answerKind: "tool",
+				onRecorded,
+			})
+
+			expect(onRecorded).toHaveBeenCalledWith(tx, {
+				customerMessageId: "message-1",
+				assistantMessageId: "message-2",
+			})
+			expect(inserted[1]?.values.answerKind).toBe("tool")
+		})
 	})
 })

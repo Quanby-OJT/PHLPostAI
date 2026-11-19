@@ -1,5 +1,8 @@
 import type { AuditService } from "@/common/audit/audit.service"
+import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import type { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
+import type { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
+import type { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
 import type { ConversationService } from "./conversation.service"
 import { CUSTOMER_REFUSAL_ANSWER, CustomerChatService } from "./customer-chat.service"
@@ -9,6 +12,15 @@ jest.mock("@/modules/v1/knowledge/knowledge.repository", () => ({
 }))
 jest.mock("@/common/audit/audit.service", () => ({ AuditService: class AuditService {} }))
 jest.mock("./conversation.service", () => ({ ConversationService: class ConversationService {} }))
+jest.mock("@/modules/v1/corpus/rag-gateway.service", () => ({
+	RagGatewayService: class RagGatewayService {},
+}))
+jest.mock("@/modules/v1/tracking/tracking.service", () => ({
+	TrackingService: class TrackingService {},
+}))
+jest.mock("@/modules/v1/tracking/tracking.repository", () => ({
+	TrackingRepository: class TrackingRepository {},
+}))
 
 const EXPRESS_ARTICLE = {
 	articleId: "11111111-1111-4111-8111-111111111111",
@@ -24,6 +36,9 @@ describe("CustomerChatService (CNV-1)", () => {
 	let conversationService: { recordTurn: jest.Mock }
 	let knowledgeRepository: { resolveArticleSources: jest.Mock }
 	let auditService: { writeAudit: jest.Mock }
+	let ragGatewayService: { screenQuery: jest.Mock }
+	let trackingService: { isTrackingQuestion: jest.Mock; answer: jest.Mock }
+	let trackingRepository: { insertLookup: jest.Mock }
 
 	beforeEach(() => {
 		conversationService = {
@@ -34,10 +49,18 @@ describe("CustomerChatService (CNV-1)", () => {
 		}
 		knowledgeRepository = { resolveArticleSources: jest.fn().mockResolvedValue(new Map()) }
 		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
+		ragGatewayService = {
+			screenQuery: jest.fn().mockResolvedValue({ screenedQuery: "where is RR123456789PH" }),
+		}
+		trackingService = { isTrackingQuestion: jest.fn().mockReturnValue(false), answer: jest.fn() }
+		trackingRepository = { insertLookup: jest.fn().mockResolvedValue(undefined) }
 		service = new CustomerChatService(
 			conversationService as unknown as ConversationService,
 			knowledgeRepository as unknown as KnowledgeRepository,
-			auditService as unknown as AuditService
+			auditService as unknown as AuditService,
+			ragGatewayService as unknown as RagGatewayService,
+			trackingService as unknown as TrackingService,
+			trackingRepository as unknown as TrackingRepository
 		)
 	})
 
@@ -271,6 +294,97 @@ describe("CustomerChatService (CNV-1)", () => {
 					tokenUsage: { totalTokens: 7 },
 				})
 			)
+		})
+	})
+
+	describe("TRK-1: a tracking turn", () => {
+		const LOOKUP = {
+			connectorCode: "mock",
+			trackingNumberHash: "hash-of-number",
+			outcome: "found" as const,
+			statusCode: "IN_TRANSIT",
+			latencyMs: 12,
+		}
+		const INPUT = {
+			conversationId: "conversation-1",
+			query: "where is RR123456789PH",
+			principal: "customer-session:session-1",
+			permissions: ["chat.query.submit"],
+			correlationId: "req-1",
+		}
+
+		it("screens the question before anything is looked up or stored", async () => {
+			trackingService.answer.mockResolvedValue({
+				reply: "Status: In transit",
+				storedQuery: "where is [TRACKING_NUMBER]",
+				lookup: LOOKUP,
+			})
+
+			await service.answerTracking(INPUT)
+
+			expect(ragGatewayService.screenQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ query: INPUT.query, actorType: "customer" })
+			)
+			expect(trackingService.answer).toHaveBeenCalledWith("where is RR123456789PH")
+		})
+
+		it("stores a tool turn without the number and the lookup row against the reply", async () => {
+			trackingService.answer.mockResolvedValue({
+				reply: "Status: In transit",
+				storedQuery: "where is [TRACKING_NUMBER]",
+				lookup: LOOKUP,
+			})
+
+			const turn = await service.answerTracking(INPUT)
+
+			const recorded = conversationService.recordTurn.mock.calls[0][0]
+			expect(recorded).toEqual(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					maskedQuery: "where is [TRACKING_NUMBER]",
+					answer: "Status: In transit",
+					answerKind: "tool",
+				})
+			)
+			const tx = { insert: jest.fn() }
+			await recorded.onRecorded(tx, {
+				customerMessageId: "message-1",
+				assistantMessageId: "message-2",
+			})
+			expect(trackingRepository.insertLookup).toHaveBeenCalledWith(tx, {
+				...LOOKUP,
+				messageId: "message-2",
+			})
+			expect(turn).toEqual({
+				answer: "Status: In transit",
+				messageId: "message-2",
+				sources: [],
+				citations: [],
+				answerKind: "tool",
+				isIDontKnow: false,
+			})
+		})
+
+		it("writes no lookup row when no lookup was made", async () => {
+			trackingService.answer.mockResolvedValue({
+				reply: "Please send your tracking number.",
+				storedQuery: "where is my parcel",
+				lookup: null,
+			})
+
+			await service.answerTracking({ ...INPUT, query: "where is my parcel" })
+
+			expect(conversationService.recordTurn.mock.calls[0][0].onRecorded).toBeUndefined()
+		})
+
+		it("stores nothing when screening blocks the question", async () => {
+			ragGatewayService.screenQuery.mockRejectedValue(
+				Object.assign(new Error("blocked"), { getStatus: () => 400 })
+			)
+
+			await expect(service.answerTracking(INPUT)).rejects.toThrow("blocked")
+			expect(trackingService.answer).not.toHaveBeenCalled()
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
 		})
 	})
 })

@@ -178,6 +178,37 @@ export class RagGatewayService {
 		})
 	}
 
+	/** TRK-1: screen a question without answering it. A blocked question is a 400. */
+	async screenQuery(input: {
+		query: string
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+		traceId: string
+		actorType?: "user" | "customer"
+	}): Promise<{ screenedQuery: string }> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.traceId,
+			actorType: input.actorType,
+		})
+		const body = (await this.forward("/internal/chat/screen", {
+			headers: {
+				"authorization": `Bearer ${token}`,
+				"content-type": "application/json",
+				"x-request-id": input.requestId,
+			},
+			body: JSON.stringify({ query: input.query }),
+			failureMessage: "Question screening failed",
+		})) as { screenedQuery?: unknown } | null
+		if (typeof body?.screenedQuery !== "string") {
+			throw new BadGatewayException("Question screening failed")
+		}
+		return { screenedQuery: body.screenedQuery }
+	}
+
 	/**
 	 * Re-run a finished ingestion job (IN-7): POST
 	 * {RAG_SERVICE_URL}/internal/jobs/{id}/rerun. The Python side requeues the
