@@ -506,6 +506,53 @@ export const messages = createTable(
 	t => [index("messages_conversation_id_idx").on(t.conversationId)]
 )
 
+// ============================================================================
+// ESCALATIONS (escalation epic — ESC-1, DOMAIN-MODEL §4 + §5.3)
+// ============================================================================
+
+/** Escalation states (DOMAIN-MODEL §5.3). ESC-1 only ever creates "queued". */
+export const ESCALATION_STATUSES = [
+	"queued",
+	"claimed",
+	"resolved",
+	"pushed_external",
+	"contact_captured",
+] as const
+
+/**
+ * A request to move a Conversation to a human (DOMAIN-MODEL escalations).
+ * Written only by EscalationService, the only writer of `status`.
+ * `contact` is reserved for ESC-3 (offline path, stored encrypted).
+ */
+export const escalations = createTable(
+	"escalations",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		conversationId: t
+			.uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		reason: t.text("reason").notNull(),
+		status: t
+			.text("status")
+			.notNull()
+			.default("queued")
+			.$type<(typeof ESCALATION_STATUSES)[number]>(),
+		assignedAgentId: t
+			.text("assigned_agent_id")
+			.references(() => users.id, { onDelete: "set null" }),
+		contact: t.text("contact"),
+		claimedAt: t.timestamp("claimed_at", { withTimezone: true }),
+		resolvedAt: t.timestamp("resolved_at", { withTimezone: true }),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("escalations_status_created_at_idx").on(t.status, t.createdAt),
+		index("escalations_conversation_id_idx").on(t.conversationId),
+	]
+)
+
 /**
  * Embedding cache (IN-6, Flow A cache branch — PRD decision: Postgres, not
  * Redis). Keyed on (content_hash, model): identical content is never
@@ -935,6 +982,7 @@ export const schema = Object.assign(
 		jobDocuments,
 		conversations,
 		messages,
+		escalations,
 		goldenItems,
 		evalRuns,
 		evalBaselines,
