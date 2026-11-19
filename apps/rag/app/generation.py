@@ -103,12 +103,52 @@ _SYSTEM_PROMPT = (
 _CITATION_MARKER = re.compile(r"\[(\d+)\]")
 
 
+def calculate_answer_confidence(
+    retrieved_chunks: list[dict[str, Any]],
+    *,
+    citations: list[dict[str, Any]],
+    degraded: bool,
+    is_i_dont_know: bool,
+    grounding: dict[str, Any] | None,
+) -> float:
+    """Combine retrieval strength with the grounded-answer check.
+
+    Retrieval strength is the best retrieved cosine similarity, bounded to
+    [0, 1]. Citation validation is the baseline groundedness check; when the
+    optional CE-4 verifier explicitly rejects the final draft, confidence is
+    zero. The score is retrieval strength multiplied by that binary check.
+    """
+    similarities = [
+        float(chunk["similarity"])
+        for chunk in retrieved_chunks
+        if isinstance(chunk.get("similarity"), (int, float))
+    ]
+    if not similarities:
+        return 0.0
+    retrieval_strength = max(0.0, min(1.0, max(similarities)))
+    grounded = bool(citations) and not degraded and not is_i_dont_know
+    if (
+        grounding
+        and grounding.get("grounded") is False
+        and grounding.get("outcome") != "regenerated"
+    ):
+        grounded = False
+    return round(retrieval_strength * int(grounded), 4)
+
+
 def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
     """CP-3: the cross-request-sharable slice of an answer payload (no
     conversation/message ids — each follower persists its own turn)."""
     return {
         key: payload[key]
-        for key in ("answer", "citations", "model", "isIDontKnow", "degraded")
+        for key in (
+            "answer",
+            "citations",
+            "model",
+            "isIDontKnow",
+            "degraded",
+            "confidence",
+        )
         if key in payload
     }
 
@@ -279,6 +319,11 @@ class GenerationService:
                 "traceId": trace_id,
             },
         )
+        confidence = cached.get("confidence", 0.0)
+        cache_similarity = cached.get("cacheSimilarity")
+        if isinstance(confidence, (int, float)) and isinstance(cache_similarity, (int, float)):
+            confidence = min(float(confidence), float(cache_similarity))
+
         return {
             "answer": cached["answer"],
             "citations": cached.get("citations", []),
@@ -294,6 +339,7 @@ class GenerationService:
             # CP-1 entries are never idk/degraded; CP-3 shared results can be.
             "isIDontKnow": bool(cached.get("isIDontKnow", False)),
             "degraded": bool(cached.get("degraded", False)),
+            "confidence": confidence,
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -847,6 +893,13 @@ class GenerationService:
             )
 
         is_i_dont_know = _is_i_dont_know(answer_text)
+        confidence = calculate_answer_confidence(
+            retrieved_record,
+            citations=citations,
+            degraded=degraded,
+            is_i_dont_know=is_i_dont_know,
+            grounding=grounding,
+        )
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
 
         # ONE RAG-action audit entry per query, attributed to the JWT principal.
@@ -907,6 +960,10 @@ class GenerationService:
         payload = {
             "answer": answer_text,
             "citations": citations,
+            # CNV-1 persists customer turns in the backend; preserve the
+            # retrieval evidence there for the authorized agent inbox.
+            "retrievedChunks": retrieved_record,
+            "confidence": confidence,
             # See _serve_cached: the screened (masked) question, for callers
             # that persist the turn themselves.
             "screenedQuery": query,
@@ -1213,6 +1270,13 @@ class GenerationService:
             )
 
         is_i_dont_know = _is_i_dont_know(answer_text)
+        confidence = calculate_answer_confidence(
+            prep["retrieved_record"],
+            citations=citations,
+            degraded=degraded,
+            is_i_dont_know=is_i_dont_know,
+            grounding=grounding,
+        )
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
 
         # CP-3 leader: publish the completed answer for any waiters, then
@@ -1294,6 +1358,11 @@ class GenerationService:
         final = {
             "answer": answer_text,
             "citations": citations,
+            # The backend owns persistence on customer streams (CNV-1), so it
+            # needs the same retrieval evidence as the JSON path to retain the
+            # inbox confidence indicator without exposing it to the widget.
+            "retrievedChunks": prep["retrieved_record"],
+            "confidence": confidence,
             # See _serve_cached: the screened (masked) question, for callers
             # that persist the turn themselves.
             "screenedQuery": query,

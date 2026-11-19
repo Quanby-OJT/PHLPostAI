@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common"
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
 import { and, eq, sql } from "drizzle-orm"
 
 import type { CustomerAnswerKind } from "@repo/contracts"
@@ -13,8 +13,10 @@ export interface RecordTurnInput {
 	conversationId: string
 	/** The SCREENED question — masked by the RAG service before it got here. */
 	maskedQuery: string
+	inquiryCategory?: string
 	answer: string
 	answerKind: CustomerAnswerKind
+	confidence?: number | null
 	citations?: unknown
 	retrievedChunks?: unknown
 	usedChunks?: unknown
@@ -41,6 +43,19 @@ export interface RecordTurnInput {
  */
 @Injectable()
 export class ConversationService {
+	/**
+	 * Transition a customer conversation when an escalation is created. This
+	 * method is intentionally called inside EscalationService's transaction so
+	 * both writes commit together while ConversationService remains the sole
+	 * writer of conversation status.
+	 */
+	async markEscalationRequested(tx: DbTransaction, conversationId: string): Promise<void> {
+		await tx
+			.update(conversations)
+			.set({ status: "escalation_requested" })
+			.where(eq(conversations.id, conversationId))
+	}
+
 	/**
 	 * Open a conversation for a customer session, in `ai_active` (§5.1 entry
 	 * state). CNV-1 never leaves that state; ESC-1 drives the rest.
@@ -98,6 +113,20 @@ export class ConversationService {
 		input: RecordTurnInput
 	): Promise<{ customerMessageId: string; assistantMessageId: string }> {
 		return db.transaction(async tx => {
+			// Serialize turn persistence with an escalation request. The request
+			// path locks this same row before switching status, so either the turn
+			// commits first or the handoff commits first; no late AI answer can be
+			// appended after the customer has been queued for an agent.
+			const [conversation] = await tx
+				.select({ status: conversations.status })
+				.from(conversations)
+				.where(eq(conversations.id, input.conversationId))
+				.for("update")
+			if (!conversation) throw new NotFoundException("Conversation not found")
+			if (conversation.status !== "ai_active") {
+				throw new ConflictException("A human agent has been requested for this conversation")
+			}
+
 			const [turnRow] = await tx
 				.select({
 					nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1`,
@@ -117,6 +146,7 @@ export class ConversationService {
 					// neither reader needs to know which path created the row.
 					role: "user",
 					sender: "customer",
+					inquiryCategory: input.inquiryCategory ?? "other",
 					content: input.maskedQuery,
 					traceId: input.traceId ?? null,
 					turnIndex: nextTurn,
@@ -130,6 +160,7 @@ export class ConversationService {
 					role: "assistant",
 					sender: "assistant",
 					answerKind: input.answerKind,
+					confidence: input.confidence ?? null,
 					content: input.answer,
 					citations: input.citations ?? null,
 					retrievedChunks: input.retrievedChunks ?? null,

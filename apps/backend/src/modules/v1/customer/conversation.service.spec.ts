@@ -14,6 +14,8 @@ jest.mock("drizzle-orm", () => ({
 const inserted: { table: string; values: Record<string, unknown> }[] = []
 let maxTurnIndex: number | null = null
 let insertCounter = 0
+let transactionSelectCalls = 0
+let lockedConversationStatus = "ai_active"
 
 function chainedInsert() {
 	return {
@@ -26,9 +28,19 @@ function chainedInsert() {
 }
 
 const tx = {
-	select: () => ({
-		from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }),
-	}),
+	select: () => {
+		const call = transactionSelectCalls++
+		if (call === 0) {
+			return {
+				from: () => ({
+					where: () => ({ for: async () => [{ status: lockedConversationStatus }] }),
+				}),
+			}
+		}
+		return {
+			from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }),
+		}
+	},
 	insert: chainedInsert,
 }
 
@@ -60,6 +72,8 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 		inserted.length = 0
 		insertCounter = 0
 		maxTurnIndex = null
+		transactionSelectCalls = 0
+		lockedConversationStatus = "ai_active"
 		ownedRows = []
 	})
 
@@ -99,6 +113,20 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 	})
 
 	describe("recording a turn (AC3: the stored Message holds the masked form)", () => {
+		it("does not append an AI answer after an escalation has been requested", async () => {
+			lockedConversationStatus = "escalation_requested"
+
+			await expect(
+				service.recordTurn({
+					conversationId: "conversation-1",
+					maskedQuery: "question",
+					answer: "late AI reply",
+					answerKind: "answer",
+				})
+			).rejects.toThrow("A human agent has been requested")
+			expect(inserted).toHaveLength(0)
+		})
+
 		it("writes the customer turn with exactly the masked text it was handed", async () => {
 			await service.recordTurn({
 				conversationId: "conversation-1",

@@ -32,7 +32,7 @@ The project is built on the Quanby `RAG_AI` template. Names marked *(template)* 
 | **Escalation** | A request to move a Conversation to a human, with its reason and outcome. |
 | **Agent** | A Staff user who handles Escalations in the agent inbox. |
 | **Handoff Connector** | An outbound integration that pushes an Escalation to an external helpdesk: `webhook`, `email`. |
-| **Confidence** | A 0 to 1 score for an assistant answer, combining retrieval strength and the groundedness check. |
+| **Confidence** | A 0 to 1 score for an assistant answer: the strongest retrieved similarity when the cited answer passes validation and the groundedness check; zero when it does not. |
 | **Assistant Setting** | A named, admin-editable value: confidence threshold, AI disclosure text, business hours, eligible categories. |
 | **Feedback** | A customer's rating of a Conversation: helpful or not, with an optional comment. |
 | **Interaction Event** | An append-only analytics record of one thing that happened in a Conversation. |
@@ -123,7 +123,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `channels` | `code`, `name`, `is_enabled`, `config` (jsonb) | Seeded with `web-widget`. Disable, never delete, once used. `config.allowedOrigins` (string array) lists the origins allowed to call the public chat API (CHN-1). |
 | `customer_sessions` | `token_hash`, `channel_code`, `language`, `consented_at`, `last_seen_at` | No name, email, or phone. Expire after inactivity. |
 | `conversations` *(template)* | + `customer_session_id`, `channel_code`, `status`, `language`, `resolved_by`, `closed_at`, `legal_hold` | State machine 5.1. `user_id` stays null for customers. |
-| `messages` *(template)* | + `sender`, `agent_id?`, `inquiry_category`, `is_eligible`, `confidence`, `language`, `answer_kind` (`answer`/`uncertain`/`refusal`/`tool`) | Insert-only. Personal data is masked before storage. |
+| `messages` *(template)* | + `sender`, `agent_id?`, `inquiry_category`, `is_eligible`, `confidence`, `language`, `answer_kind` (`answer`/`uncertain`/`refusal`/`tool`) | Insert-only. Personal data is masked before storage. `inquiry_category` uses the domain category codes; Confidence combines the strongest retrieval similarity with grounded answer validation. |
 | `inquiry_categories` | `code`, `name`, `is_eligible`, `is_active` | Changing `is_eligible` applies to new messages only. |
 | `knowledge_articles` | `title`, `category`, `languages`, `current_version_id?`, `status` (`active`/`deactivated`) | `current_version_id` points at the serving `approved` version. Deactivating the article retires its approved version (5.2); a deactivated article accepts no new drafts, submissions, or approvals. |
 | `knowledge_article_versions` | `article_id`, `version`, `body`, `language`, `status`, `submitted_by?`, `approved_by?`, `approved_at?`, `document_id?`, `review_note?`, `indexing_job_id?`, `indexing_requested_by?`, `index_error?` | State machine 5.2. Only an `approved` version has a `document_id` and is retrievable. `indexing_*` track the ingestion job started on approval; `index_error` keeps the reason when indexing fails (Flow E failure branch). `review_note` is the approver's reason for returning a version. |

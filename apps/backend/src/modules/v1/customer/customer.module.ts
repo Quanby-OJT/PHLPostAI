@@ -4,6 +4,7 @@ import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
 
+import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ChannelsService } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import { CustomerChatService } from "./customer-chat.service"
@@ -24,15 +25,16 @@ import { CustomerController } from "./customer.controller"
  * `ChannelsService` (CHN-1) backs the allowed-origin guard on the customer routes.
  */
 @Module({
-        imports: [KnowledgeModule, TrackingModule],
-        controllers: [CustomerController],
-        providers: [
-                CustomerSessionService,
-                ConversationService,
-                CustomerChatService,
-                RagGatewayService,
-                ChannelsService,
-        ],
-        exports: [ConversationService],
+	imports: [KnowledgeModule, TrackingModule],
+	controllers: [CustomerController],
+	providers: [
+		CustomerSessionService,
+		ConversationService,
+		CustomerChatService,
+		RagGatewayService,
+		ChannelsService,
+		AllowedOriginGuard,
+	],
+	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard],
 })
 export class CustomerModule {}

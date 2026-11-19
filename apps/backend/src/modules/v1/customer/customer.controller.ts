@@ -1,6 +1,7 @@
 import {
 	BadRequestException,
 	Body,
+	ConflictException,
 	Controller,
 	Headers,
 	NotFoundException,
@@ -340,7 +341,16 @@ export class CustomerController {
 			conversationId,
 			session.id
 		)
-		if (existing) return existing
+		if (existing) {
+			if (existing.status !== "ai_active") {
+				const error = new ConflictException(
+					"A human agent has been requested for this conversation"
+				)
+				if (mapError) mapError(error)
+				throw error
+			}
+			return existing
+		}
 
 		const error = new NotFoundException("Conversation not found")
 		if (mapError) mapError(error)

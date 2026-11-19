@@ -490,8 +490,10 @@ export const messages = createTable(
 		 * question. `tool` arrives with TRK-1; CNV-3 refines `uncertain`.
 		 */
 		answerKind: t.text("answer_kind").$type<"answer" | "uncertain" | "refusal" | "tool">(),
+		inquiryCategory: t.text("inquiry_category"),
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
+		confidence: t.real("confidence"),
 		retrievedChunks: t.jsonb("retrieved_chunks").$type<unknown>(),
 		// GN-2: the chunks actually USED in the prompt (rank-then-select under
 		// the hard token budget) — recorded separately from retrievedChunks so

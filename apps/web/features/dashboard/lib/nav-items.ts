@@ -57,6 +57,12 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "chat.query.submit",
 	},
 	{
+		label: "Agent inbox",
+		href: "/escalations",
+		icon: BubbleChatIcon,
+		requiredPermission: "escalations.queue.view",
+	},
+	{
 		label: "User Management",
 		href: "/user-management",
 		icon: UserMultipleIcon,

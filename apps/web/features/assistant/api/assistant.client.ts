@@ -62,6 +62,23 @@ export async function startSession(): Promise<CustomerSession> {
 	return (await response.json()) as CustomerSession
 }
 
+export async function requestHumanHandoff(input: {
+	conversationId: string
+	reason: string
+	sessionToken: string
+}): Promise<{ id: string; status: "queued"; createdAt: string }> {
+	const response = await fetch(`${API_BASE}/customer/escalations`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: input.sessionToken,
+		},
+		body: JSON.stringify({ conversationId: input.conversationId, reason: input.reason }),
+	})
+	if (!response.ok) throw await parseError(response)
+	return (await response.json()) as { id: string; status: "queued"; createdAt: string }
+}
+
 export interface AssistantStreamHandlers {
 	onToken: (delta: string) => void
 	onFinal: (final: CustomerAnswer) => void
