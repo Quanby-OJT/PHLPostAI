@@ -161,22 +161,24 @@ describe("navItems", () => {
 				item => item.label
 			)
 		).toEqual([
-		"Dashboard",
-		"Corpus",
-		"Knowledge base",
-		"Chat",
-		"User Management",
-		"Evaluation",
-		"Reports",
-		"Configuration",
-		"API Keys",
-	])
+			"Dashboard",
+			"Corpus",
+			"Knowledge base",
+			"Chat",
+			"Agent inbox",
+			"User Management",
+			"Evaluation",
+			"Reports",
+			"Configuration",
+			"API Keys",
+		])
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {
 		expect(getDashboardRouteTitle("/dashboard")).toBe("Dashboard")
 		expect(getDashboardRouteTitle("/corpus")).toBe("Corpus")
 		expect(getDashboardRouteTitle("/chat")).toBe("Chat")
+		expect(getDashboardRouteTitle("/escalations")).toBe("Agent inbox")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})
