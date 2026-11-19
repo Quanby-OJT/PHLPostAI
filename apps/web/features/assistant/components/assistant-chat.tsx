@@ -235,7 +235,7 @@ export function AssistantChat() {
 				<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
 				<p className="text-sm">
 					You are chatting with an AI assistant, not a person.{" "}
-					<a href={PRIVACY_NOTICE_URL} className="text-primary underline underline-offset-2">
+					<a href={PRIVACY_NOTICE_URL} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
 						Privacy notice
 					</a>
 				</p>
@@ -255,7 +255,7 @@ export function AssistantChat() {
 					</p>
 					<p>
 						Read how your chat is handled in the{" "}
-						<a href={PRIVACY_NOTICE_URL} className="text-primary underline underline-offset-2">
+						<a href={PRIVACY_NOTICE_URL} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
 							privacy notice
 						</a>
 						.
