@@ -15,6 +15,7 @@ import { HttpExceptionFilter } from "@/common/filters/http-exception.filter"
 import { SentryExceptionFilter } from "@/common/filters/sentry-exception.filter"
 import { buildPinoHttpOptions } from "@/config/pino-logger.config"
 import { V1Module } from "@/modules/v1/v1.module"
+import { sessionTracker, skipSessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { skipStrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 import { ApiKeyAuthGuard } from "@/shared/guards/api-key-auth.guard"
 import { RbacGuard } from "@/shared/guards/rbac.guard"
@@ -93,6 +94,13 @@ import { env } from "./config/env.config"
 						// Opt-in only: skipped for every route except handlers
 						// marked with @StrictThrottle(). Keeps reads on `default`.
 						skipIf: skipStrictThrottle,
+					},
+					{
+						name: "session",
+						ttl: env.THROTTLE_SESSION_TTL,
+						limit: env.THROTTLE_SESSION_LIMIT,
+						getTracker: sessionTracker,
+						skipIf: skipSessionThrottle,
 					},
 				],
 				...(redis

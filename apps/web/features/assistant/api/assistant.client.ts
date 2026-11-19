@@ -10,12 +10,25 @@ const API_BASE = `${env.NEXT_PUBLIC_API_BASE_URL}/${env.NEXT_PUBLIC_API_VERSION}
 /** Header the public endpoints authenticate with (CNV-1). */
 export const CUSTOMER_SESSION_HEADER = "x-customer-session"
 
-/** Where the browser keeps its session token between reloads. */
+/** Where the tab keeps its session token between page loads (CHN-1: per tab). */
 export const SESSION_STORAGE_KEY = "phlpost.assistant.session"
+
+/** Seconds to wait when a 429 carries no usable Retry-After. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60
 
 export interface StoredSession {
 	sessionToken: string
 	idleExpiresAt: string
+}
+
+/** 429 from the per-session or per-IP limiter (CHN-1). */
+export class RateLimitedError extends ApiError {
+	readonly retryAfterSeconds: number
+
+	constructor(message: string, retryAfterSeconds: number) {
+		super(429, message)
+		this.retryAfterSeconds = retryAfterSeconds
+	}
 }
 
 async function parseError(response: Response): Promise<ApiError> {
@@ -26,15 +39,24 @@ async function parseError(response: Response): Promise<ApiError> {
 	} catch {
 		// ignore non-JSON error bodies
 	}
+
+	if (response.status === 429) {
+		const header = response.headers.get("retry-after") ?? response.headers.get("x-retry-after")
+		const seconds = Number(header)
+		return new RateLimitedError(
+			message,
+			Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : DEFAULT_RETRY_AFTER_SECONDS
+		)
+	}
 	return new ApiError(response.status, message)
 }
 
-/** POST /customer/session — opens an anonymous session. */
+/** POST /customer/session — opens an anonymous session for the web widget. */
 export async function startSession(): Promise<CustomerSession> {
 	const response = await fetch(`${API_BASE}/customer/session`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ channelCode: "web", language: "en" }),
+		body: JSON.stringify({ channelCode: "web-widget", language: "en" }),
 	})
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as CustomerSession
@@ -50,12 +72,10 @@ export interface AssistantStreamHandlers {
  *
  * The endpoint answers in one of two shapes: an SSE stream of `token` frames
  * followed by one `final` frame, or — when screening refuses the question —
- * a plain JSON turn. Both end in `onFinal`, so the page renders a refusal the
- * same way it renders an answer instead of showing an error.
+ * a plain JSON turn. Both end in `onFinal`.
  *
- * A 401 means the session is unknown or has gone idle; the caller opens a new
- * one and retries, which is why that case is surfaced as an ApiError rather
- * than swallowed.
+ * A 401 means the session is unknown or idle (caller retries with a new one).
+ * A 429 throws RateLimitedError so the widget can show a "please wait" notice.
  */
 export async function streamQuestion(
 	input: { query: string; conversationId?: string },

@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 
+import { ChannelsService } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import { CustomerChatService } from "./customer-chat.service"
 import { CustomerSessionService } from "./customer-session.service"
@@ -18,11 +19,19 @@ import { CustomerController } from "./customer.controller"
  * through it rather than touching the tables: ESC-1/ESC-2 (escalation and
  * agent replies) and CHN-3 (end-of-chat rating) all depend on it staying the
  * only writer.
+ *
+ * `ChannelsService` (CHN-1) backs the allowed-origin guard on the customer routes.
  */
 @Module({
-	imports: [KnowledgeModule],
-	controllers: [CustomerController],
-	providers: [CustomerSessionService, ConversationService, CustomerChatService, RagGatewayService],
-	exports: [ConversationService],
+        imports: [KnowledgeModule],
+        controllers: [CustomerController],
+        providers: [
+                CustomerSessionService,
+                ConversationService,
+                CustomerChatService,
+                RagGatewayService,
+                ChannelsService,
+        ],
+        exports: [ConversationService],
 })
 export class CustomerModule {}

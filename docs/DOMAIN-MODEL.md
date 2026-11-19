@@ -120,7 +120,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 
 | Table | Key columns | Lifecycle notes |
 |---|---|---|
-| `channels` | `code`, `name`, `is_enabled`, `config` (jsonb) | Seeded with `web-widget`. Disable, never delete, once used. |
+| `channels` | `code`, `name`, `is_enabled`, `config` (jsonb) | Seeded with `web-widget`. Disable, never delete, once used. `config.allowedOrigins` (string array) lists the origins allowed to call the public chat API (CHN-1). |
 | `customer_sessions` | `token_hash`, `channel_code`, `language`, `consented_at`, `last_seen_at` | No name, email, or phone. Expire after inactivity. |
 | `conversations` *(template)* | + `customer_session_id`, `channel_code`, `status`, `language`, `resolved_by`, `closed_at`, `legal_hold` | State machine 5.1. `user_id` stays null for customers. |
 | `messages` *(template)* | + `sender`, `agent_id?`, `inquiry_category`, `is_eligible`, `confidence`, `language`, `answer_kind` (`answer`/`uncertain`/`refusal`/`tool`) | Insert-only. Personal data is masked before storage. |

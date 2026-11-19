@@ -380,6 +380,22 @@ export const jobDocuments = createTable(
 // ============================================================================
 
 /**
+ * A place customers reach the assistant (DOMAIN-MODEL `channels`, CHN-1).
+ * Seeded with `web-widget`. Disable, never delete, once a channel has been used.
+ * `config` holds per-channel settings such as `allowedOrigins`; CHN-2 adds the
+ * admin screen that edits them.
+ */
+export const channels = createTable("channels", t => ({
+	id: t.uuid("id").primaryKey().defaultRandom(),
+	code: t.text("code").notNull().unique(),
+	name: t.text("name").notNull(),
+	isEnabled: t.boolean("is_enabled").notNull().default(true),
+	config: t.jsonb("config").notNull().default({}),
+	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
+/**
  * Anonymous public chat session (DOMAIN-MODEL `customer_sessions`, CNV-1).
  *
  * Privacy invariant: this row CARRIES NO IDENTITY — no name, email, or phone.

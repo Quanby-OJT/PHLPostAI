@@ -54,7 +54,7 @@ describe("assistant client (CNV-1)", () => {
 			const fetchMock = vi.fn().mockResolvedValue(
 				jsonResponse({
 					sessionToken: "a-token",
-					channelCode: "web",
+					channelCode: "web-widget",
 					language: "en",
 					idleExpiresAt: "2026-11-18T10:30:00.000Z",
 				})
@@ -68,7 +68,7 @@ describe("assistant client (CNV-1)", () => {
 			const [url, init] = call as [string, RequestInit]
 			expect(String(url)).toContain("/customer/session")
 			expect(JSON.parse(init.body as string)).toEqual({
-				channelCode: "web",
+				channelCode: "web-widget",
 				language: "en",
 			})
 		})

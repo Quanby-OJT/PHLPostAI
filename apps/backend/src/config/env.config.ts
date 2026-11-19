@@ -29,6 +29,8 @@ export const env = createEnv({
 		THROTTLE_LIMIT: z.coerce.number().int().positive().default(100),
 		THROTTLE_STRICT_TTL: z.coerce.number().int().positive().default(60000),
 		THROTTLE_STRICT_LIMIT: z.coerce.number().int().positive().default(10),
+		THROTTLE_SESSION_TTL: z.coerce.number().int().positive().default(60000),
+		THROTTLE_SESSION_LIMIT: z.coerce.number().int().positive().default(6),
 
 		// Proxy trust: the number of trusted reverse-proxy hops in front of the app.
 		//
@@ -105,7 +107,10 @@ export const env = createEnv({
 		// RAG_SERVICE_URL with a short-lived HS256 JWT signed with
 		// RAG_SERVICE_TOKEN_SECRET (must match the RAG service's secret).
 		RAG_SERVICE_URL: z.string().url().default("http://localhost:8000"),
-		RAG_SERVICE_TOKEN_SECRET: z.string().min(1).default("dev-rag-service-secret-change-in-production"),
+		RAG_SERVICE_TOKEN_SECRET: z
+			.string()
+			.min(1)
+			.default("dev-rag-service-secret-change-in-production"),
 		// Hard-timeout (ms) for gateway -> RAG calls (AbortSignal.timeout contract).
 		RAG_SERVICE_TIMEOUT_MS: z.coerce.number().int().positive().default(60000),
 		// Service JWT lifetime (seconds) — short-lived by design.
