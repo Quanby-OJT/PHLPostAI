@@ -292,3 +292,21 @@ service is called with `persist: false` on this path, since a customer has no
 - **429 on login/session during parallel testing** — Better Auth rate limit
   (10/60s default); raise `AUTH_RATE_LIMIT_MAX` on the backend for local
   test runs.
+
+## Chat widget embed (CHN-1)
+
+Add one script tag to any page that should show the assistant:
+
+```html
+<script src="https://<web-app-origin>/widget.js" defer></script>
+```
+
+The button opens `/assistant` in an iframe. Three lists decide who may use it:
+
+- `ASSISTANT_EMBED_ORIGINS` (web app env, space-separated): sites allowed to frame `/assistant`.
+  Default is `http://localhost http://localhost:3001`. Restart the web app after changing it.
+- `channels.config.allowedOrigins` for the `web-widget` channel: origins allowed to call the public chat API.
+  The widget's requests come from the web app origin, so this list holds the web app origin.
+- The backend CORS origin list: add the same web app origin.
+
+Rate limits on the public chat routes: per IP `THROTTLE_STRICT_*`, per customer session `THROTTLE_SESSION_LIMIT` / `THROTTLE_SESSION_TTL`.
