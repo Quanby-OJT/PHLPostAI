@@ -40,8 +40,6 @@ function readStoredSession(): StoredSession | null {
 		const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY)
 		if (!raw) return null
 		const stored = JSON.parse(raw) as StoredSession
-		// Don't bother sending a token we already know has lapsed.
-		if (new Date(stored.idleExpiresAt).getTime() <= Date.now()) return null
 		return stored
 	} catch {
 		return null
@@ -182,9 +180,11 @@ export function AssistantChat() {
 			}
 
 			try {
+				const hadSession = readStoredSession() !== null
 				const token = await ensureSession()
+				if (!hadSession) setConversationId(undefined)
 				try {
-					await streamQuestion({ query: asked, conversationId }, token, handlers)
+					await streamQuestion({ query: asked, conversationId: hadSession ? conversationId : undefined }, token, handlers)
 				} catch (streamError) {
 					// An idle-expired or unknown session is recoverable exactly once:
 					// open a new session and ask again. A second 401 is a real error.
@@ -244,7 +244,7 @@ export function AssistantChat() {
 			{!accepted ? (
 				<section
 					aria-labelledby="ai-notice-title"
-					className="bg-muted flex-1 space-y-4 overflow-y-auto rounded-lg border p-4 text-sm"
+					className="bg-muted space-y-4 overflow-y-auto rounded-lg border p-4 text-sm"
 				>
 					<h2 id="ai-notice-title" className="text-base font-semibold">
 						Before you start
