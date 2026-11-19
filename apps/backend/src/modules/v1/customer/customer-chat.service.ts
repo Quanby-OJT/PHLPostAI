@@ -3,7 +3,10 @@ import { Injectable, Logger } from "@nestjs/common"
 import type { CustomerAnswer, CustomerAnswerKind, CustomerAnswerSource } from "@repo/contracts"
 
 import { AuditService } from "@/common/audit/audit.service"
+import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
+import { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
+import { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
 import { ConversationService } from "./conversation.service"
 
@@ -57,8 +60,62 @@ export class CustomerChatService {
 	constructor(
 		private readonly conversationService: ConversationService,
 		private readonly knowledgeRepository: KnowledgeRepository,
-		private readonly auditService: AuditService
+		private readonly auditService: AuditService,
+		private readonly ragGatewayService: RagGatewayService,
+		private readonly trackingService: TrackingService,
+		private readonly trackingRepository: TrackingRepository
 	) {}
+
+	isTrackingQuestion(query: string): boolean {
+		return this.trackingService.isTrackingQuestion(query)
+	}
+
+	/**
+	 * TRK-1 (Flow B): a tracking turn. Screened like every other turn, answered
+	 * from the connector without the model, and stored with its lookup row in
+	 * one transaction. A screening block surfaces as the gateway's 400.
+	 */
+	async answerTracking(input: {
+		conversationId: string
+		query: string
+		principal: string
+		permissions: readonly string[]
+		correlationId: string
+	}): Promise<CustomerTurn> {
+		const { screenedQuery } = await this.ragGatewayService.screenQuery({
+			query: input.query,
+			userId: input.principal,
+			permissions: input.permissions,
+			requestId: input.correlationId,
+			traceId: input.correlationId,
+			actorType: "customer",
+		})
+		const { reply, storedQuery, lookup } = await this.trackingService.answer(screenedQuery)
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId: input.conversationId,
+			maskedQuery: storedQuery,
+			answer: reply,
+			answerKind: "tool",
+			traceId: input.correlationId,
+			onRecorded: lookup
+				? (tx, ids) =>
+						this.trackingRepository.insertLookup(tx, {
+							...lookup,
+							messageId: ids.assistantMessageId,
+						})
+				: undefined,
+		})
+
+		return {
+			answer: reply,
+			messageId: assistantMessageId,
+			sources: [],
+			citations: [],
+			answerKind: "tool",
+			isIDontKnow: false,
+		}
+	}
 
 	/** `uncertain` for the grounded "I don't know" (AC2), else `answer`. */
 	answerKindFor(envelope: RagAnswerEnvelope): CustomerAnswerKind {

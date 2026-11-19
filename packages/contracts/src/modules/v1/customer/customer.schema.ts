@@ -17,9 +17,10 @@ export const CustomerLanguageSchema = z.enum(CUSTOMER_LANGUAGES)
 /**
  * What a customer turn produced (DOMAIN-MODEL `messages.answer_kind`).
  * `answer` is grounded on approved content, `uncertain` is the grounded
- * "I don't have that information", `refusal` is a screened-out question.
+ * "I don't have that information", `refusal` is a screened-out question,
+ * `tool` is a reply built from a tool result such as a tracking lookup (TRK-1).
  */
-export const CustomerAnswerKindSchema = z.enum(["answer", "uncertain", "refusal"])
+export const CustomerAnswerKindSchema = z.enum(["answer", "uncertain", "refusal", "tool"])
 
 export const StartCustomerSessionRequestSchema = z.object({
 	channelCode: CustomerChannelCodeSchema.optional().default("web"),
