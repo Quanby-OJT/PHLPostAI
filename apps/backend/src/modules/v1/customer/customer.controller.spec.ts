@@ -359,6 +359,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			conversationService.findOwnedByCustomerSession.mockResolvedValue({
 				id: "conversation-9",
 				channelCode: "web",
+				status: "ai_active",
 			})
 			const { response } = responseDouble()
 
@@ -387,6 +388,25 @@ describe("CustomerController (CNV-1 public chat)", () => {
 					response as never
 				)
 			).rejects.toThrow("Conversation not found")
+			expect(fetchMock).not.toHaveBeenCalled()
+		})
+
+		it("stops AI turns after a human handoff has been requested", async () => {
+			conversationService.findOwnedByCustomerSession.mockResolvedValue({
+				id: "conversation-9",
+				channelCode: "web",
+				status: "escalation_requested",
+			})
+			const { response } = responseDouble()
+
+			await expect(
+				controller.streamMessage(
+					{ query: "another question", conversationId: "conversation-9" },
+					"a-token",
+					REQUEST,
+					response as never
+				)
+			).rejects.toThrow("A human agent has been requested")
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
 	})

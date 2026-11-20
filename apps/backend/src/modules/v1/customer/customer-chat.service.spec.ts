@@ -5,7 +5,11 @@ import type { TrackingRepository } from "@/modules/v1/tracking/tracking.reposito
 import type { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
 import type { ConversationService } from "./conversation.service"
-import { CUSTOMER_REFUSAL_ANSWER, CustomerChatService } from "./customer-chat.service"
+import {
+	classifyInquiryCategory,
+	CUSTOMER_REFUSAL_ANSWER,
+	CustomerChatService,
+} from "./customer-chat.service"
 
 jest.mock("@/modules/v1/knowledge/knowledge.repository", () => ({
 	KnowledgeRepository: class KnowledgeRepository {},
@@ -170,13 +174,18 @@ describe("CustomerChatService (CNV-1)", () => {
 				conversationId: "conversation-1",
 				envelope: {
 					answer: "Here you go.",
-					screenedQuery: "my number is [PHONE]",
+					screenedQuery: "where is my parcel [PHONE]",
 					citations: [],
+					confidence: 0.83,
 				},
 			})
 
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
-				expect.objectContaining({ maskedQuery: "my number is [PHONE]" })
+				expect.objectContaining({
+					maskedQuery: "where is my parcel [PHONE]",
+					inquiryCategory: "tracking",
+					confidence: 0.83,
+				})
 			)
 		})
 
@@ -386,5 +395,19 @@ describe("CustomerChatService (CNV-1)", () => {
 			expect(trackingService.answer).not.toHaveBeenCalled()
 			expect(conversationService.recordTurn).not.toHaveBeenCalled()
 		})
+	})
+})
+
+describe("classifyInquiryCategory (ESC-1 queue metadata)", () => {
+	it.each([
+		["Where is my parcel?", "tracking"],
+		["How much is postage?", "rates"],
+		["How do I apply for a Postal ID?", "postal-id"],
+		["Is this payment link a scam?", "scam"],
+		["I want to file a complaint", "complaint"],
+		["What time does the post office open?", "service-info"],
+		["Please speak to a person", "other"],
+	])("classifies %s as %s", (query, expected) => {
+		expect(classifyInquiryCategory(query)).toBe(expected)
 	})
 })

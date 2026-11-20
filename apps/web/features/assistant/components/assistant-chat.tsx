@@ -8,6 +8,7 @@ import { ApiError } from "@/core/lib/api-error"
 
 import {
 	RateLimitedError,
+	requestHumanHandoff,
 	SESSION_STORAGE_KEY,
 	startSession,
 	streamQuestion,
@@ -33,6 +34,7 @@ interface StoredChat {
 	accepted: boolean
 	conversationId?: string
 	turns: Turn[]
+	handoffDone?: boolean
 }
 
 function readStoredSession(): StoredSession | null {
@@ -89,6 +91,9 @@ export function AssistantChat() {
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
 	const [waitSeconds, setWaitSeconds] = useState(0)
+	const [handoffDone, setHandoffDone] = useState(false)
+	const [handoffReason, setHandoffReason] = useState("I want to speak with a person")
+	const [handoffBusy, setHandoffBusy] = useState(false)
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
 
@@ -99,6 +104,7 @@ export function AssistantChat() {
 			setAccepted(stored.accepted)
 			setConversationId(stored.conversationId)
 			setTurns(stored.turns.filter(turn => !turn.streaming))
+			setHandoffDone(stored.handoffDone ?? false)
 		}
 		setReady(true)
 	}, [])
@@ -106,8 +112,8 @@ export function AssistantChat() {
 	// Save the chat whenever a turn settles.
 	useEffect(() => {
 		if (!ready || busy) return
-		storeChat({ accepted, conversationId, turns })
-	}, [accepted, busy, conversationId, ready, turns])
+		storeChat({ accepted, conversationId, turns, handoffDone })
+	}, [accepted, busy, conversationId, handoffDone, ready, turns])
 
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -157,7 +163,7 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0) return
+			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone) return
 
 			setQuestion("")
 			setError(null)
@@ -184,7 +190,11 @@ export function AssistantChat() {
 				const token = await ensureSession()
 				if (!hadSession) setConversationId(undefined)
 				try {
-					await streamQuestion({ query: asked, conversationId: hadSession ? conversationId : undefined }, token, handlers)
+					await streamQuestion(
+						{ query: asked, conversationId: hadSession ? conversationId : undefined },
+						token,
+						handlers
+					)
 				} catch (streamError) {
 					// An idle-expired or unknown session is recoverable exactly once:
 					// open a new session and ask again. A second 401 is a real error.
@@ -214,7 +224,30 @@ export function AssistantChat() {
 				setBusy(false)
 			}
 		},
-		[accepted, appendFinal, busy, conversationId, ensureSession, question, waitSeconds]
+		[accepted, appendFinal, busy, conversationId, ensureSession, handoffDone, question, waitSeconds]
+	)
+
+	const requestAgent = useCallback(
+		async (event: React.FormEvent) => {
+			event.preventDefault()
+			if (!conversationId || handoffBusy || handoffDone) return
+			setHandoffBusy(true)
+			setError(null)
+			try {
+				const sessionToken = await ensureSession()
+				await requestHumanHandoff({ conversationId, reason: handoffReason, sessionToken })
+				setHandoffDone(true)
+			} catch (caught) {
+				setError(
+					caught instanceof ApiError
+						? caught.message
+						: "We couldn't request an agent. Please try again."
+				)
+			} finally {
+				setHandoffBusy(false)
+			}
+		},
+		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason]
 	)
 
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
@@ -235,7 +268,12 @@ export function AssistantChat() {
 				<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
 				<p className="text-sm">
 					You are chatting with an AI assistant, not a person.{" "}
-					<a href={PRIVACY_NOTICE_URL} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+					<a
+						href={PRIVACY_NOTICE_URL}
+						target="_blank"
+						rel="noopener noreferrer"
+						className="text-primary underline underline-offset-2"
+					>
 						Privacy notice
 					</a>
 				</p>
@@ -255,7 +293,12 @@ export function AssistantChat() {
 					</p>
 					<p>
 						Read how your chat is handled in the{" "}
-						<a href={PRIVACY_NOTICE_URL} target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-2">
+						<a
+							href={PRIVACY_NOTICE_URL}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="text-primary underline underline-offset-2"
+						>
 							privacy notice
 						</a>
 						.
@@ -263,7 +306,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
 					>
 						I understand, start chat
 					</button>
@@ -317,6 +360,34 @@ export function AssistantChat() {
 						<div ref={endRef} />
 					</div>
 
+					{handoffDone ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							Your request is in the queue. A PHLPost agent will join when available.
+						</p>
+					) : conversationId && turns.length > 0 ? (
+						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
+							<label className="min-w-0 flex-1 text-sm">
+								<span className="mb-1 block">Need a person?</span>
+								<select
+									value={handoffReason}
+									onChange={event => setHandoffReason(event.target.value)}
+									className="bg-background min-h-11 w-full rounded-lg border px-3"
+								>
+									<option>I want to speak with a person</option>
+									<option>I still need help</option>
+									<option>The answer did not solve my question</option>
+								</select>
+							</label>
+							<button
+								type="submit"
+								className="bg-secondary text-secondary-foreground min-h-11 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
+								disabled={handoffBusy || busy}
+							>
+								{handoffBusy ? "Requesting…" : "Confirm human handoff"}
+							</button>
+						</form>
+					) : null}
+
 					{waitSeconds > 0 ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
 							You&apos;re sending messages too quickly. Please wait {waitSeconds} second
@@ -342,13 +413,13 @@ export function AssistantChat() {
 							placeholder="How do I send Express Mail?"
 							autoComplete="off"
 							maxLength={1000}
-							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:ring-2 focus-visible:outline-none sm:text-sm"
-							disabled={busy || waitSeconds > 0}
+							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
+							disabled={busy || waitSeconds > 0 || handoffDone}
 						/>
 						<button
 							type="submit"
-							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-50"
-							disabled={busy || waitSeconds > 0 || question.trim() === ""}
+							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
+							disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
 						>
 							{busy ? "Asking…" : "Ask"}
 						</button>

@@ -237,7 +237,14 @@ class ResponseCache:
             exact_digest, filters_digest = self._digests(query, filters)
             entry = {
                 key: payload[key]
-                for key in ("answer", "citations", "model", "isIDontKnow", "degraded")
+                for key in (
+                    "answer",
+                    "citations",
+                    "model",
+                    "isIDontKnow",
+                    "degraded",
+                    "confidence",
+                )
                 if key in payload
             }
             ttl = self._jittered_ttl()

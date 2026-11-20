@@ -21,6 +21,7 @@ from app.generation import (
     I_DONT_KNOW_ANSWER,
     ChatClient,
     GenerationService,
+    calculate_answer_confidence,
     get_chat_client,
     get_conversations_repository,
 )
@@ -42,6 +43,45 @@ PRINCIPAL = ServicePrincipal(
 DOC_ID = str(uuid.uuid4())
 OTHER_DOC_ID = str(uuid.uuid4())
 SOURCES = {DOC_ID: "upload://handbook.pdf", OTHER_DOC_ID: "upload://policy.pdf"}
+
+
+def test_answer_confidence_combines_retrieval_and_grounding():
+    chunks = [{"similarity": 0.61}, {"similarity": 0.82}]
+    citations = [{"chunkId": "chunk-1"}]
+
+    assert calculate_answer_confidence(
+        chunks,
+        citations=citations,
+        degraded=False,
+        is_i_dont_know=False,
+        grounding={"grounded": True},
+    ) == 0.82
+    assert calculate_answer_confidence(
+        chunks,
+        citations=citations,
+        degraded=False,
+        is_i_dont_know=False,
+        grounding={"grounded": False, "outcome": "draft"},
+    ) == 0.0
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"citations": []},
+        {"degraded": True},
+        {"is_i_dont_know": True},
+    ],
+)
+def test_answer_confidence_is_zero_without_a_grounded_answer(overrides):
+    options = {
+        "citations": [{"chunkId": "chunk-1"}],
+        "degraded": False,
+        "is_i_dont_know": False,
+        "grounding": None,
+    }
+    options.update(overrides)
+    assert calculate_answer_confidence([{"similarity": 0.75}], **options) == 0.0
 
 
 def make_chunk(
@@ -154,6 +194,8 @@ async def test_grounded_answer_with_citations_resolving_to_source_and_section(se
     assert result["answer"] == client.answer
     assert result["isIDontKnow"] is False
     assert result["degraded"] is False
+    assert result["confidence"] == 0.9
+    assert result["retrievedChunks"][0]["similarity"] == 0.9
     assert result["model"] == "gpt-4o-mini"
     assert result["tokenUsage"] == {
         "promptTokens": 100,
@@ -616,6 +658,8 @@ async def test_stream_yields_tokens_then_final_with_citations_and_usage(settings
     # Progressive deltas reassemble to the final answer...
     assert "".join(d["delta"] for d in token_events) == "Streamed answer. [1]"
     assert final["answer"] == "Streamed answer. [1]"
+    assert final["confidence"] == 0.9
+    assert final["retrievedChunks"][0]["similarity"] == 0.9
     # ...and the persisted assistant message matches the streamed content.
     assert repository.turns[0]["answer"] == "Streamed answer. [1]"
 

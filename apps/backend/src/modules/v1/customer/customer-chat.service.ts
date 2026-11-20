@@ -17,6 +17,31 @@ import { ConversationService } from "./conversation.service"
 export const CUSTOMER_REFUSAL_ANSWER =
 	"I can't help with that request. Ask me about PHLPost services and I'll answer from our published information."
 
+/** Domain inquiry categories (DOMAIN-MODEL §1). */
+export const INQUIRY_CATEGORY_CODES = [
+	"tracking",
+	"rates",
+	"postal-id",
+	"service-info",
+	"scam",
+	"complaint",
+	"other",
+] as const
+
+/** Classifies the screened customer text into the domain's supported categories. */
+export function classifyInquiryCategory(query: string): (typeof INQUIRY_CATEGORY_CODES)[number] {
+	const value = query.toLowerCase()
+	if (/\b(track|tracking|parcel|package|mail item)\b/.test(value)) return "tracking"
+	if (/\b(rate|rates|price|cost|postage)\b/.test(value)) return "rates"
+	if (/\bpostal[ -]?id\b/.test(value)) return "postal-id"
+	if (/\b(scam|fraud|phishing|suspicious)\b/.test(value)) return "scam"
+	if (/\b(complaint|complain|unhappy|bad service)\b/.test(value)) return "complaint"
+	if (/\b(service|office|branch|hours|deliver|delivery|send|post)\b/.test(value)) {
+		return "service-info"
+	}
+	return "other"
+}
+
 /**
  * A stored turn, as the customer is shown it. `conversationId` is added by the
  * caller, which is the layer that resolved the conversation.
@@ -32,6 +57,7 @@ export interface RagAnswerEnvelope {
 	tokenUsage?: unknown
 	retrievedChunks?: unknown
 	usedChunks?: unknown
+	confidence?: unknown
 	traceId?: unknown
 	/**
 	 * The screened (sanitized + PII-masked) question, as produced by the RAG
@@ -95,6 +121,7 @@ export class CustomerChatService {
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery: storedQuery,
+			inquiryCategory: classifyInquiryCategory(screenedQuery),
 			answer: reply,
 			answerKind: "tool",
 			traceId: input.correlationId,
@@ -183,8 +210,13 @@ export class CustomerChatService {
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId,
 			maskedQuery: maskedQuery ?? "",
+			inquiryCategory: classifyInquiryCategory(maskedQuery ?? ""),
 			answer,
 			answerKind,
+			confidence:
+				typeof envelope.confidence === "number" && Number.isFinite(envelope.confidence)
+					? Math.max(0, Math.min(1, envelope.confidence))
+					: null,
 			citations,
 			retrievedChunks: envelope.retrievedChunks ?? null,
 			usedChunks: envelope.usedChunks ?? null,
