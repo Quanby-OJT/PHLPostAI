@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common"
 
+import { AnalyticsModule } from "@/modules/v1/analytics/analytics.module"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
@@ -25,7 +26,7 @@ import { CustomerController } from "./customer.controller"
  * `ChannelsService` (CHN-1) backs the allowed-origin guard on the customer routes.
  */
 @Module({
-	imports: [KnowledgeModule, TrackingModule],
+	imports: [KnowledgeModule, TrackingModule, AnalyticsModule],
 	controllers: [CustomerController],
 	providers: [
 		CustomerSessionService,
@@ -35,6 +36,7 @@ import { CustomerController } from "./customer.controller"
 		ChannelsService,
 		AllowedOriginGuard,
 	],
+
 	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard],
 })
 export class CustomerModule {}

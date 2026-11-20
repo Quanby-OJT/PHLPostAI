@@ -1,10 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
-import { and, eq, sql } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 
 import type { CustomerAnswerKind } from "@repo/contracts"
-import { conversations, messages } from "@repo/db/schema"
+import { conversations, customerSessions, messages } from "@repo/db/schema"
 
 import { db, type DbTransaction } from "@/common/database/database.client"
+import { EventService } from "@/modules/v1/analytics/event.service"
 
 export type ConversationRow = typeof conversations.$inferSelect
 export type MessageRow = typeof messages.$inferSelect
@@ -23,6 +24,8 @@ export interface RecordTurnInput {
 	tokenUsage?: unknown
 	traceId?: string | null
 	modelUsed?: string | null
+	category?: string
+	additionalEventKinds?: ("tracking_lookup" | "escalation_requested")[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
 		tx: DbTransaction,
@@ -43,6 +46,8 @@ export interface RecordTurnInput {
  */
 @Injectable()
 export class ConversationService {
+	constructor(private readonly eventService: EventService) {}
+
 	/**
 	 * Transition a customer conversation when an escalation is created. This
 	 * method is intentionally called inside EscalationService's transaction so
@@ -50,10 +55,38 @@ export class ConversationService {
 	 * writer of conversation status.
 	 */
 	async markEscalationRequested(tx: DbTransaction, conversationId: string): Promise<void> {
+		const [eventContext] = await tx
+			.select({
+				channelCode: conversations.channelCode,
+				language: customerSessions.language,
+			})
+			.from(conversations)
+			.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+			.where(eq(conversations.id, conversationId))
+			.limit(1)
+		const [latestCustomerMessage] = await tx
+			.select({ category: messages.inquiryCategory })
+			.from(messages)
+			.where(and(eq(messages.conversationId, conversationId), eq(messages.role, "user")))
+			.orderBy(desc(messages.turnIndex))
+			.limit(1)
+		if (!eventContext?.channelCode || !eventContext.language) {
+			throw new Error("Could not resolve the conversation event context")
+		}
 		await tx
 			.update(conversations)
 			.set({ status: "escalation_requested" })
 			.where(eq(conversations.id, conversationId))
+		await this.eventService.record(
+			{
+				conversationId,
+				kind: "escalation_requested",
+				category: latestCustomerMessage?.category ?? "other",
+				language: eventContext.language,
+				channelCode: eventContext.channelCode,
+			},
+			tx
+		)
 	}
 
 	/**
@@ -63,18 +96,31 @@ export class ConversationService {
 	async startCustomerConversation(input: {
 		customerSessionId: string
 		channelCode: string
+		language: string
 	}): Promise<ConversationRow> {
-		const [row] = await db
-			.insert(conversations)
-			.values({
-				userId: null,
-				customerSessionId: input.customerSessionId,
-				channelCode: input.channelCode,
-				status: "ai_active",
-			})
-			.returning()
-		if (!row) throw new Error("Failed to open conversation")
-		return row
+		return db.transaction(async tx => {
+			const [row] = await tx
+				.insert(conversations)
+				.values({
+					userId: null,
+					customerSessionId: input.customerSessionId,
+					channelCode: input.channelCode,
+					status: "ai_active",
+				})
+				.returning()
+			if (!row) throw new Error("Failed to open conversation")
+			await this.eventService.record(
+				{
+					conversationId: row.id,
+					kind: "conversation_started",
+					category: "other",
+					language: input.language,
+					channelCode: input.channelCode,
+				},
+				tx
+			)
+			return row
+		})
 	}
 
 	/**
@@ -126,7 +172,6 @@ export class ConversationService {
 			if (conversation.status !== "ai_active") {
 				throw new ConflictException("A human agent has been requested for this conversation")
 			}
-
 			const [turnRow] = await tx
 				.select({
 					nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1`,
@@ -174,6 +219,42 @@ export class ConversationService {
 
 			if (!customerRow || !assistantRow) throw new Error("Failed to record turn")
 			const ids = { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
+			const [eventContext] = await tx
+				.select({
+					channelCode: conversations.channelCode,
+					language: customerSessions.language,
+				})
+				.from(conversations)
+				.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+				.where(eq(conversations.id, input.conversationId))
+				.limit(1)
+			const channelCode = eventContext?.channelCode
+			const language = eventContext?.language
+			if (!channelCode || !language)
+				throw new Error("Could not resolve the conversation event context")
+			const category = input.category ?? input.inquiryCategory ?? "other"
+			await this.eventService.record(
+				{
+					conversationId: input.conversationId,
+					kind: "message_answered",
+					category,
+					language,
+					channelCode,
+				},
+				tx
+			)
+			for (const kind of input.additionalEventKinds ?? []) {
+				await this.eventService.record(
+					{
+						conversationId: input.conversationId,
+						kind,
+						category,
+						language,
+						channelCode,
+					},
+					tx
+				)
+			}
 			if (input.onRecorded) await input.onRecorded(tx, ids)
 			return ids
 		})

@@ -188,6 +188,15 @@ export { knowledgeContract } from "./modules/v1/knowledge/knowledge.contract.js"
 export * from "./modules/v1/knowledge/knowledge.schema.js"
 
 export { customerContract } from "./modules/v1/customer/customer.contract.js"
+export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
+export {
+	InteractionEventKindSchema,
+	AnalyticsOverviewSchema,
+} from "./modules/v1/analytics/analytics.schema.js"
+export type {
+	InteractionEventKind,
+	AnalyticsOverview,
+} from "./modules/v1/analytics/analytics.schema.js"
 export {
 	CUSTOMER_CHANNEL_CODES,
 	CUSTOMER_LANGUAGES,

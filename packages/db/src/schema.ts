@@ -556,6 +556,32 @@ export const escalations = createTable(
 )
 
 /**
+ * Append-only analytics fact (DOMAIN-MODEL `interaction_events`, ANL-1).
+ * `payload` is reserved for validated structured metadata; ANL-1 records null
+ * so no customer text can enter the analytics event stream.
+ */
+export const interactionEvents = createTable(
+	"interaction_events",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		conversationId: t
+			.uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "restrict" }),
+		kind: t.text("kind").notNull(),
+		category: t.text("category"),
+		language: t.text("language").notNull(),
+		channelCode: t.text("channel_code").notNull(),
+		payload: t.jsonb("payload").$type<Record<string, unknown> | null>(),
+		occurredAt: t.timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("interaction_events_occurred_at_idx").on(t.occurredAt),
+		index("interaction_events_kind_occurred_at_idx").on(t.kind, t.occurredAt),
+	]
+)
+
+/**
  * Embedding cache (IN-6, Flow A cache branch — PRD decision: Postgres, not
  * Redis). Keyed on (content_hash, model): identical content is never
  * re-embedded, and IN-8's new-model pass is safe by construction (a new

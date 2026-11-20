@@ -141,7 +141,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `handoff_connectors`, `handoff_deliveries` | connector `code`, `kind`, `config`; delivery `escalation_id`, `status`, `attempts`, `external_ref?` | Outbox: `queued → delivered`, or `failed` after retries. |
 | `knowledge_gaps` | `label`, `category`, `language`, `question_count`, `examples_masked`, `status`, `draft_article_id?` | Rebuilt by the grouping job; `open → in_progress → resolved`. |
 | `feedback` | `conversation_id` (unique), `rating`, `comment_masked` | One per Conversation. |
-| `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. |
+| `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. ANL-1 kinds: `conversation_started`, `message_answered`, `tracking_lookup`, `escalation_requested`. `category` is an Inquiry Category code (`tracking`, `rates`, `postal-id`, `service-info`, `scam`, `complaint`, `other`); use `other` when classification is unavailable. `payload` is null unless validated non-text metadata is available; never place customer text or other free text in an event. |
 | `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. |
 | `dashboard_layouts` | `user_id?`, `tiles` (jsonb) | A null `user_id` is the default layout. |
 | `kpi_definitions` | `code`, `method` (jsonb), `baseline`, `target`, `approved_by`, `effective_from` | Versioned; reports cite the version used. |

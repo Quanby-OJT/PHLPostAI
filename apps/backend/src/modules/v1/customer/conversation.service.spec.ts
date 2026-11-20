@@ -1,49 +1,86 @@
 import { ConversationService } from "./conversation.service"
 
+jest.mock("@repo/contracts", () => ({}))
 jest.mock("@repo/db/schema", () => ({
-	conversations: { id: "id", customerSessionId: "customer_session_id", status: "status" },
-	messages: { id: "id", conversationId: "conversation_id", turnIndex: "turn_index" },
+	conversations: {
+		name: "conversations",
+		id: "id",
+		customerSessionId: "customer_session_id",
+		status: "status",
+		channelCode: "channel_code",
+	},
+	customerSessions: { id: "id", language: "language" },
+	messages: {
+		name: "messages",
+		id: "id",
+		conversationId: "conversation_id",
+		turnIndex: "turn_index",
+		inquiryCategory: "inquiry_category",
+		role: "role",
+	},
 }))
 
 jest.mock("drizzle-orm", () => ({
 	and: (...parts: unknown[]) => ({ and: parts }),
 	eq: (column: unknown, value: unknown) => ({ eq: [column, value] }),
+	desc: (column: unknown) => ({ desc: column }),
 	sql: () => "sql-fragment",
 }))
 
 const inserted: { table: string; values: Record<string, unknown> }[] = []
 let maxTurnIndex: number | null = null
 let insertCounter = 0
-let transactionSelectCalls = 0
 let lockedConversationStatus = "ai_active"
 
-function chainedInsert() {
+function chainedInsert(table?: { name?: string }) {
 	return {
 		values: (values: Record<string, unknown>) => {
 			insertCounter += 1
-			inserted.push({ table: "messages", values })
-			return { returning: async () => [{ id: `message-${insertCounter}` }] }
+			inserted.push({ table: table?.name ?? "messages", values })
+			return {
+				returning: async () => [
+					{ id: table?.name === "conversations" ? "conversation-1" : `message-${insertCounter}` },
+				],
+			}
 		},
 	}
 }
 
 const tx = {
-	select: () => {
-		const call = transactionSelectCalls++
-		if (call === 0) {
+	select: (selection: Record<string, unknown> = {}) => {
+		if ("status" in selection) {
 			return {
 				from: () => ({
 					where: () => ({ for: async () => [{ status: lockedConversationStatus }] }),
 				}),
 			}
 		}
-		return {
-			from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }),
+		if ("nextTurn" in selection) {
+			return { from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }) }
 		}
+		if ("channelCode" in selection) {
+			return {
+				from: () => ({
+					innerJoin: () => ({
+						where: () => ({ limit: async () => [{ channelCode: "web-widget", language: "en" }] }),
+					}),
+				}),
+			}
+		}
+		if ("category" in selection) {
+			return {
+				from: () => ({
+					where: () => ({
+						orderBy: () => ({ limit: async () => [{ category: "rates" }] }),
+					}),
+				}),
+			}
+		}
+		throw new Error("Unexpected transaction select")
 	},
 	insert: chainedInsert,
+	update: () => ({ set: () => ({ where: async () => undefined }) }),
 }
-
 jest.mock("@/common/database/database.client", () => ({
 	db: {
 		transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback(tx),
@@ -66,13 +103,14 @@ let ownedRows: unknown[] = []
 
 describe("ConversationService (CNV-1 sole writer)", () => {
 	let service: ConversationService
+	let eventService: { record: jest.Mock }
 
 	beforeEach(() => {
-		service = new ConversationService()
+		eventService = { record: jest.fn().mockResolvedValue(undefined) }
+		service = new ConversationService(eventService as never)
 		inserted.length = 0
 		insertCounter = 0
 		maxTurnIndex = null
-		transactionSelectCalls = 0
 		lockedConversationStatus = "ai_active"
 		ownedRows = []
 	})
@@ -82,6 +120,7 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 			await service.startCustomerConversation({
 				customerSessionId: "session-1",
 				channelCode: "web",
+				language: "en",
 			})
 
 			expect(inserted[0]).toEqual({
@@ -93,6 +132,16 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 					status: "ai_active",
 				},
 			})
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "conversation_started",
+					category: "other",
+					language: "en",
+					channelCode: "web",
+				},
+				tx
+			)
 		})
 	})
 
@@ -179,6 +228,16 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 				customerMessageId: "message-1",
 				assistantMessageId: "message-2",
 			})
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "message_answered",
+					category: "other",
+					language: "en",
+					channelCode: "web-widget",
+				},
+				tx
+			)
 		})
 
 		it("numbers the first turn of a conversation from zero", async () => {
@@ -236,6 +295,23 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 				assistantMessageId: "message-2",
 			})
 			expect(inserted[1]?.values.answerKind).toBe("tool")
+		})
+	})
+
+	describe("escalation analytics event", () => {
+		it("records the event with the last inquiry category and conversation context", async () => {
+			await service.markEscalationRequested(tx as never, "conversation-1")
+
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "escalation_requested",
+					category: "rates",
+					language: "en",
+					channelCode: "web-widget",
+				},
+				tx
+			)
 		})
 	})
 })

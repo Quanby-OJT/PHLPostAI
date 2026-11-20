@@ -124,6 +124,8 @@ export class CustomerChatService {
 			inquiryCategory: classifyInquiryCategory(screenedQuery),
 			answer: reply,
 			answerKind: "tool",
+			category: "tracking",
+			additionalEventKinds: lookup ? ["tracking_lookup"] : [],
 			traceId: input.correlationId,
 			onRecorded: lookup
 				? (tx, ids) =>

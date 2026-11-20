@@ -334,6 +334,7 @@ export class CustomerController {
 			return this.conversationService.startCustomerConversation({
 				customerSessionId: session.id,
 				channelCode: session.channelCode,
+				language: session.language,
 			})
 		}
 
