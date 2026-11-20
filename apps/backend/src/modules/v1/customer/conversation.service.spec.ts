@@ -231,7 +231,7 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 			expect(eventService.record).toHaveBeenCalledWith(
 				{
 					conversationId: "conversation-1",
-					kind: "message_answered",
+					kind: "answer_sent",
 					category: "other",
 					language: "en",
 					channelCode: "web-widget",
@@ -305,7 +305,7 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 			expect(eventService.record).toHaveBeenCalledWith(
 				{
 					conversationId: "conversation-1",
-					kind: "escalation_requested",
+					kind: "escalated",
 					category: "rates",
 					language: "en",
 					channelCode: "web-widget",

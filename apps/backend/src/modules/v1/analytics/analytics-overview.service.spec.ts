@@ -40,7 +40,12 @@ describe("AnalyticsOverviewService", () => {
 			escalations: 1,
 		})
 		expect(from).toHaveBeenCalledWith(mockTable)
-		expect(JSON.stringify(where.mock.calls[0]?.[0])).toContain("Asia/Manila")
+		const query = JSON.stringify({ selection: mockSelect.mock.calls[0]?.[0], where: where.mock.calls[0]?.[0] })
+		expect(query).toContain("Asia/Manila")
+		expect(query).toContain("answer_sent")
+		expect(query).toContain("message_answered")
+		expect(query).toContain("escalated")
+		expect(query).toContain("escalation_requested")
 	})
 
 	it("returns zero counts when the aggregate returns no row", async () => {

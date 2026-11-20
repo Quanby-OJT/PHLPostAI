@@ -25,7 +25,7 @@ describe("EventService", () => {
 	it("persists only the event codes and leaves payload empty", async () => {
 		await service.record({
 			conversationId: "conversation-1",
-			kind: "message_answered",
+			kind: "answer_sent",
 			category: "tracking",
 			language: "en",
 			channelCode: "web-widget",
@@ -34,7 +34,7 @@ describe("EventService", () => {
 		expect(mockInserted).toEqual([
 			{
 				conversationId: "conversation-1",
-				kind: "message_answered",
+				kind: "answer_sent",
 				category: "tracking",
 				language: "en",
 				channelCode: "web-widget",
@@ -47,7 +47,7 @@ describe("EventService", () => {
 		await expect(
 			service.record({
 				conversationId: "conversation-1",
-				kind: "message_answered",
+				kind: "answer_sent",
 				category: "my tracking number is 123",
 				language: "en",
 				channelCode: "web-widget",
@@ -60,7 +60,7 @@ describe("EventService", () => {
 		await expect(
 			service.record({
 				conversationId: "conversation-1",
-				kind: "message_answered",
+				kind: "answer_sent",
 				category: "other",
 				language: "customer text",
 				channelCode: "web-widget",
@@ -70,7 +70,7 @@ describe("EventService", () => {
 		await expect(
 			service.record({
 				conversationId: "conversation-1",
-				kind: "message_answered",
+				kind: "answer_sent",
 				category: "other",
 				language: "en",
 				channelCode: "please tell me a secret",

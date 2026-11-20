@@ -25,7 +25,7 @@ export interface RecordTurnInput {
 	traceId?: string | null
 	modelUsed?: string | null
 	category?: string
-	additionalEventKinds?: ("tracking_lookup" | "escalation_requested")[]
+	additionalEventKinds?: "tracking_lookup"[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
 		tx: DbTransaction,
@@ -80,7 +80,7 @@ export class ConversationService {
 		await this.eventService.record(
 			{
 				conversationId,
-				kind: "escalation_requested",
+				kind: "escalated",
 				category: latestCustomerMessage?.category ?? "other",
 				language: eventContext.language,
 				channelCode: eventContext.channelCode,
@@ -236,7 +236,7 @@ export class ConversationService {
 			await this.eventService.record(
 				{
 					conversationId: input.conversationId,
-					kind: "message_answered",
+					kind: "answer_sent",
 					category,
 					language,
 					channelCode,

@@ -3,9 +3,9 @@ import { z } from "zod"
 /** Event kinds are a closed vocabulary; new kinds are added by later tickets. */
 export const InteractionEventKindSchema = z.enum([
 	"conversation_started",
-	"message_answered",
+	"answer_sent",
 	"tracking_lookup",
-	"escalation_requested",
+	"escalated",
 ])
 
 /** Daily counts derived only from the append-only interaction_events table. */

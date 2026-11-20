@@ -14,9 +14,9 @@ export class AnalyticsOverviewService {
 			.select({
 				date: sql<string>`to_char(now() at time zone 'Asia/Manila', 'YYYY-MM-DD')`,
 				conversations: sql<number>`count(*) filter (where ${interactionEvents.kind} = 'conversation_started')::int`,
-				answers: sql<number>`count(*) filter (where ${interactionEvents.kind} = 'message_answered')::int`,
+				answers: sql<number>`count(*) filter (where ${interactionEvents.kind} in ('answer_sent', 'message_answered'))::int`,
 				trackingLookups: sql<number>`count(*) filter (where ${interactionEvents.kind} = 'tracking_lookup')::int`,
-				escalations: sql<number>`count(*) filter (where ${interactionEvents.kind} = 'escalation_requested')::int`,
+				escalations: sql<number>`count(*) filter (where ${interactionEvents.kind} in ('escalated', 'escalation_requested'))::int`,
 			})
 			.from(interactionEvents).where(sql`
 				${interactionEvents.occurredAt} >= (date_trunc('day', now() at time zone 'Asia/Manila') at time zone 'Asia/Manila')
