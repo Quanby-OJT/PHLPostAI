@@ -3,6 +3,8 @@
 import Link from "next/link"
 import {
 	ArrowRight01Icon,
+	BubbleChatIcon,
+	ChartLineData01Icon,
 	SecurityCheckIcon,
 	UserGroupIcon,
 	UserMultipleIcon,
@@ -18,6 +20,7 @@ import {
 	CardTitle,
 } from "@/core/components/ui/card"
 import { Skeleton } from "@/core/components/ui/skeleton"
+import { useAnalyticsOverviewQuery } from "@/features/dashboard/api/analytics.hooks"
 import { canAccess, type AccessProfile } from "@/features/dashboard/lib/access"
 import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
 import { useRolesQuery, useUsersQuery } from "@/features/user-management/api/rbac.hooks"
@@ -37,6 +40,10 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 
 	const users = useUsersQuery()
 	const roles = useRolesQuery()
+	const canViewAnalytics = canAccess(access, {
+		requiredPermission: "analytics.dashboard.view",
+	})
+	const analytics = useAnalyticsOverviewQuery(canViewAnalytics)
 
 	const firstName = user.name?.trim().split(/\s+/)[0] || "there"
 	const quickActions = getAccessibleNavItems(access).filter(item => item.href !== "/dashboard")
@@ -60,6 +67,42 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 			</header>
 
 			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				{canViewAnalytics ? (
+					<>
+						<StatCard
+							icon={ChartLineData01Icon}
+							label="Today's conversations"
+							value={analytics.data?.conversations}
+							hint={analytics.data ? `As of ${analytics.data.date} (Manila)` : "Today (Manila)"}
+							isLoading={analytics.isLoading}
+							isError={analytics.isError}
+						/>
+						<StatCard
+							icon={BubbleChatIcon}
+							label="Today's answers"
+							value={analytics.data?.answers}
+							hint="Recorded assistant answers"
+							isLoading={analytics.isLoading}
+							isError={analytics.isError}
+						/>
+						<StatCard
+							icon={ArrowRight01Icon}
+							label="Tracking lookups"
+							value={analytics.data?.trackingLookups}
+							hint="Recorded tracking lookups"
+							isLoading={analytics.isLoading}
+							isError={analytics.isError}
+						/>
+						<StatCard
+							icon={UserGroupIcon}
+							label="Escalations"
+							value={analytics.data?.escalations}
+							hint="Recorded escalation requests"
+							isLoading={analytics.isLoading}
+							isError={analytics.isError}
+						/>
+					</>
+				) : null}
 				<StatCard
 					icon={SecurityCheckIcon}
 					label="Your permissions"

@@ -141,13 +141,19 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `handoff_connectors`, `handoff_deliveries` | connector `code`, `kind`, `config`; delivery `escalation_id`, `status`, `attempts`, `external_ref?` | Outbox: `queued → delivered`, or `failed` after retries. |
 | `knowledge_gaps` | `label`, `category`, `language`, `question_count`, `examples_masked`, `status`, `draft_article_id?` | Rebuilt by the grouping job; `open → in_progress → resolved`. |
 | `feedback` | `conversation_id` (unique), `rating`, `comment_masked` | One per Conversation. |
-| `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. |
+| `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. ANL-1 records `conversation_started`, `answer_sent`, `tracking_lookup`, and `escalated`. `category` is an Inquiry Category code (`tracking`, `rates`, `postal-id`, `service-info`, `scam`, `complaint`, `other`); use `other` when classification is unavailable. `payload` is null unless validated non-text metadata is available; never place customer text or other free text in an event. |
 | `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. |
 | `dashboard_layouts` | `user_id?`, `tiles` (jsonb) | A null `user_id` is the default layout. |
 | `kpi_definitions` | `code`, `method` (jsonb), `baseline`, `target`, `approved_by`, `effective_from` | Versioned; reports cite the version used. |
 | `management_summaries` | `period`, `draft`, `figures` (jsonb), `status`, `approved_by?` | `draft → approved`, or `discarded`. |
 | `privacy_requests` | `kind` (`access`/`delete`), `session_token_hash`, `status`, `handled_by` | `received → fulfilled`, or `rejected` with reason. |
 | `export_bundles` | `scope` (jsonb), `status`, `file_ref`, `checksum`, `requested_by` | Files expire; the request stays in the audit trail. |
+
+### Interaction Event kinds
+
+`interaction_events.kind` is a Zod enum in `packages/contracts` (ANL-1). These names are binding; a ticket that needs a new kind adds it here and to the enum.
+
+`conversation_started` · `message_received` · `answer_sent` · `answer_blocked` · `injection_refused` · `throttled` · `tracking_lookup` · `escalated` · `escalation_claimed` · `escalation_transferred` · `escalation_missed` · `escalation_resolved` · `feedback_given` · `sentiment_labelled` · `scam_assessed` · `scam_reported` · `conversation_closed`
 
 ## 5. State machines
 

@@ -353,6 +353,8 @@ describe("CustomerChatService (CNV-1)", () => {
 					maskedQuery: "where is [TRACKING_NUMBER]",
 					answer: "Status: In transit",
 					answerKind: "tool",
+					category: "tracking",
+					additionalEventKinds: ["tracking_lookup"],
 				})
 			)
 			const tx = { insert: jest.fn() }
