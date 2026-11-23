@@ -4,7 +4,14 @@ import { useState } from "react"
 
 import { Button } from "@/core/components/ui/button"
 
-import { useEscalationDetailQuery, useEscalationQueueQuery } from "../api/escalations.hooks"
+import {
+	useClaimEscalationMutation,
+	useEscalationDetailQuery,
+	useEscalationLiveEvents,
+	useEscalationQueueQuery,
+	useReplyEscalationMutation,
+	useResolveEscalationMutation,
+} from "../api/escalations.hooks"
 
 function waitingLabel(seconds: number): string {
 	if (seconds < 60) return `${seconds}s`
@@ -21,6 +28,16 @@ export function EscalationInbox() {
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const selected = selectedId ?? queue.data?.[0]?.id ?? null
 	const detail = useEscalationDetailQuery(selected)
+	const claim = useClaimEscalationMutation(selected ?? "")
+	const reply = useReplyEscalationMutation(selected ?? "")
+	const resolve = useResolveEscalationMutation(selected ?? "")
+	const [replyText, setReplyText] = useState("")
+	const [outcomeNote, setOutcomeNote] = useState("")
+	useEscalationLiveEvents(
+		selected,
+		Boolean(detail.data?.canHandle && detail.data.status === "claimed")
+	)
+	const actionError = claim.error ?? reply.error ?? resolve.error
 
 	return (
 		<section className="grid min-h-[34rem] gap-4 lg:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.5fr)]">
@@ -86,15 +103,34 @@ export function EscalationInbox() {
 								{pretty(detail.data.category)} · {pretty(detail.data.language)}
 							</p>
 							<h2 className="mt-1 font-semibold">{detail.data.reason}</h2>
+							<p role="status" className="mt-1 text-sm">
+								{detail.data.status === "queued"
+									? "Waiting for an agent"
+									: detail.data.status === "claimed"
+										? "An agent has joined this chat"
+										: "This conversation is resolved"}
+							</p>
 							<p className="text-muted-foreground mt-1 text-xs">
 								Waiting{" "}
 								{waitingLabel(
 									Math.max(
 										0,
-										Math.floor((detail.dataUpdatedAt - new Date(detail.data.createdAt).getTime()) / 1000)
+										Math.floor(
+											(detail.dataUpdatedAt - new Date(detail.data.createdAt).getTime()) / 1000
+										)
 									)
 								)}
 							</p>
+							{detail.data.status === "queued" ? (
+								<Button
+									type="button"
+									className="mt-3"
+									disabled={claim.isPending}
+									onClick={() => claim.mutate()}
+								>
+									{claim.isPending ? "Claiming…" : "Claim conversation"}
+								</Button>
+							) : null}
 						</header>
 						<div
 							className="max-h-[32rem] space-y-4 overflow-y-auto p-4"
@@ -138,6 +174,66 @@ export function EscalationInbox() {
 								</article>
 							))}
 						</div>
+						{detail.data.status === "claimed" && detail.data.canHandle ? (
+							<div className="space-y-3 border-t p-4">
+								{actionError ? (
+									<p role="alert" className="text-destructive text-sm">
+										{actionError.message}
+									</p>
+								) : null}
+								<form
+									className="flex gap-2"
+									onSubmit={event => {
+										event.preventDefault()
+										const content = replyText.trim()
+										if (!content) return
+										reply.mutate(content, { onSuccess: () => setReplyText("") })
+									}}
+								>
+									<label className="sr-only" htmlFor="agent-reply">
+										Reply to customer
+									</label>
+									<textarea
+										id="agent-reply"
+										value={replyText}
+										onChange={event => setReplyText(event.target.value)}
+										maxLength={4000}
+										rows={2}
+										className="min-w-0 flex-1 rounded-md border p-2 text-sm"
+										placeholder="Write a reply as a PHLPost agent"
+									/>
+									<Button type="submit" disabled={reply.isPending || !replyText.trim()}>
+										{reply.isPending ? "Sending…" : "Send reply"}
+									</Button>
+								</form>
+								<form
+									className="flex flex-wrap gap-2"
+									onSubmit={event => {
+										event.preventDefault()
+										if (outcomeNote.trim()) resolve.mutate(outcomeNote.trim())
+									}}
+								>
+									<label className="sr-only" htmlFor="escalation-outcome">
+										Outcome note
+									</label>
+									<input
+										id="escalation-outcome"
+										value={outcomeNote}
+										onChange={event => setOutcomeNote(event.target.value)}
+										maxLength={2000}
+										className="min-w-0 flex-1 rounded-md border p-2 text-sm"
+										placeholder="Outcome note required to close"
+									/>
+									<Button
+										type="submit"
+										variant="outline"
+										disabled={resolve.isPending || !outcomeNote.trim()}
+									>
+										{resolve.isPending ? "Closing…" : "Resolve conversation"}
+									</Button>
+								</form>
+							</div>
+						) : null}
 					</>
 				) : null}
 			</div>

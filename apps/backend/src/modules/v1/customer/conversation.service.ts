@@ -48,6 +48,106 @@ export interface RecordTurnInput {
 export class ConversationService {
 	constructor(private readonly eventService: EventService) {}
 
+	/** The human claim transition, called inside EscalationService's row-lock transaction. */
+	async activateAgent(tx: DbTransaction, conversationId: string): Promise<void> {
+		await tx
+			.update(conversations)
+			.set({ status: "agent_active" })
+			.where(eq(conversations.id, conversationId))
+	}
+
+	/** Close a live agent conversation while preserving ConversationService ownership. */
+	async resolveByAgent(tx: DbTransaction, conversationId: string): Promise<void> {
+		await tx
+			.update(conversations)
+			.set({ status: "resolved_by_agent" })
+			.where(eq(conversations.id, conversationId))
+	}
+
+	/** Store a screened customer message while an escalation is queued or claimed. */
+	async recordCustomerMessage(input: {
+		conversationId: string
+		customerSessionId: string
+		maskedQuery: string
+	}): Promise<{ id: string; turnIndex: number }> {
+		return db.transaction(async tx => {
+			const [conversation] = await tx
+				.select({ status: conversations.status })
+				.from(conversations)
+				.where(
+					and(
+						eq(conversations.id, input.conversationId),
+						eq(conversations.customerSessionId, input.customerSessionId)
+					)
+				)
+				.for("update")
+			if (!conversation) throw new NotFoundException("Conversation not found")
+			if (
+				conversation.status !== "escalation_requested" &&
+				conversation.status !== "agent_active"
+			) {
+				throw new ConflictException("This conversation is not waiting for an agent")
+			}
+			const [indexRow] = await tx
+				.select({ nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1` })
+				.from(messages)
+				.where(eq(messages.conversationId, input.conversationId))
+			const turnIndex = indexRow?.nextTurn ?? 0
+			const [message] = await tx
+				.insert(messages)
+				.values({
+					conversationId: input.conversationId,
+					role: "user",
+					sender: "customer",
+					content: input.maskedQuery,
+					turnIndex,
+				})
+				.returning({ id: messages.id })
+			if (!message) throw new Error("Failed to record customer message")
+			return { id: message.id, turnIndex }
+		})
+	}
+
+	/** Append an agent reply. Caller holds the conversation lock and verifies assignment. */
+	async postAgentMessage(
+		tx: DbTransaction,
+		input: { conversationId: string; agentId: string; content: string }
+	): Promise<{ id: string; sender: "agent"; content: string; turnIndex: number; createdAt: Date }> {
+		const [conversation] = await tx
+			.select({ status: conversations.status })
+			.from(conversations)
+			.where(eq(conversations.id, input.conversationId))
+			.for("update")
+		if (!conversation) throw new NotFoundException("Conversation not found")
+		if (conversation.status !== "agent_active") {
+			throw new ConflictException("This conversation is not active with an agent")
+		}
+		const [indexRow] = await tx
+			.select({ nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1` })
+			.from(messages)
+			.where(eq(messages.conversationId, input.conversationId))
+		const turnIndex = indexRow?.nextTurn ?? 0
+		const [message] = await tx
+			.insert(messages)
+			.values({
+				conversationId: input.conversationId,
+				role: "assistant",
+				sender: "agent",
+				agentId: input.agentId,
+				content: input.content,
+				turnIndex,
+			})
+			.returning({ id: messages.id, createdAt: messages.createdAt })
+		if (!message) throw new Error("Failed to record agent reply")
+		return {
+			id: message.id,
+			sender: "agent",
+			content: input.content,
+			turnIndex,
+			createdAt: message.createdAt,
+		}
+	}
+
 	/**
 	 * Transition a customer conversation when an escalation is created. This
 	 * method is intentionally called inside EscalationService's transaction so

@@ -12,6 +12,9 @@ import {
 	SESSION_STORAGE_KEY,
 	startSession,
 	streamQuestion,
+	watchAgentConversation,
+	type AgentMessageEvent,
+	type AssistantStreamHandlers,
 	type StoredSession,
 } from "../api/assistant.client"
 
@@ -22,7 +25,8 @@ const PRIVACY_NOTICE_URL = "/privacy"
 const CHAT_STORAGE_KEY = "phlpost.assistant.chat"
 
 interface Turn {
-	sender: "customer" | "assistant"
+	id?: string
+	sender: "customer" | "assistant" | "agent"
 	content: string
 	sources?: CustomerAnswerSource[]
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
@@ -35,6 +39,8 @@ interface StoredChat {
 	conversationId?: string
 	turns: Turn[]
 	handoffDone?: boolean
+	agentJoined?: boolean
+	agentResolved?: boolean
 }
 
 function readStoredSession(): StoredSession | null {
@@ -92,6 +98,8 @@ export function AssistantChat() {
 	const [error, setError] = useState<string | null>(null)
 	const [waitSeconds, setWaitSeconds] = useState(0)
 	const [handoffDone, setHandoffDone] = useState(false)
+	const [agentJoined, setAgentJoined] = useState(false)
+	const [agentResolved, setAgentResolved] = useState(false)
 	const [handoffReason, setHandoffReason] = useState("I want to speak with a person")
 	const [handoffBusy, setHandoffBusy] = useState(false)
 	const endRef = useRef<HTMLDivElement>(null)
@@ -105,6 +113,8 @@ export function AssistantChat() {
 			setConversationId(stored.conversationId)
 			setTurns(stored.turns.filter(turn => !turn.streaming))
 			setHandoffDone(stored.handoffDone ?? false)
+			setAgentJoined(stored.agentJoined ?? false)
+			setAgentResolved(stored.agentResolved ?? false)
 		}
 		setReady(true)
 	}, [])
@@ -112,8 +122,50 @@ export function AssistantChat() {
 	// Save the chat whenever a turn settles.
 	useEffect(() => {
 		if (!ready || busy) return
-		storeChat({ accepted, conversationId, turns, handoffDone })
-	}, [accepted, busy, conversationId, handoffDone, ready, turns])
+		storeChat({ accepted, conversationId, turns, handoffDone, agentJoined, agentResolved })
+	}, [accepted, agentJoined, agentResolved, busy, conversationId, handoffDone, ready, turns])
+
+	useEffect(() => {
+		if (!ready || !handoffDone || !conversationId) return
+		const session = readStoredSession()
+		if (!session) return
+		const abort = new AbortController()
+		let resolved = false
+		void (async () => {
+			while (!abort.signal.aborted && !resolved) {
+				try {
+					await watchAgentConversation(
+						conversationId,
+						session.sessionToken,
+						{
+							onMessage: message => {
+								setTurns(previous =>
+									previous.some(turn => turn.id === message.id)
+										? previous
+										: [...previous, { id: message.id, sender: "agent", content: message.content }]
+								)
+							},
+							onStatus: status => {
+								if (status === "agent_active") setAgentJoined(true)
+								if (status === "resolved_by_agent") {
+									resolved = true
+									setAgentJoined(true)
+									setAgentResolved(true)
+								}
+							},
+						},
+						abort.signal
+					)
+				} catch {
+					if (abort.signal.aborted) break
+				}
+				if (!resolved && !abort.signal.aborted) {
+					await new Promise(resolve => window.setTimeout(resolve, 1000))
+				}
+			}
+		})()
+		return () => abort.abort()
+	}, [conversationId, handoffDone, ready])
 
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -163,7 +215,7 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone) return
+			if (!accepted || !asked || busy || waitSeconds > 0 || agentResolved) return
 
 			setQuestion("")
 			setError(null)
@@ -174,7 +226,7 @@ export function AssistantChat() {
 				{ sender: "assistant", content: "", streaming: true },
 			])
 
-			const handlers = {
+			const handlers: AssistantStreamHandlers = {
 				onToken: (delta: string) =>
 					setTurns(previous => {
 						const next = [...previous]
@@ -183,6 +235,11 @@ export function AssistantChat() {
 						return next
 					}),
 				onFinal: appendFinal,
+				onAgentMode: result => {
+					setConversationId(result.conversationId)
+					setHandoffDone(true)
+					setTurns(previous => (previous.at(-1)?.streaming ? previous.slice(0, -1) : previous))
+				},
 			}
 
 			try {
@@ -224,7 +281,16 @@ export function AssistantChat() {
 				setBusy(false)
 			}
 		},
-		[accepted, appendFinal, busy, conversationId, ensureSession, handoffDone, question, waitSeconds]
+		[
+			accepted,
+			agentResolved,
+			appendFinal,
+			busy,
+			conversationId,
+			ensureSession,
+			question,
+			waitSeconds,
+		]
 	)
 
 	const requestAgent = useCallback(
@@ -336,7 +402,11 @@ export function AssistantChat() {
 										}`}
 									>
 										<span className="sr-only">
-											{turn.sender === "customer" ? "You said: " : "Assistant said: "}
+											{turn.sender === "customer"
+												? "You said: "
+												: turn.sender === "agent"
+													? "PHLPost agent said: "
+													: "Assistant said: "}
 										</span>
 										<p className="whitespace-pre-wrap">
 											{turn.content}
@@ -362,7 +432,11 @@ export function AssistantChat() {
 
 					{handoffDone ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
-							Your request is in the queue. A PHLPost agent will join when available.
+							{agentResolved
+								? "This conversation has been resolved by a PHLPost agent."
+								: agentJoined
+									? "A PHLPost agent has joined. You can continue the conversation here."
+									: "Your request is in the queue. A PHLPost agent will join when available."}
 						</p>
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
@@ -414,12 +488,12 @@ export function AssistantChat() {
 							autoComplete="off"
 							maxLength={1000}
 							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-							disabled={busy || waitSeconds > 0 || handoffDone}
+							disabled={busy || waitSeconds > 0 || agentResolved}
 						/>
 						<button
 							type="submit"
 							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
-							disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
+							disabled={busy || waitSeconds > 0 || agentResolved || question.trim() === ""}
 						>
 							{busy ? "Asking…" : "Ask"}
 						</button>

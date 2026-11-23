@@ -178,10 +178,7 @@ export const rolePermissions = createTable(
 export const auditLog = createTable("audit_log", t => ({
 	id: t.bigserial("id", { mode: "number" }).primaryKey(),
 	actorId: t.text("actor_id"),
-	actorType: t
-		.text("actor_type")
-		.notNull()
-		.$type<"user" | "service" | "system">(),
+	actorType: t.text("actor_type").notNull().$type<"user" | "service" | "system">(),
 	action: t.text("action").notNull(),
 	resourceType: t.text("resource_type").notNull(),
 	resourceId: t.text("resource_id"),
@@ -328,11 +325,7 @@ export const chunks = createTable("chunks", t => ({
  */
 export const ingestionJobs = createTable("ingestion_jobs", t => ({
 	id: t.uuid("id").primaryKey().defaultRandom(),
-	kind: t
-		.text("kind")
-		.notNull()
-		.default("ingest")
-		.$type<"ingest" | "reindex">(),
+	kind: t.text("kind").notNull().default("ingest").$type<"ingest" | "reindex">(),
 	status: t
 		.text("status")
 		.notNull()
@@ -363,11 +356,7 @@ export const jobDocuments = createTable(
 			.uuid("document_id")
 			.notNull()
 			.references(() => documents.id, { onDelete: "cascade" }),
-		status: t
-			.text("status")
-			.notNull()
-			.default("pending")
-			.$type<"pending" | "indexed" | "failed">(),
+		status: t.text("status").notNull().default("pending").$type<"pending" | "indexed" | "failed">(),
 		chunkCount: t.integer("chunk_count"),
 		error: t.text("error"),
 		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -473,16 +462,14 @@ export const messages = createTable(
 			.uuid("conversation_id")
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
-		role: t
-			.text("role")
-			.notNull()
-			.$type<"user" | "assistant">(),
+		role: t.text("role").notNull().$type<"user" | "assistant">(),
 		/**
 		 * Who produced the turn (DOMAIN-MODEL `messages.sender`, CNV-1). Set on
 		 * public customer turns; null on the template's staff rows, which carry
 		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`.
 		 */
 		sender: t.text("sender").$type<"customer" | "assistant" | "agent">(),
+		agentId: t.text("agent_id").references(() => users.id, { onDelete: "set null" }),
 		/**
 		 * What the assistant produced (DOMAIN-MODEL `messages.answer_kind`).
 		 * CNV-1 writes `answer` for a grounded reply, `uncertain` for the grounded
@@ -543,6 +530,7 @@ export const escalations = createTable(
 		assignedAgentId: t
 			.text("assigned_agent_id")
 			.references(() => users.id, { onDelete: "set null" }),
+		outcomeNote: t.text("outcome_note"),
 		contact: t.text("contact"),
 		claimedAt: t.timestamp("claimed_at", { withTimezone: true }),
 		resolvedAt: t.timestamp("resolved_at", { withTimezone: true }),
@@ -702,7 +690,10 @@ export const goldenItems = createTable(
 		// chunks.content_hash values expected in retrieval results.
 		expectedChunkHashes: t.jsonb("expected_chunk_hashes").$type<string[]>().notNull(),
 		tags: t.jsonb("tags").$type<string[]>().notNull().default([]),
-		status: t.text("status", { enum: ["active", "retired"] }).notNull().default("active"),
+		status: t
+			.text("status", { enum: ["active", "retired"] })
+			.notNull()
+			.default("active"),
 		createdBy: t
 			.text("created_by")
 			.notNull()
@@ -876,11 +867,7 @@ export const knowledgeArticles = createTable(
 		currentVersionId: t
 			.uuid("current_version_id")
 			.references((): AnyPgColumn => knowledgeArticleVersions.id, { onDelete: "set null" }),
-		status: t
-			.text("status")
-			.notNull()
-			.default("active")
-			.$type<"active" | "deactivated">(),
+		status: t.text("status").notNull().default("active").$type<"active" | "deactivated">(),
 		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	}),

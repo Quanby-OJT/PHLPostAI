@@ -82,6 +82,55 @@ export async function requestHumanHandoff(input: {
 export interface AssistantStreamHandlers {
 	onToken: (delta: string) => void
 	onFinal: (final: CustomerAnswer) => void
+	onAgentMode?: (result: { conversationId: string; messageId: string }) => void
+}
+
+export interface AgentMessageEvent {
+	id: string
+	sender: "agent"
+	content: string
+	turnIndex: number
+	createdAt: string
+}
+
+export async function watchAgentConversation(
+	conversationId: string,
+	sessionToken: string,
+	handlers: { onMessage: (message: AgentMessageEvent) => void; onStatus: (status: string) => void },
+	signal: AbortSignal
+): Promise<void> {
+	const response = await fetch(`${API_BASE}/customer/conversations/${conversationId}/events`, {
+		headers: { [CUSTOMER_SESSION_HEADER]: sessionToken },
+		signal,
+	})
+	if (!response.ok) throw await parseError(response)
+	if (!response.body) throw new ApiError(502, "Live agent messages are unavailable.")
+	const reader = response.body.getReader()
+	const decoder = new TextDecoder()
+	let buffer = ""
+	const handleFrame = (frame: string) => {
+		let event = "message"
+		let data = ""
+		for (const line of frame.split("\n")) {
+			if (line.startsWith("event: ")) event = line.slice(7).trim()
+			else if (line.startsWith("data: ")) data += line.slice(6)
+		}
+		if (!data) return
+		const payload = JSON.parse(data) as AgentMessageEvent | { status: string }
+		if (event === "message") handlers.onMessage(payload as AgentMessageEvent)
+		if (event === "status") handlers.onStatus((payload as { status: string }).status)
+	}
+	for (;;) {
+		const { done, value } = await reader.read()
+		if (done) return
+		buffer += decoder.decode(value, { stream: true })
+		let separator = buffer.indexOf("\n\n")
+		while (separator !== -1) {
+			handleFrame(buffer.slice(0, separator))
+			buffer = buffer.slice(separator + 2)
+			separator = buffer.indexOf("\n\n")
+		}
+	}
 }
 
 /**
@@ -113,7 +162,11 @@ export async function streamQuestion(
 
 	// Screening refusal (and any other non-streamed turn) comes back as JSON.
 	if (!response.headers.get("content-type")?.includes("text/event-stream")) {
-		handlers.onFinal((await response.json()) as CustomerAnswer)
+		const payload = (await response.json()) as
+			| CustomerAnswer
+			| { agentMode: true; conversationId: string; messageId: string }
+		if ("agentMode" in payload && payload.agentMode) handlers.onAgentMode?.(payload)
+		else handlers.onFinal(payload as CustomerAnswer)
 		return
 	}
 	if (!response.body) throw new ApiError(502, "The assistant is unavailable.")
