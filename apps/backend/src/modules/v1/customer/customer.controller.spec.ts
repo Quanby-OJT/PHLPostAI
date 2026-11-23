@@ -3,6 +3,8 @@ import { UnauthorizedException } from "@nestjs/common"
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
+import { ChannelAdapterRegistry, type ChannelAdapter } from "../channels/channel-adapter"
+import type { ChannelsService } from "./channels.service"
 import type { ConversationService } from "./conversation.service"
 import { CUSTOMER_REFUSAL_ANSWER, type CustomerChatService } from "./customer-chat.service"
 import type { CustomerSessionService } from "./customer-session.service"
@@ -98,11 +100,26 @@ const REQUEST = { id: "req-1" } as never
 const ACTIVE_SESSION = {
 	id: "session-1",
 	tokenHash: "hash",
-	channelCode: "web",
+	channelCode: "test-adapter",
 	language: "en",
 	consentedAt: new Date(),
 	lastSeenAt: new Date(),
 	createdAt: new Date(),
+}
+
+/** Separate test-only channel proves the controller uses the adapter registry. */
+class TestChannelAdapter implements ChannelAdapter {
+	readonly code = "test-adapter"
+	readonly capabilities = { streaming: true, attachments: false, conversationHistory: true }
+	receive = jest.fn((payload: unknown) => {
+		const value = payload as { query?: unknown; conversationId?: unknown }
+		if (typeof value.query !== "string") throw new Error("Invalid test channel message")
+		return {
+			text: value.query,
+			...(typeof value.conversationId === "string" ? { conversationId: value.conversationId } : {}),
+		}
+	})
+	send = jest.fn(<T>(message: T): T => message)
 }
 
 describe("CustomerController (CNV-1 public chat)", () => {
@@ -119,6 +136,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		answerTracking: jest.Mock
 	}
 	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
+	let channelAdapter: TestChannelAdapter
 	let fetchMock: jest.Mock
 
 	beforeEach(() => {
@@ -167,11 +185,16 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		fetchMock = jest.fn()
 		global.fetch = fetchMock as unknown as typeof fetch
 
+		const channelAdapters = new ChannelAdapterRegistry()
+		channelAdapter = new TestChannelAdapter()
+		channelAdapters.register(channelAdapter)
 		controller = new CustomerController(
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
-			ragGatewayService as unknown as RagGatewayService
+			ragGatewayService as unknown as RagGatewayService,
+			channelAdapters,
+			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService
 		)
 	})
 
@@ -263,6 +286,22 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				'event: token\ndata: {"delta":"pesos."}\n\n',
 			])
 			expect(state.headers["content-type"]).toBe("text/event-stream")
+		})
+
+		it("sends widget input and output through the test-registered channel adapter", async () => {
+			fetchMock.mockResolvedValue({
+				ok: true,
+				status: 200,
+				body: sseBody('event: final\ndata: {"answer":"ok"}\n\n'),
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "hello" }, "a-token", REQUEST, response as never)
+
+			expect(channelAdapter.receive).toHaveBeenCalledWith({ query: "hello" })
+			expect(channelAdapter.send).toHaveBeenCalledWith(
+				expect.objectContaining({ conversationId: "conversation-1" })
+			)
 		})
 
 		it("replaces the final frame with the titles and the stored ids", async () => {

@@ -3,6 +3,7 @@ import {
 	Body,
 	ConflictException,
 	Controller,
+	Get,
 	Headers,
 	NotFoundException,
 	Post,
@@ -24,7 +25,9 @@ import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
+import { ChannelAdapterRegistry } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
+import { ChannelsService, WEB_WIDGET_CHANNEL } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import { CustomerChatService, type RagAnswerEnvelope } from "./customer-chat.service"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
@@ -54,8 +57,20 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
-		private readonly ragGatewayService: RagGatewayService
+		private readonly ragGatewayService: RagGatewayService,
+		private readonly channelAdapters: ChannelAdapterRegistry,
+		private readonly channelsService: ChannelsService
 	) {}
+
+	@AllowAnonymous()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.channelStatus)
+	async channelStatus() {
+		return implement(v1.customer.channelStatus).handler(async () => ({
+			enabled: true,
+			welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
+		}))
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -73,6 +88,7 @@ export class CustomerController {
 				channelCode: row.channelCode as typeof input.channelCode,
 				language: row.language as typeof input.language,
 				idleExpiresAt: this.customerSessionService.idleExpiresAt(row.lastSeenAt).toISOString(),
+				welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
 			}
 		})
 	}
@@ -88,16 +104,22 @@ export class CustomerController {
 	) {
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
+			const adapter = this.channelAdapters.get(
+				session.channelCode === "web" ? "web-widget" : session.channelCode
+			)
+			const message = adapter.receive(input)
 			const conversation = await this.resolveConversation(
 				session,
-				input.conversationId,
+				message.conversationId,
 				toORPCError
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
-			if (this.customerChatService.isTrackingQuestion(input.query)) {
+			if (this.customerChatService.isTrackingQuestion(message.text)) {
 				try {
-					return await this.answerTracking(session, conversation.id, input.query, correlationId)
+					return adapter.send(
+						await this.answerTracking(session, conversation.id, message.text, correlationId)
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -106,7 +128,7 @@ export class CustomerController {
 			let envelope: RagAnswerEnvelope
 			try {
 				envelope = (await this.ragGatewayService.submitChatQuery({
-					query: input.query,
+					query: message.text,
 					userId: this.principalFor(session),
 					permissions: CUSTOMER_SERVICE_PERMISSIONS,
 					requestId: correlationId,
@@ -125,7 +147,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 			})
-			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
+			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
 	}
 
@@ -155,19 +177,23 @@ export class CustomerController {
 		if (!parsed.success) {
 			throw new BadRequestException(parsed.error.issues[0]?.message ?? "Invalid question")
 		}
-		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
+		const adapter = this.channelAdapters.get(
+			session.channelCode === "web" ? "web-widget" : session.channelCode
+		)
+		const message = adapter.receive(parsed.data)
+		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 
 		// A tracking turn is answered from the connector, not streamed.
-		if (this.customerChatService.isTrackingQuestion(parsed.data.query)) {
+		if (this.customerChatService.isTrackingQuestion(message.text)) {
 			try {
 				const turn = await this.answerTracking(
 					session,
 					conversation.id,
-					parsed.data.query,
+					message.text,
 					correlationId
 				)
-				response.status(200).json(turn)
+				response.status(200).json(adapter.send(turn))
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
@@ -196,7 +222,7 @@ export class CustomerController {
 					"content-type": "application/json",
 					"x-request-id": correlationId,
 				},
-				body: JSON.stringify({ query: parsed.data.query, persist: false }),
+				body: JSON.stringify({ query: message.text, persist: false }),
 				signal: abort.signal,
 			})
 		} catch {
@@ -252,10 +278,10 @@ export class CustomerController {
 				envelope,
 			})
 			response.write(
-				formatSseFrame("final", {
-					...turn,
-					conversationId: conversation.id,
-				} satisfies CustomerAnswer)
+				formatSseFrame(
+					"final",
+					adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
+				)
 			)
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly

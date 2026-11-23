@@ -70,7 +70,6 @@ export type {
 	StartReembedRequest,
 } from "./modules/v1/corpus/corpus.schema.js"
 
-
 export { chatContract } from "./modules/v1/chat/chat.contract.js"
 export {
 	ChatQueryInputSchema,
@@ -91,7 +90,6 @@ export type {
 	ConversationDetail,
 } from "./modules/v1/chat/chat.schema.js"
 
-
 export { RetrievalFiltersSchema } from "./modules/v1/chat/chat.schema.js"
 export type { RetrievalFilters } from "./modules/v1/chat/chat.schema.js"
 
@@ -106,7 +104,6 @@ export type {
 	CreateApiKeyRequest,
 	CreateApiKeyResponse,
 } from "./modules/v1/apikeys/apikeys.schema.js"
-
 
 export { evalContract } from "./modules/v1/eval/eval.contract.js"
 export {
@@ -144,10 +141,12 @@ export type {
 	PromoteBaselineRequest,
 } from "./modules/v1/eval/eval.schema.js"
 
-
-export { opsContract, ConfigEntrySchema, EffectiveConfigSchema } from "./modules/v1/ops/ops.contract.js"
+export {
+	opsContract,
+	ConfigEntrySchema,
+	EffectiveConfigSchema,
+} from "./modules/v1/ops/ops.contract.js"
 export type { ConfigEntry, EffectiveConfig } from "./modules/v1/ops/ops.contract.js"
-
 
 export {
 	reportsContract,
@@ -178,11 +177,9 @@ export type {
 	ReportFile,
 } from "./modules/v1/reports/reports.contract.js"
 
-
 export { meContract } from "./modules/v1/me/me.contract.js"
 export { MePermissionsSchema } from "./modules/v1/me/me.schema.js"
 export type { MePermissions } from "./modules/v1/me/me.schema.js"
-
 
 export { knowledgeContract } from "./modules/v1/knowledge/knowledge.contract.js"
 export * from "./modules/v1/knowledge/knowledge.schema.js"
@@ -190,6 +187,13 @@ export * from "./modules/v1/knowledge/knowledge.schema.js"
 export { customerContract } from "./modules/v1/customer/customer.contract.js"
 export { trackingContract } from "./modules/v1/tracking/tracking.contract.js"
 export * from "./modules/v1/tracking/tracking.schema.js"
+export { channelsContract } from "./modules/v1/channels/channels.contract.js"
+export {
+	ChannelSchema,
+	ChannelConfigSchema,
+	UpdateChannelSchema,
+} from "./modules/v1/channels/channels.schema.js"
+export type { Channel, UpdateChannel } from "./modules/v1/channels/channels.schema.js"
 export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
 export {
 	InteractionEventKindSchema,
@@ -210,6 +214,7 @@ export {
 	CustomerChatRequestSchema,
 	CustomerAnswerSourceSchema,
 	CustomerAnswerSchema,
+	CustomerChannelStatusSchema,
 } from "./modules/v1/customer/customer.schema.js"
 export type {
 	CustomerChannelCode,
@@ -220,4 +225,5 @@ export type {
 	CustomerChatRequest,
 	CustomerAnswerSource,
 	CustomerAnswer,
+	CustomerChannelStatus,
 } from "./modules/v1/customer/customer.schema.js"

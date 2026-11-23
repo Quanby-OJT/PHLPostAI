@@ -5,6 +5,7 @@ import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
 
+import { ChannelAdapterRegistry, WebWidgetChannelAdapter } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ChannelsService } from "./channels.service"
 import { ConversationService } from "./conversation.service"
@@ -35,6 +36,14 @@ import { CustomerController } from "./customer.controller"
 		RagGatewayService,
 		ChannelsService,
 		AllowedOriginGuard,
+		{
+			provide: ChannelAdapterRegistry,
+			useFactory: () => {
+				const registry = new ChannelAdapterRegistry()
+				registry.register(new WebWidgetChannelAdapter())
+				return registry
+			},
+		},
 	],
 
 	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard],
