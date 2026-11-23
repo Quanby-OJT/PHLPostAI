@@ -334,6 +334,48 @@ Try it:
 3. Track `CE444555666PH` and add an explanation for `HELD_AT_CUSTOMS` with the
    required documents as next steps.
 
+## Inquiry categories (CNV-2)
+
+Every customer message is screened and classified in one RAG call
+(`POST /internal/chat/classify`): one cheap-model call returns the Inquiry
+Category and the language (`en`, `fil`, `ceb`, `ilo`). The category decides
+the route (`apps/backend/src/modules/v1/customer/inquiry-routing.ts`):
+`tracking` goes to the TRK-1 tracking tool; every other category goes to
+retrieval until its tool exists (KB-2 adds `rates`, SCM-1 adds `scam`). If the
+model is unavailable, a keyword classifier and the TRK-1 tracking check stand in.
+
+The message is stored with its category and `is_eligible` copied from the
+category at that moment, so changing eligibility only affects new messages.
+
+Categories come from `pnpm db:seed` (the seven domain codes). Staff with
+`settings.assistant.manage` manage them on **Inquiry Categories**
+(`/inquiry-categories`): add a category, change its eligibility, or deactivate
+it (`other` is the fallback and stays active). Every change is audited
+(`assistant.category.create` / `assistant.category.update`).
+
+Check what was stored:
+
+```powershell
+docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select content, inquiry_category, is_eligible, language from messages where sender = 'customer' order by created_at desc limit 5;"
+```
+
+### Classifier accuracy (AC4)
+
+`apps/rag/tests/data/classifier_test_set.json` holds 106 labelled messages
+across all seven categories, in English, Filipino, Cebuano, and Ilocano. The
+**Classifier Eval** workflow runs them through the real cheap model when the
+classifier changes (or by hand) and fails below `CLASSIFIER_ACCURACY_FLOOR`
+(default `0.85`; set it as a repository variable to change it). Run it locally
+with a real `OPENAI_API_KEY` in `apps/rag/.env`:
+
+```powershell
+cd apps/rag
+uv run python -m app.classifier_eval
+```
+
+The JSON report lists accuracy overall and per category, and every mistake.
+`pnpm test` checks the test set and the scoring offline, without the model.
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous

@@ -37,6 +37,19 @@ export class AssistantRepository {
 		return row ?? null
 	}
 
+	async createCategory(input: {
+		code: string
+		name: string
+		isEligible: boolean
+	}): Promise<InquiryCategoryRow | null> {
+		const [row] = await db
+			.insert(inquiryCategories)
+			.values({ ...input, isActive: true })
+			.onConflictDoNothing({ target: inquiryCategories.code })
+			.returning()
+		return row ?? null
+	}
+
 	async updateCategory(
 		code: string,
 		patch: { isEligible: boolean; isActive?: boolean }

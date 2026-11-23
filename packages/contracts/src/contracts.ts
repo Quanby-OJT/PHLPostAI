@@ -223,5 +223,13 @@ export type {
 } from "./modules/v1/customer/customer.schema.js"
 
 export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
-export { InquiryCategorySchema, UpdateInquiryCategoryRequestSchema } from "./modules/v1/assistant/assistant.schema.js"
-export type { InquiryCategory, UpdateInquiryCategoryRequest } from "./modules/v1/assistant/assistant.schema.js"
+export {
+	CreateInquiryCategoryRequestSchema,
+	InquiryCategorySchema,
+	UpdateInquiryCategoryRequestSchema,
+} from "./modules/v1/assistant/assistant.schema.js"
+export type {
+	CreateInquiryCategoryRequest,
+	InquiryCategory,
+	UpdateInquiryCategoryRequest,
+} from "./modules/v1/assistant/assistant.schema.js"

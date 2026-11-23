@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import type { UpdateInquiryCategoryRequest } from "@repo/contracts"
+import type { CreateInquiryCategoryRequest, UpdateInquiryCategoryRequest } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -50,6 +50,18 @@ export function useInquiryCategoriesQuery() {
 		queryKey: inquiryCategoryKeys.list,
 		queryFn: () => apiFetch<InquiryCategoryUi[]>("/assistant/categories"),
 		retry: noRetryOn403,
+	})
+}
+
+export function useCreateInquiryCategoryMutation() {
+	const queryClient = useQueryClient()
+	return useMutation<InquiryCategoryUi, Error, CreateInquiryCategoryRequest>({
+		mutationFn: input =>
+			apiFetch<InquiryCategoryUi>("/assistant/categories", {
+				method: "POST",
+				body: JSON.stringify(input),
+			}),
+		onSettled: () => queryClient.invalidateQueries({ queryKey: inquiryCategoryKeys.all }),
 	})
 }
 

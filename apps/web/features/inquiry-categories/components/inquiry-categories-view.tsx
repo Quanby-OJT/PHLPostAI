@@ -5,6 +5,10 @@ import {
 	useUpdateInquiryCategoryMutation,
 	type InquiryCategoryUi,
 } from "../api/categories.hooks"
+import { AddCategoryForm } from "./add-category-form"
+
+/** The classifier's fallback (CNV-2 AC2); it can't be deactivated. */
+const FALLBACK_CATEGORY = "other"
 
 export function InquiryCategoriesView() {
 	const { data: categories, isLoading, error } = useInquiryCategoriesQuery()
@@ -31,9 +35,9 @@ export function InquiryCategoriesView() {
 			<div>
 				<h1 className="text-lg font-semibold">Inquiry Categories &amp; Eligibility</h1>
 				<p className="text-muted-foreground mt-1 text-sm">
-					Configure which inquiry categories are eligible for AI self-service responses.
-					Ineligible categories route to the out-of-scope / escalation path while recording a
-					point-in-time snapshot on every customer turn.
+					Every customer message is labelled with one active category. Eligibility decides whether
+					the message counts toward the self-service measure; a change applies to new messages only,
+					and earlier messages keep their label.
 				</p>
 			</div>
 
@@ -54,6 +58,8 @@ export function InquiryCategoriesView() {
 					{updateMutation.error.message}
 				</div>
 			)}
+
+			<AddCategoryForm />
 
 			{isLoading ? (
 				<p className="text-muted-foreground text-sm">Loading inquiry categories…</p>
@@ -96,7 +102,12 @@ export function InquiryCategoriesView() {
 										<button
 											type="button"
 											aria-label={`Toggle active status for ${category.name}`}
-											disabled={updateMutation.isPending}
+											title={
+												category.code === FALLBACK_CATEGORY
+													? "The fallback category can't be deactivated"
+													: undefined
+											}
+											disabled={updateMutation.isPending || category.code === FALLBACK_CATEGORY}
 											onClick={() => handleToggleActive(category)}
 											className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors ${
 												category.isActive

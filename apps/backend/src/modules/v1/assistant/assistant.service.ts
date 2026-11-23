@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
 
-import type { UpdateInquiryCategoryRequest } from "@repo/contracts"
+import type { CreateInquiryCategoryRequest, UpdateInquiryCategoryRequest } from "@repo/contracts"
 
 import { AuditService } from "@/common/audit/audit.service"
 
@@ -10,6 +10,9 @@ import { AssistantRepository, type InquiryCategoryRow } from "./assistant.reposi
 export interface AssistantActor {
 	userId: string
 }
+
+/** The classifier's fallback category (CNV-2 AC2); it must stay active. */
+export const FALLBACK_CATEGORY = "other"
 
 @Injectable()
 export class AssistantService {
@@ -27,11 +30,36 @@ export class AssistantService {
 		return this.repository.listActiveCategories()
 	}
 
+	async createCategory(
+		input: CreateInquiryCategoryRequest,
+		actor: AssistantActor
+	): Promise<InquiryCategoryRow> {
+		const created = await this.repository.createCategory(input)
+		if (!created) {
+			throw new ORPCError("CONFLICT", { message: "A category with this code already exists" })
+		}
+		await this.auditService.writeAudit({
+			actorId: actor.userId,
+			actorType: "user",
+			action: "assistant.category.create",
+			resourceType: "inquiry_category",
+			resourceId: created.code,
+			before: null,
+			after: created,
+		})
+		return created
+	}
+
 	async updateCategory(
 		input: UpdateInquiryCategoryRequest,
 		actor: AssistantActor
 	): Promise<InquiryCategoryRow> {
 		const normalizedCode = input.code.trim().toLowerCase()
+		if (normalizedCode === FALLBACK_CATEGORY && input.isActive === false) {
+			throw new ORPCError("BAD_REQUEST", {
+				message: "The other category is the fallback and can't be deactivated",
+			})
+		}
 		const before = await this.repository.findCategoryByCode(normalizedCode)
 		if (!before) {
 			throw new ORPCError("NOT_FOUND", { message: "Inquiry category not found" })

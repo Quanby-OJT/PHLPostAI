@@ -42,10 +42,10 @@ _LANGUAGE_ALIASES = {
 _RULES = {
     "complaint": "a complaint, dissatisfaction, or a lost, damaged, or delayed item report "
     "(wins over tracking)",
-    "scam": "a suspicious message, call, or link, or a phishing or fraud report "
-    "(wins over tracking)",
-    "postal-id": "Postal ID applications, requirements, renewal, or claiming",
-    "rates": "postage, shipping fees, or prices",
+    "scam": "a suspicious message, call, link, or seller, or a phishing or fraud report "
+    "(wins over tracking and postal-id)",
+    "postal-id": "Postal ID applications, requirements, fees, renewal, or claiming",
+    "rates": "postage, shipping fees, or prices for sending mail or parcels",
     "tracking": "where an item is, its status, or a tracking number",
     "service-info": "branches, opening hours, or how a postal service works",
     "other": "off-topic, unclear, or anything that fits no other category",

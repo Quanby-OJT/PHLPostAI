@@ -23,6 +23,15 @@ export class AssistantController {
 
 	@StrictThrottle()
 	@RequirePermissions("settings.assistant.manage")
+	@Implement(v1.assistant.categories.create)
+	async createCategory(@Session() session: UserSession) {
+		return implement(v1.assistant.categories.create).handler(async ({ input }) =>
+			this.service.createCategory(input, { userId: session.user.id })
+		)
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("settings.assistant.manage")
 	@Implement(v1.assistant.categories.update)
 	async updateCategory(@Session() session: UserSession) {
 		return implement(v1.assistant.categories.update).handler(async ({ input }) =>

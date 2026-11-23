@@ -2,6 +2,7 @@ import { oc } from "@orpc/contract"
 import { z } from "zod"
 
 import {
+	CreateInquiryCategoryRequestSchema,
 	InquiryCategorySchema,
 	UpdateInquiryCategoryRequestSchema,
 } from "./assistant.schema.js"
@@ -17,6 +18,16 @@ export const assistantContract = {
 				tags: ["Assistant"],
 			})
 			.output(z.array(InquiryCategorySchema)),
+		create: oc
+			.route({
+				method: "POST",
+				path: "/assistant/categories",
+				summary: "Add an inquiry category",
+				description: "New messages can be classified into it from the next turn.",
+				tags: ["Assistant"],
+			})
+			.input(CreateInquiryCategoryRequestSchema)
+			.output(InquiryCategorySchema),
 		update: oc
 			.route({
 				method: "PUT",
