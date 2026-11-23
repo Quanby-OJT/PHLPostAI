@@ -491,6 +491,8 @@ export const messages = createTable(
 		 */
 		answerKind: t.text("answer_kind").$type<"answer" | "uncertain" | "refusal" | "tool">(),
 		inquiryCategory: t.text("inquiry_category"),
+		isEligible: t.boolean("is_eligible"),
+		language: t.text("language"),
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
 		confidence: t.real("confidence"),
@@ -1028,6 +1030,16 @@ export const relations = defineRelations(
 	})
 )
 
+
+export const inquiryCategories = createTable("inquiry_categories", t => ({
+	code: t.text("code").primaryKey(),
+	name: t.text("name").notNull(),
+	isEligible: t.boolean("is_eligible").notNull().default(false),
+	isActive: t.boolean("is_active").notNull().default(true),
+	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
 // ============================================================================
 // SCHEMA
 // ============================================================================
@@ -1066,6 +1078,7 @@ export const schema = Object.assign(
 		knowledgeArticleVersions,
 		trackingLookups,
 		statusExplanations,
+		inquiryCategories,
 	},
 	relations
 )

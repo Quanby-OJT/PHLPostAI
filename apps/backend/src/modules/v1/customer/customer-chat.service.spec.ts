@@ -40,7 +40,7 @@ describe("CustomerChatService (CNV-1)", () => {
 	let conversationService: { recordTurn: jest.Mock }
 	let knowledgeRepository: { resolveArticleSources: jest.Mock }
 	let auditService: { writeAudit: jest.Mock }
-	let ragGatewayService: { screenQuery: jest.Mock }
+	let ragGatewayService: { screenQuery: jest.Mock; classifyInquiry: jest.Mock }
 	let trackingService: { isTrackingQuestion: jest.Mock; answer: jest.Mock }
 	let trackingRepository: { insertLookup: jest.Mock }
 
@@ -55,6 +55,7 @@ describe("CustomerChatService (CNV-1)", () => {
 		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
 		ragGatewayService = {
 			screenQuery: jest.fn().mockResolvedValue({ screenedQuery: "where is RR123456789PH" }),
+					classifyInquiry: jest.fn().mockResolvedValue({ category: "tracking", language: "en", source: "llm" }),
 		}
 		trackingService = { isTrackingQuestion: jest.fn().mockReturnValue(false), answer: jest.fn() }
 		trackingRepository = { insertLookup: jest.fn().mockResolvedValue(undefined) }

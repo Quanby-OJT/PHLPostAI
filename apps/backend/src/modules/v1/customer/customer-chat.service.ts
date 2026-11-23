@@ -125,7 +125,15 @@ export class CustomerChatService {
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery: storedQuery,
-			inquiryCategory: classifyInquiryCategory(screenedQuery),
+			inquiryCategory: (await this.ragGatewayService.classifyInquiry({
+					query: screenedQuery,
+					categories: INQUIRY_CATEGORY_CODES,
+					userId: input.principal,
+					permissions: input.permissions,
+					requestId: input.correlationId,
+					traceId: input.correlationId,
+					actorType: "customer",
+				})).category,
 			answer: reply,
 			answerKind: "tool",
 			category: "tracking",
@@ -216,7 +224,10 @@ export class CustomerChatService {
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId,
 			maskedQuery: maskedQuery ?? "",
-			inquiryCategory: classifyInquiryCategory(maskedQuery ?? ""),
+			...(() => {
+					const text = maskedQuery ?? ""
+					return { inquiryCategory: classifyInquiryCategory(text) }
+				})(),
 			answer,
 			answerKind,
 			confidence:
@@ -229,6 +240,9 @@ export class CustomerChatService {
 			tokenUsage: envelope.tokenUsage ?? null,
 			traceId: asString(envelope.traceId),
 			modelUsed: asString(envelope.model),
+					routingHook: async ctx => {
+						this.logger.debug(`CNV-2 routed conversation ${ctx.conversationId} category=${ctx.category} eligible=${ctx.isEligible} lang=${ctx.language}`)
+					},
 		})
 
 		return {

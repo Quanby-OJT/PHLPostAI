@@ -1624,3 +1624,102 @@ async def screen_only(
         )
         raise HTTPException(status_code=400, detail=str(QueryBlockedError(result.injection)))
     return {"screenedQuery": result.query, "piiTypes": result.pii_types}
+
+
+class ClassifyRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    categories: list[str] = Field(
+        default_factory=lambda: [
+            "tracking",
+            "rates",
+            "postal-id",
+            "service-info",
+            "scam",
+            "complaint",
+            "other",
+        ]
+    )
+
+
+class ClassifyResponse(BaseModel):
+    category: str
+    language: str
+    model: str
+    fallbackUsed: bool = False
+
+
+def _normalize_language(raw: unknown) -> str:
+    if not isinstance(raw, str):
+        return "en"
+    cleaned = raw.strip().lower().replace("_", "-")
+    if cleaned in {"tl", "fil", "tagalog", "filipino"}:
+        return "fil"
+    if cleaned in {"en", "eng", "english"}:
+        return "en"
+    if len(cleaned) >= 2 and cleaned[:2].isalpha():
+        return cleaned[:2]
+    return "en"
+
+
+@router.post("/internal/chat/classify", response_model=ClassifyResponse)
+async def classify_inquiry(
+    req: ClassifyRequest,
+    request: Request,
+    principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
+    _rl: Annotated[None, Depends(rate_limit)],
+) -> ClassifyResponse:
+    """Classify an inquiry into one allowed category and detect its language together using the cheap model (CNV-2)."""
+    allowed = [c.strip().lower() for c in req.categories if c.strip()] or [
+        "tracking",
+        "rates",
+        "postal-id",
+        "service-info",
+        "scam",
+        "complaint",
+        "other",
+    ]
+    if "other" not in allowed:
+        allowed.append("other")
+
+    settings: Settings = request.app.state.settings
+    router_client = getattr(request.app.state, "model_router", None) or build_model_router(
+        settings, getattr(request.app.state, "provider_bucket", None)
+    )
+    cheap_client = getattr(router_client, "cheap", router_client)
+
+    system_prompt = (
+        "You are a fast inquiry classifier for PHLPost customer support. "
+        "Return ONLY valid JSON with keys \"category\" and \"language\". "
+        f"Allowed category values: {json.dumps(allowed)}. "
+        "If unsure or off-topic, use \"other\". "
+        "Use short ISO language codes such as \"en\" or \"fil\"."
+    )
+    try:
+        raw_text, _usage = await cheap_client.complete(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": req.query},
+            ]
+        )
+        cleaned = raw_text.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I).strip()
+        parsed = json.loads(cleaned)
+        cat = str(parsed.get("category", "other")).strip().lower()
+        if cat not in allowed:
+            cat = "other"
+        lang = _normalize_language(parsed.get("language"))
+        return ClassifyResponse(
+            category=cat,
+            language=lang,
+            model=getattr(cheap_client, "model", settings.generation_model),
+            fallbackUsed=False,
+        )
+    except Exception:
+        logger.warning("Cheap-model classification failed; falling back to other/en", exc_info=True)
+        return ClassifyResponse(
+            category="other",
+            language="en",
+            model=getattr(cheap_client, "model", settings.generation_model),
+            fallbackUsed=True,
+        )

@@ -97,6 +97,14 @@ export const navItems: readonly DashboardNavItem[] = [
 	},
 	{
 		// OB-5: read-only effective-config review (secrets masked server-side).
+		// CNV-2: inquiry category classification & self-service eligibility.
+		label: "Inquiry Categories",
+		href: "/inquiry-categories",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.assistant.manage",
+	},
+	{
 		label: "Configuration",
 		href: "/ops-config",
 		icon: Settings02Icon,

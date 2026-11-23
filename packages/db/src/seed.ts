@@ -22,6 +22,7 @@ import {
 	schema,
 	userRoles,
 	users,
+	inquiryCategories,
 } from "./schema.js"
 import {
 	ALLOW_REMOTE_SEED_ENV,
@@ -435,6 +436,17 @@ async function seedDatabase() {
 				await tx.insert(userRoles).values(row).onConflictDoNothing()
 			}
 			userRoleCount = seedUserRoles.length
+			for (const c of [
+				{ code: "tracking", name: "Tracking", isEligible: true, isActive: true },
+				{ code: "rates", name: "Rates", isEligible: true, isActive: true },
+				{ code: "postal-id", name: "Postal ID", isEligible: true, isActive: true },
+				{ code: "service-info", name: "Service Info", isEligible: true, isActive: true },
+				{ code: "scam", name: "Scam Guidance", isEligible: true, isActive: true },
+				{ code: "complaint", name: "Complaint", isEligible: false, isActive: true },
+				{ code: "other", name: "Other", isEligible: false, isActive: true },
+			]) {
+				await tx.insert(inquiryCategories).values(c).onConflictDoNothing({ target: inquiryCategories.code })
+			}
 		})
 
 		// The password is printed ONLY when this run generated it AND actually
