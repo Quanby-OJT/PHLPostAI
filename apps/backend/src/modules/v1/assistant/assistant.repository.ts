@@ -20,6 +20,14 @@ export class AssistantRepository {
 		return db.select().from(inquiryCategories).orderBy(asc(inquiryCategories.code))
 	}
 
+	async listActiveCategories(): Promise<{ code: string; name: string }[]> {
+		return db
+			.select({ code: inquiryCategories.code, name: inquiryCategories.name })
+			.from(inquiryCategories)
+			.where(eq(inquiryCategories.isActive, true))
+			.orderBy(asc(inquiryCategories.code))
+	}
+
 	async findCategoryByCode(code: string): Promise<InquiryCategoryRow | null> {
 		const [row] = await db
 			.select()

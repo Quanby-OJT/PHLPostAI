@@ -26,7 +26,11 @@ import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ConversationService } from "./conversation.service"
-import { CustomerChatService, type RagAnswerEnvelope } from "./customer-chat.service"
+import {
+	CustomerChatService,
+	type InquiryClassification,
+	type RagAnswerEnvelope,
+} from "./customer-chat.service"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
@@ -95,9 +99,18 @@ export class CustomerController {
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
-			if (this.customerChatService.isTrackingQuestion(input.query)) {
+			let classification: InquiryClassification
+			try {
+				classification = await this.classify(session, input.query, correlationId)
+			} catch (error) {
+				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				if (refusal) return refusal
+				return toORPCError(error)
+			}
+
+			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(session, conversation.id, input.query, correlationId)
+					return await this.answerTracking(session, conversation.id, classification, correlationId)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -124,6 +137,7 @@ export class CustomerController {
 			const turn = await this.customerChatService.completeTurn({
 				conversationId: conversation.id,
 				envelope,
+				classification,
 			})
 			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
 		})
@@ -158,13 +172,27 @@ export class CustomerController {
 		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 
+		// CNV-2: screen and classify first; the category decides the route.
+		let classification: InquiryClassification
+		try {
+			classification = await this.classify(session, parsed.data.query, correlationId)
+		} catch (error) {
+			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+			if (refusal) {
+				response.status(200).json(refusal)
+			} else {
+				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
+			}
+			return
+		}
+
 		// A tracking turn is answered from the connector, not streamed.
-		if (this.customerChatService.isTrackingQuestion(parsed.data.query)) {
+		if (classification.route === "tracking") {
 			try {
 				const turn = await this.answerTracking(
 					session,
 					conversation.id,
-					parsed.data.query,
+					classification,
 					correlationId
 				)
 				response.status(200).json(turn)
@@ -250,6 +278,7 @@ export class CustomerController {
 			const turn = await this.customerChatService.completeTurn({
 				conversationId: conversation.id,
 				envelope,
+				classification,
 			})
 			response.write(
 				formatSseFrame("final", {
@@ -279,28 +308,34 @@ export class CustomerController {
 		}
 	}
 
-	/** TRK-1: answer from the tracking connector; a screened-out question is still refused. */
+	/** CNV-2: screen and classify the question (Flow A steps 3 to 5). */
+	private classify(
+		session: CustomerSessionRow,
+		query: string,
+		correlationId: string
+	): Promise<InquiryClassification> {
+		return this.customerChatService.classify({
+			query,
+			principal: this.principalFor(session),
+			permissions: CUSTOMER_SERVICE_PERMISSIONS,
+			correlationId,
+		})
+	}
+
+	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
 		session: CustomerSessionRow,
 		conversationId: string,
-		query: string,
+		classification: InquiryClassification,
 		correlationId: string
 	): Promise<CustomerAnswer> {
-		try {
-			const turn = await this.customerChatService.answerTracking({
-				conversationId,
-				query,
-				principal: this.principalFor(session),
-				permissions: CUSTOMER_SERVICE_PERMISSIONS,
-				correlationId,
-				language: session.language,
-			})
-			return { ...turn, conversationId }
-		} catch (error) {
-			const refusal = await this.refuseIfScreened(error, session, conversationId, correlationId)
-			if (refusal) return refusal
-			throw error
-		}
+		const turn = await this.customerChatService.answerTracking({
+			conversationId,
+			classification,
+			correlationId,
+			explanationLanguage: session.language,
+		})
+		return { ...turn, conversationId }
 	}
 
 	/** The audit principal for a customer turn — a session, never a person. */

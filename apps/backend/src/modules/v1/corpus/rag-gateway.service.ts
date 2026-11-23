@@ -536,44 +536,55 @@ export class RagGatewayService {
 		})
 	}
 
-
-        /** CNV-2: classify inquiry category and detect language via cheap model with fallback. */
-        async classifyInquiry(input: {
-                query: string
-                categories?: readonly string[]
-                userId: string
-                permissions: readonly string[]
-                requestId: string
-                traceId: string
-                actorType?: "user" | "customer"
-        }): Promise<{ category: string; language: string; fallbackUsed: boolean }> {
-                const token = this.mintServiceToken({
-                        sub: input.userId,
-                        permissions: input.permissions,
-                        requestId: input.requestId,
-                        traceId: input.traceId,
-                        actorType: input.actorType,
-                })
-                try {
-                        const body = (await this.forward("/internal/chat/classify", {
-                                headers: {
-                                        "authorization": `Bearer ${token}`,
-                                        "content-type": "application/json",
-                                        "x-request-id": input.requestId,
-                                },
-                                body: JSON.stringify({
-                                        query: input.query,
-                                        ...(input.categories ? { categories: [...input.categories] } : {}),
-                                }),
-                                failureMessage: "Inquiry classification failed",
-                        })) as { category?: unknown; language?: unknown; fallbackUsed?: unknown } | null
-                        const category = typeof body?.category === "string" && body.category.trim() ? body.category.trim() : "other"
-                        const language = typeof body?.language === "string" && body.language.trim() ? body.language.trim() : "en"
-                        return { category, language, fallbackUsed: body?.fallbackUsed === true }
-                } catch {
-                        return { category: "other", language: "en", fallbackUsed: true }
-                }
-        }
+	/**
+	 * CNV-2: screen the question and classify the screened text in one call.
+	 * A blocked question is a 400; a model failure comes back as `fallbackUsed`.
+	 */
+	async classifyInquiry(input: {
+		query: string
+		categories: readonly { code: string; name: string }[]
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+		traceId: string
+		actorType?: "user" | "customer"
+	}): Promise<{
+		screenedQuery: string
+		category: string
+		language: string | null
+		fallbackUsed: boolean
+	}> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.traceId,
+			actorType: input.actorType,
+		})
+		const body = (await this.forward("/internal/chat/classify", {
+			headers: {
+				"authorization": `Bearer ${token}`,
+				"content-type": "application/json",
+				"x-request-id": input.requestId,
+			},
+			body: JSON.stringify({ query: input.query, categories: input.categories }),
+			failureMessage: "Inquiry classification failed",
+		})) as {
+			screenedQuery?: unknown
+			category?: unknown
+			language?: unknown
+			fallbackUsed?: unknown
+		} | null
+		if (typeof body?.screenedQuery !== "string") {
+			throw new BadGatewayException("Inquiry classification failed")
+		}
+		return {
+			screenedQuery: body.screenedQuery,
+			category: typeof body.category === "string" ? body.category : "other",
+			language: typeof body.language === "string" ? body.language : null,
+			fallbackUsed: body.fallbackUsed === true,
+		}
+	}
 
 	/** Shared transport: hard timeout + uniform error mapping. */
 	private async forward(

@@ -15,8 +15,8 @@ export interface RecordTurnInput {
 	/** The SCREENED question — masked by the RAG service before it got here. */
 	maskedQuery: string
 	inquiryCategory?: string
+	/** The detected language (CNV-2); the session's language when absent. */
 	language?: string
-	routingHook?: (ctx: { conversationId: string; category: string; isEligible: boolean; language: string; answerKind: CustomerAnswerKind }) => Promise<void> | void
 	answer: string
 	answerKind: CustomerAnswerKind
 	confidence?: number | null
@@ -184,36 +184,45 @@ export class ConversationService {
 			// conversation, so this fallback is belt-and-braces for the types.
 			const nextTurn = turnRow?.nextTurn ?? 0
 
+			// CNV-2: the category and its eligibility AT THIS MOMENT are stored on
+			// the message, so a later eligibility change leaves earlier rows alone.
 			const requestedCategory = (input.inquiryCategory ?? "other").trim().toLowerCase() || "other"
-                        const [categoryRow] = await tx
-                                .select({ code: inquiryCategories.code, isEligible: inquiryCategories.isEligible, isActive: inquiryCategories.isActive })
-                                .from(inquiryCategories)
-                                .where(eq(inquiryCategories.code, requestedCategory))
-                                .limit(1)
-                        const resolvedCategory = categoryRow && categoryRow.isActive ? categoryRow.code : "other"
-                        const eligibleSnapshot = categoryRow && categoryRow.isActive ? categoryRow.isEligible : false
-                        const [eventContext] = await tx
-                                .select({ channelCode: conversations.channelCode, language: customerSessions.language })
-                                .from(conversations)
-                                .innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
-                                .where(eq(conversations.id, input.conversationId))
-                                .limit(1)
-                        const resolvedLanguage = input.language ?? eventContext?.language ?? "en"
+			const [categoryRow] = await tx
+				.select({
+					code: inquiryCategories.code,
+					isEligible: inquiryCategories.isEligible,
+					isActive: inquiryCategories.isActive,
+				})
+				.from(inquiryCategories)
+				.where(eq(inquiryCategories.code, requestedCategory))
+				.limit(1)
+			const resolvedCategory = categoryRow?.isActive ? categoryRow.code : "other"
+			const eligibleSnapshot = categoryRow?.isActive ? categoryRow.isEligible : false
+			const [eventContext] = await tx
+				.select({ channelCode: conversations.channelCode, language: customerSessions.language })
+				.from(conversations)
+				.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+				.where(eq(conversations.id, input.conversationId))
+				.limit(1)
+			const resolvedLanguage = input.language ?? eventContext?.language ?? "en"
 
-                        const [customerRow] = await tx
-                                .insert(messages)
-                                .values({
-                                        conversationId: input.conversationId,
-                                        role: "user",
-                                        sender: "customer",
-                                        inquiryCategory: resolvedCategory,
-                                        isEligible: eligibleSnapshot,
-                                        language: resolvedLanguage,
-                                        content: input.maskedQuery,
-                                        traceId: input.traceId ?? null,
-                                        turnIndex: nextTurn,
-                                })
-                                .returning({ id: messages.id })
+			const [customerRow] = await tx
+				.insert(messages)
+				.values({
+					conversationId: input.conversationId,
+					// `role` is the template's column (read by the staff history
+					// endpoints); `sender` is the DOMAIN-MODEL name. Both are written so
+					// neither reader needs to know which path created the row.
+					role: "user",
+					sender: "customer",
+					inquiryCategory: resolvedCategory,
+					isEligible: eligibleSnapshot,
+					language: resolvedLanguage,
+					content: input.maskedQuery,
+					traceId: input.traceId ?? null,
+					turnIndex: nextTurn,
+				})
+				.returning({ id: messages.id })
 
 			const [assistantRow] = await tx
 				.insert(messages)
@@ -237,10 +246,10 @@ export class ConversationService {
 			if (!customerRow || !assistantRow) throw new Error("Failed to record turn")
 			const ids = { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
 			const channelCode = eventContext?.channelCode
-                        const language = resolvedLanguage
-                        if (!channelCode || !language)
-                                throw new Error("Could not resolve the conversation event context")
-                        const category = input.category ?? resolvedCategory
+			const language = resolvedLanguage
+			if (!channelCode || !language)
+				throw new Error("Could not resolve the conversation event context")
+			const category = input.category ?? resolvedCategory
 			await this.eventService.record(
 				{
 					conversationId: input.conversationId,
@@ -264,16 +273,7 @@ export class ConversationService {
 				)
 			}
 			if (input.onRecorded) await input.onRecorded(tx, ids)
-                        if (input.routingHook) {
-                                await input.routingHook({
-                                        conversationId: input.conversationId,
-                                        category: resolvedCategory,
-                                        isEligible: eligibleSnapshot,
-                                        language: resolvedLanguage,
-                                        answerKind: input.answerKind,
-                                })
-                        }
-                        return ids
+			return ids
 		})
 	}
 

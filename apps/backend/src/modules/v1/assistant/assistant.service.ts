@@ -22,6 +22,11 @@ export class AssistantService {
 		return this.repository.listCategories()
 	}
 
+	/** The categories the classifier may choose from (CNV-2 AC3). */
+	listActiveCategories(): Promise<{ code: string; name: string }[]> {
+		return this.repository.listActiveCategories()
+	}
+
 	async updateCategory(
 		input: UpdateInquiryCategoryRequest,
 		actor: AssistantActor

@@ -10,7 +10,7 @@ jest.mock("@repo/db/schema", () => ({
 		channelCode: "channel_code",
 	},
 	customerSessions: { id: "id", language: "language" },
-		inquiryCategories: { code: "code", isEligible: "is_eligible", isActive: "is_active" },
+	inquiryCategories: { code: "code", isEligible: "is_eligible", isActive: "is_active" },
 	messages: {
 		name: "messages",
 		id: "id",
@@ -60,15 +60,15 @@ const tx = {
 			return { from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }) }
 		}
 		if ("isEligible" in selection) {
-					return {
-						from: () => ({
-							where: () => ({
-								limit: async () => [{ code: "other", isEligible: false, isActive: true }],
-							}),
-						}),
-					}
-				}
-				if ("channelCode" in selection) {
+			return {
+				from: () => ({
+					where: () => ({
+						limit: async () => [{ code: "other", isEligible: false, isActive: true }],
+					}),
+				}),
+			}
+		}
+		if ("channelCode" in selection) {
 			return {
 				from: () => ({
 					innerJoin: () => ({

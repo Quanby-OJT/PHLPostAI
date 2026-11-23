@@ -1,4 +1,5 @@
 import type { AuditService } from "@/common/audit/audit.service"
+import type { AssistantService } from "@/modules/v1/assistant/assistant.service"
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import type { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
 import type { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
@@ -25,6 +26,19 @@ jest.mock("@/modules/v1/tracking/tracking.service", () => ({
 jest.mock("@/modules/v1/tracking/tracking.repository", () => ({
 	TrackingRepository: class TrackingRepository {},
 }))
+jest.mock("@/modules/v1/assistant/assistant.service", () => ({
+	AssistantService: class AssistantService {},
+}))
+
+const SEEDED_CATEGORIES = [
+	"tracking",
+	"rates",
+	"postal-id",
+	"service-info",
+	"scam",
+	"complaint",
+	"other",
+].map(code => ({ code, name: code }))
 
 const EXPRESS_ARTICLE = {
 	articleId: "11111111-1111-4111-8111-111111111111",
@@ -40,9 +54,10 @@ describe("CustomerChatService (CNV-1)", () => {
 	let conversationService: { recordTurn: jest.Mock }
 	let knowledgeRepository: { resolveArticleSources: jest.Mock }
 	let auditService: { writeAudit: jest.Mock }
-	let ragGatewayService: { screenQuery: jest.Mock; classifyInquiry: jest.Mock }
+	let ragGatewayService: { classifyInquiry: jest.Mock }
 	let trackingService: { isTrackingQuestion: jest.Mock; answer: jest.Mock }
 	let trackingRepository: { insertLookup: jest.Mock }
+	let assistantService: { listActiveCategories: jest.Mock }
 
 	beforeEach(() => {
 		conversationService = {
@@ -54,18 +69,24 @@ describe("CustomerChatService (CNV-1)", () => {
 		knowledgeRepository = { resolveArticleSources: jest.fn().mockResolvedValue(new Map()) }
 		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
 		ragGatewayService = {
-			screenQuery: jest.fn().mockResolvedValue({ screenedQuery: "where is RR123456789PH" }),
-					classifyInquiry: jest.fn().mockResolvedValue({ category: "tracking", language: "en", source: "llm" }),
+			classifyInquiry: jest.fn().mockResolvedValue({
+				screenedQuery: "where is RR123456789PH",
+				category: "tracking",
+				language: "en",
+				fallbackUsed: false,
+			}),
 		}
 		trackingService = { isTrackingQuestion: jest.fn().mockReturnValue(false), answer: jest.fn() }
 		trackingRepository = { insertLookup: jest.fn().mockResolvedValue(undefined) }
+		assistantService = { listActiveCategories: jest.fn().mockResolvedValue(SEEDED_CATEGORIES) }
 		service = new CustomerChatService(
 			conversationService as unknown as ConversationService,
 			knowledgeRepository as unknown as KnowledgeRepository,
 			auditService as unknown as AuditService,
 			ragGatewayService as unknown as RagGatewayService,
 			trackingService as unknown as TrackingService,
-			trackingRepository as unknown as TrackingRepository
+			trackingRepository as unknown as TrackingRepository,
+			assistantService as unknown as AssistantService
 		)
 	})
 
@@ -307,6 +328,115 @@ describe("CustomerChatService (CNV-1)", () => {
 		})
 	})
 
+	describe("CNV-2: classify, then route by category", () => {
+		const INPUT = {
+			query: "where is RR123456789PH",
+			principal: "customer-session:session-1",
+			permissions: ["chat.query.submit"],
+			correlationId: "req-1",
+		}
+
+		it("screens and classifies over the active categories in one RAG call", async () => {
+			const result = await service.classify(INPUT)
+
+			expect(ragGatewayService.classifyInquiry).toHaveBeenCalledWith(
+				expect.objectContaining({
+					query: INPUT.query,
+					categories: SEEDED_CATEGORIES,
+					actorType: "customer",
+				})
+			)
+			expect(result).toEqual({
+				screenedQuery: "where is RR123456789PH",
+				category: "tracking",
+				language: "en",
+				route: "tracking",
+			})
+		})
+
+		it.each([
+			["rates", "retrieval"],
+			["scam", "retrieval"],
+			["postal-id", "retrieval"],
+			["other", "retrieval"],
+		])("routes %s to %s until its tool exists", async (category, route) => {
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery: "a question",
+				category,
+				language: "en",
+				fallbackUsed: false,
+			})
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ category, route })
+			)
+		})
+
+		it("labels a category that is no longer active as other", async () => {
+			assistantService.listActiveCategories.mockResolvedValue(
+				SEEDED_CATEGORIES.filter(category => category.code !== "rates")
+			)
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery: "how much is postage",
+				category: "rates",
+				language: "en",
+				fallbackUsed: false,
+			})
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ category: "other", route: "retrieval" })
+			)
+		})
+
+		it("falls back on TRK-1's tracking check when the model is unavailable", async () => {
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery: "RR123456789PH",
+				category: "other",
+				language: null,
+				fallbackUsed: true,
+			})
+			trackingService.isTrackingQuestion.mockReturnValue(true)
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ category: "tracking", route: "tracking", language: null })
+			)
+			expect(trackingService.isTrackingQuestion).toHaveBeenCalledWith("RR123456789PH")
+		})
+
+		it("falls back on the keyword classifier for other questions", async () => {
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery: "How much is postage?",
+				category: "other",
+				language: null,
+				fallbackUsed: true,
+			})
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ category: "rates", route: "retrieval" })
+			)
+		})
+
+		it("lets a screening block through as the gateway's 400", async () => {
+			ragGatewayService.classifyInquiry.mockRejectedValue(
+				Object.assign(new Error("blocked"), { getStatus: () => 400 })
+			)
+
+			await expect(service.classify(INPUT)).rejects.toThrow("blocked")
+		})
+
+		it("stores the category and language with a retrieval turn", async () => {
+			await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: { answer: "Bring a valid ID.", screenedQuery: "postal id requirements" },
+				classification: { category: "postal-id", language: "ceb" },
+			})
+
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ inquiryCategory: "postal-id", language: "ceb" })
+			)
+		})
+	})
+
 	describe("TRK-1: a tracking turn", () => {
 		const LOOKUP = {
 			connectorCode: "mock",
@@ -317,14 +447,17 @@ describe("CustomerChatService (CNV-1)", () => {
 		}
 		const INPUT = {
 			conversationId: "conversation-1",
-			query: "where is RR123456789PH",
-			principal: "customer-session:session-1",
-			permissions: ["chat.query.submit"],
+			classification: {
+				screenedQuery: "where is RR123456789PH",
+				category: "tracking",
+				language: "en",
+				route: "tracking" as const,
+			},
 			correlationId: "req-1",
-			language: "fil",
+			explanationLanguage: "fil",
 		}
 
-		it("screens the question before anything is looked up or stored", async () => {
+		it("answers from the already screened question", async () => {
 			trackingService.answer.mockResolvedValue({
 				reply: "Status: In transit",
 				storedQuery: "where is [TRACKING_NUMBER]",
@@ -333,13 +466,11 @@ describe("CustomerChatService (CNV-1)", () => {
 
 			await service.answerTracking(INPUT)
 
-			expect(ragGatewayService.screenQuery).toHaveBeenCalledWith(
-				expect.objectContaining({ query: INPUT.query, actorType: "customer" })
-			)
 			expect(trackingService.answer).toHaveBeenCalledWith("where is RR123456789PH", "fil")
+			expect(ragGatewayService.classifyInquiry).not.toHaveBeenCalled()
 		})
 
-		it("stores a tool turn without the number and the lookup row against the reply", async () => {
+		it("stores a tool turn with its category, without the number, and the lookup row", async () => {
 			trackingService.answer.mockResolvedValue({
 				reply: "Status: In transit",
 				storedQuery: "where is [TRACKING_NUMBER]",
@@ -353,6 +484,8 @@ describe("CustomerChatService (CNV-1)", () => {
 				expect.objectContaining({
 					conversationId: "conversation-1",
 					maskedQuery: "where is [TRACKING_NUMBER]",
+					inquiryCategory: "tracking",
+					language: "en",
 					answer: "Status: In transit",
 					answerKind: "tool",
 					category: "tracking",
@@ -385,19 +518,9 @@ describe("CustomerChatService (CNV-1)", () => {
 				lookup: null,
 			})
 
-			await service.answerTracking({ ...INPUT, query: "where is my parcel" })
+			await service.answerTracking(INPUT)
 
 			expect(conversationService.recordTurn.mock.calls[0][0].onRecorded).toBeUndefined()
-		})
-
-		it("stores nothing when screening blocks the question", async () => {
-			ragGatewayService.screenQuery.mockRejectedValue(
-				Object.assign(new Error("blocked"), { getStatus: () => 400 })
-			)
-
-			await expect(service.answerTracking(INPUT)).rejects.toThrow("blocked")
-			expect(trackingService.answer).not.toHaveBeenCalled()
-			expect(conversationService.recordTurn).not.toHaveBeenCalled()
 		})
 	})
 })
