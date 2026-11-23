@@ -31,11 +31,11 @@ export const INQUIRY_CATEGORY_CODES = [
 /** Classifies the screened customer text into the domain's supported categories. */
 export function classifyInquiryCategory(query: string): (typeof INQUIRY_CATEGORY_CODES)[number] {
 	const value = query.toLowerCase()
-	if (/\b(track|tracking|parcel|package|mail item)\b/.test(value)) return "tracking"
-	if (/\b(rate|rates|price|cost|postage)\b/.test(value)) return "rates"
-	if (/\bpostal[ -]?id\b/.test(value)) return "postal-id"
+	if (/\b(complaint|complain|unhappy|bad service|delayed package|lost package)\b/.test(value)) return "complaint"
 	if (/\b(scam|fraud|phishing|suspicious)\b/.test(value)) return "scam"
-	if (/\b(complaint|complain|unhappy|bad service)\b/.test(value)) return "complaint"
+	if (/\bpostal[ -]?id\b/.test(value)) return "postal-id"
+	if (/\b(rate|rates|price|cost|postage)\b/.test(value)) return "rates"
+	if (/\b(track|tracking|parcel|package|mail item)\b/.test(value)) return "tracking"
 	if (/\b(service|office|branch|hours|deliver|delivery|send|post)\b/.test(value)) {
 		return "service-info"
 	}

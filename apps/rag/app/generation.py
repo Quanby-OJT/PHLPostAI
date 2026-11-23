@@ -25,7 +25,7 @@ import time
 import uuid
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.budget import current_context_budget, select_within_budget
@@ -1648,7 +1648,7 @@ class ClassifyResponse(BaseModel):
     fallbackUsed: bool = False
 
 
-def _normalize_language(raw: unknown) -> str:
+def _normalize_language(raw: object) -> str:
     if not isinstance(raw, str):
         return "en"
     cleaned = raw.strip().lower().replace("_", "-")
@@ -1661,12 +1661,15 @@ def _normalize_language(raw: unknown) -> str:
     return "en"
 
 
-@router.post("/internal/chat/classify", response_model=ClassifyResponse)
+@router.post(
+    "/chat/classify",
+    response_model=ClassifyResponse,
+    dependencies=[Depends(rate_limit("rate_limit_chat"))],
+)
 async def classify_inquiry(
-    req: ClassifyRequest,
+    req: Annotated[ClassifyRequest, Body()],
     request: Request,
     principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
-    _rl: Annotated[None, Depends(rate_limit)],
 ) -> ClassifyResponse:
     """Classify an inquiry into one allowed category and detect its language together using the cheap model (CNV-2)."""
     allowed = [c.strip().lower() for c in req.categories if c.strip()] or [
@@ -1691,7 +1694,14 @@ async def classify_inquiry(
         "You are a fast inquiry classifier for PHLPost customer support. "
         "Return ONLY valid JSON with keys \"category\" and \"language\". "
         f"Allowed category values: {json.dumps(allowed)}. "
-        "If unsure or off-topic, use \"other\". "
+        "Category rules and priority: "
+        "1) \"complaint\": filing a complaint, expressing dissatisfaction/bad service, or reporting delayed/lost/damaged items or staff issues (takes priority over \"tracking\"). "
+        "2) \"scam\": reporting phishing, scams, fraud, fake links, or suspicious messages/calls (takes priority over \"tracking\"). "
+        "3) \"postal-id\": Postal ID applications, requirements, renewals, or claiming. "
+        "4) \"rates\": postage fees, shipping rates, or pricing. "
+        "5) \"tracking\": checking package/parcel/mail status, location, or tracking numbers without filing a complaint or scam report. "
+        "6) \"service-info\": post office branches, operating hours, or general mail/delivery services. "
+        "7) \"other\": off-topic, unclear, or requests to speak with a human agent. "
         "Use short ISO language codes such as \"en\" or \"fil\"."
     )
     try:
@@ -1708,6 +1718,13 @@ async def classify_inquiry(
         cat = str(parsed.get("category", "other")).strip().lower()
         if cat not in allowed:
             cat = "other"
+        q_lower = req.query.lower()
+        scam_terms = ("scam", "phishing", "fraud", "fake", "suspicious", "impersonat", "extort", "text message", "sms")
+        complaint_terms = ("complaint", "complain", "file a formal", "dissatisf", "damaged", "lost parcel", "lost package", "missing parcel", "missing package", "rude", "unhelpful")
+        if "scam" in allowed and any(t in q_lower for t in scam_terms):
+            cat = "scam"
+        elif "complaint" in allowed and any(t in q_lower for t in complaint_terms):
+            cat = "complaint"
         lang = _normalize_language(parsed.get("language"))
         return ClassifyResponse(
             category=cat,
