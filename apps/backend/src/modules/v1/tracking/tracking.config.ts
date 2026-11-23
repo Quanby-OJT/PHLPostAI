@@ -6,6 +6,7 @@ export interface TrackingConfig {
 	numberPattern: RegExp
 	keywords: string[]
 	hashSecret: string
+	customsStatusCodes: string[]
 }
 
 export const TRACKING_CONFIG = Symbol("TRACKING_CONFIG")
@@ -19,5 +20,8 @@ export function trackingConfigFromEnv(): TrackingConfig {
 			.map(keyword => keyword.trim().toLowerCase())
 			.filter(Boolean),
 		hashSecret: env.TRACKING_NUMBER_HASH_SECRET ?? env.BETTER_AUTH_SECRET,
+		customsStatusCodes: env.TRACKING_CUSTOMS_STATUS_CODES.split(",")
+			.map(code => code.trim().toUpperCase())
+			.filter(Boolean),
 	}
 }

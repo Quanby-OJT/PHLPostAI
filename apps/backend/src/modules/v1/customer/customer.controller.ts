@@ -293,6 +293,7 @@ export class CustomerController {
 				principal: this.principalFor(session),
 				permissions: CUSTOMER_SERVICE_PERMISSIONS,
 				correlationId,
+				language: session.language,
 			})
 			return { ...turn, conversationId }
 		} catch (error) {

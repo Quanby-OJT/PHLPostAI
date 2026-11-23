@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common"
 
+import { StatusExplanationsRepository } from "./status-explanations.repository"
 import { TrackingConnectorRegistry } from "./tracking-connector.registry"
 import {
 	hashTrackingNumber,
@@ -9,7 +10,7 @@ import {
 } from "./tracking-number"
 import type { TrackingEvent, TrackingSource } from "./tracking-source"
 import { TRACKING_CONFIG, type TrackingConfig } from "./tracking.config"
-import { foundReply, TRACKING_REPLIES } from "./tracking.replies"
+import { foundReply, TRACKING_REPLIES, type ReplyExplanation } from "./tracking.replies"
 import type { TrackingLookupRecord } from "./tracking.repository"
 
 export interface TrackingAnswer {
@@ -33,7 +34,8 @@ export class TrackingService {
 
 	constructor(
 		registry: TrackingConnectorRegistry,
-		@Inject(TRACKING_CONFIG) private readonly config: TrackingConfig
+		@Inject(TRACKING_CONFIG) private readonly config: TrackingConfig,
+		private readonly explanations: StatusExplanationsRepository
 	) {
 		this.source = registry.get(config.connectorCode)
 	}
@@ -46,7 +48,7 @@ export class TrackingService {
 		)
 	}
 
-	async answer(screenedQuery: string): Promise<TrackingAnswer> {
+	async answer(screenedQuery: string, language = "en"): Promise<TrackingAnswer> {
 		const scan = scanForTrackingNumber(screenedQuery, this.config.numberPattern)
 		const storedQuery = maskTrackingNumber(screenedQuery, scan)
 
@@ -69,11 +71,30 @@ export class TrackingService {
 
 		const reply =
 			result.outcome === "found"
-				? foundReply(result.event)
+				? foundReply(result.event, {
+						explanation: await this.explanationFor(result.event.statusCode, language),
+						customs: this.config.customsStatusCodes.includes(result.event.statusCode.toUpperCase()),
+					})
 				: result.outcome === "not_found"
 					? TRACKING_REPLIES.notFound
 					: TRACKING_REPLIES.unavailable
 		return { reply, storedQuery, lookup }
+	}
+
+	/** Flow B step 4. A failed lookup of the wording still shows the official status. */
+	private async explanationFor(
+		statusCode: string,
+		language: string
+	): Promise<ReplyExplanation | null> {
+		try {
+			const row = await this.explanations.findActive(statusCode.toUpperCase(), language)
+			return row ? { explanation: row.explanation, nextSteps: row.nextSteps } : null
+		} catch (error) {
+			this.logger.warn(
+				`Status explanation lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+			)
+			return null
+		}
 	}
 
 	private async lookupWithTimeout(trackingNumber: string): Promise<LookupResult> {

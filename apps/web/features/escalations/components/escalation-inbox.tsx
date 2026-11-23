@@ -91,7 +91,7 @@ export function EscalationInbox() {
 								{waitingLabel(
 									Math.max(
 										0,
-										Math.floor((Date.now() - new Date(detail.data.createdAt).getTime()) / 1000)
+										Math.floor((detail.dataUpdatedAt - new Date(detail.data.createdAt).getTime()) / 1000)
 									)
 								)}
 							</p>

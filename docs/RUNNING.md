@@ -283,6 +283,7 @@ has these seed records:
 | `RR123456789PH` | In transit, Manila Central Post Office |
 | `EE987654321PH` | Out for delivery, Quezon City Post Office |
 | `CP111222333PH` | Delivered, Cebu City Post Office |
+| `CE444555666PH` | Held by the Bureau of Customs (`HELD_AT_CUSTOMS`) |
 | `RR000000000PH` | Never answers (tests the timeout) |
 | any other valid number | No record found |
 
@@ -309,6 +310,29 @@ Settings (`apps/backend/.env`, all optional):
 | `TRACKING_NUMBER_PATTERN` | `^[A-Z]{2}[0-9]{9}[A-Z]{2}$` | Valid tracking-number format (UPU S10) |
 | `TRACKING_KEYWORDS` | `track,tracking,trace,where is my,…` | Words that mark a tracking question |
 | `TRACKING_NUMBER_HASH_SECRET` | `BETTER_AUTH_SECRET` | Key for the tracking-number hash |
+| `TRACKING_CUSTOMS_STATUS_CODES` | `HELD_AT_CUSTOMS` | Status codes that mean the item is held by Customs (TRK-2) |
+
+### Status explanations (TRK-2)
+
+Staff with `tracking.explanations.manage` (the Knowledge Manager role by
+default) write plain-language wording and next steps per status code and
+language on **Status explanations** (`/tracking-explanations`). A tracking reply
+shows the official status, place and time first and unchanged, then the
+explanation for the customer's chat language. A code with no active explanation
+in that language shows only the official status and appears under **Needs
+explanation** (built from `tracking_lookups`). For a status in
+`TRACKING_CUSTOMS_STATUS_CODES`, the reply always adds that PHLPost does not
+decide the release; write the Customs guidance and required documents in that
+code's explanation and next steps.
+
+Try it:
+
+1. Track `RR123456789PH` on `/assistant`. `IN_TRANSIT` now appears under
+   **Needs explanation**.
+2. Click **Write explanation**, save it, and track the number again. The reply
+   ends with "What this means" and "Next steps".
+3. Track `CE444555666PH` and add an explanation for `HELD_AT_CUSTOMS` with the
+   required documents as next steps.
 
 ## Troubleshooting
 

@@ -1,12 +1,16 @@
 import { MockTrackingSource } from "./connectors/mock/mock.connector"
+import type { StatusExplanationsRepository } from "./status-explanations.repository"
 import { TrackingConnectorRegistry } from "./tracking-connector.registry"
 import { hashTrackingNumber } from "./tracking-number"
 import type { TrackingSource } from "./tracking-source"
 import type { TrackingConfig } from "./tracking.config"
-import { TRACKING_REPLIES } from "./tracking.replies"
+import { foundReply, TRACKING_REPLIES } from "./tracking.replies"
 import { TrackingService } from "./tracking.service"
 
 jest.mock("@/config/env.config", () => ({ env: {} }))
+jest.mock("./status-explanations.repository", () => ({
+	StatusExplanationsRepository: class StatusExplanationsRepository {},
+}))
 
 const CONFIG: TrackingConfig = {
 	connectorCode: "mock",
@@ -14,23 +18,32 @@ const CONFIG: TrackingConfig = {
 	numberPattern: /^[A-Z]{2}[0-9]{9}[A-Z]{2}$/,
 	keywords: ["track", "tracking", "where is my"],
 	hashSecret: "test-hash-secret-0123456789",
+	customsStatusCodes: ["HELD_AT_CUSTOMS"],
 }
 
+let explanations: { findActive: jest.Mock }
+
+beforeEach(() => {
+	explanations = { findActive: jest.fn().mockResolvedValue(null) }
+})
+
 function serviceWith(source: TrackingSource = new MockTrackingSource()) {
-	return new TrackingService(new TrackingConnectorRegistry([source]), {
-		...CONFIG,
-		connectorCode: source.code,
-	})
+	return new TrackingService(
+		new TrackingConnectorRegistry([source]),
+		{ ...CONFIG, connectorCode: source.code },
+		explanations as unknown as StatusExplanationsRepository
+	)
 }
 
 describe("TrackingService (TRK-1, Flow B)", () => {
 	it("refuses to start with a connector that is not registered", () => {
 		expect(
 			() =>
-				new TrackingService(new TrackingConnectorRegistry([new MockTrackingSource()]), {
-					...CONFIG,
-					connectorCode: "phlpost-track-trace",
-				})
+				new TrackingService(
+					new TrackingConnectorRegistry([new MockTrackingSource()]),
+					{ ...CONFIG, connectorCode: "phlpost-track-trace" },
+					explanations as unknown as StatusExplanationsRepository
+				)
 		).toThrow(/Unknown tracking connector/)
 	})
 
@@ -133,5 +146,82 @@ describe("TrackingService (TRK-1, Flow B)", () => {
 		})
 		expect(JSON.stringify(answer.lookup)).not.toContain("RR123456789PH")
 		expect(answer.storedQuery).toBe("where is [TRACKING_NUMBER]")
+	})
+
+	describe("TRK-2: status explanations (Flow B step 4)", () => {
+		const IN_TRANSIT = {
+			statusCode: "IN_TRANSIT",
+			description: "Item in transit to the destination office",
+			location: "Manila Central Post Office",
+			occurredAt: "18 Nov 2026, 2:32 PM",
+		}
+
+		it("AC1: gives the official status first, then the approved explanation and next steps", async () => {
+			explanations.findActive.mockResolvedValue({
+				explanation: "Your item is on its way to the post office that will deliver it.",
+				nextSteps: "No action is needed. Check again tomorrow.",
+			})
+
+			const answer = await serviceWith().answer("where is RR123456789PH", "fil")
+
+			expect(explanations.findActive).toHaveBeenCalledWith("IN_TRANSIT", "fil")
+			expect(answer.reply).toBe(
+				[
+					foundReply(IN_TRANSIT),
+					"",
+					"What this means: Your item is on its way to the post office that will deliver it.",
+					"Next steps: No action is needed. Check again tomorrow.",
+				].join("\n")
+			)
+		})
+
+		it("leaves out next steps when the explanation has none", async () => {
+			explanations.findActive.mockResolvedValue({ explanation: "On its way.", nextSteps: null })
+
+			const answer = await serviceWith().answer("where is RR123456789PH")
+
+			expect(answer.reply).toContain("What this means: On its way.")
+			expect(answer.reply).not.toContain("Next steps")
+		})
+
+		it("AC2: shows the official description unchanged when the code has no explanation", async () => {
+			const answer = await serviceWith().answer("where is RR123456789PH", "ceb")
+
+			expect(answer.reply).toBe(foundReply(IN_TRANSIT))
+		})
+
+		it("AC3: adds the Customs guidance and states PHLPost does not decide the release", async () => {
+			explanations.findActive.mockResolvedValue({
+				explanation: "Customs is checking your item before it can be delivered.",
+				nextSteps: "Prepare the invoice and a valid ID.",
+			})
+
+			const answer = await serviceWith().answer("track CE444555666PH")
+
+			expect(answer.reply).toContain("Status: Held by the Bureau of Customs for inspection")
+			expect(answer.reply).toContain("Next steps: Prepare the invoice and a valid ID.")
+			expect(answer.reply).toContain("PHLPost does not decide when Customs releases it.")
+		})
+
+		it("still states that PHLPost does not decide the release before guidance is written", async () => {
+			const answer = await serviceWith().answer("track CE444555666PH")
+
+			expect(answer.reply).toContain(TRACKING_REPLIES.customs)
+		})
+
+		it("shows the official status when the explanation cannot be loaded", async () => {
+			explanations.findActive.mockRejectedValue(new Error("database down"))
+
+			const answer = await serviceWith().answer("where is RR123456789PH")
+
+			expect(answer.reply).toBe(foundReply(IN_TRANSIT))
+			expect(answer.lookup).toEqual(expect.objectContaining({ outcome: "found" }))
+		})
+
+		it("never looks up an explanation when nothing was found", async () => {
+			await serviceWith().answer("track RR999999999PH")
+
+			expect(explanations.findActive).not.toHaveBeenCalled()
+		})
 	})
 })

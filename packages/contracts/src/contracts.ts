@@ -188,6 +188,8 @@ export { knowledgeContract } from "./modules/v1/knowledge/knowledge.contract.js"
 export * from "./modules/v1/knowledge/knowledge.schema.js"
 
 export { customerContract } from "./modules/v1/customer/customer.contract.js"
+export { trackingContract } from "./modules/v1/tracking/tracking.contract.js"
+export * from "./modules/v1/tracking/tracking.schema.js"
 export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
 export {
 	InteractionEventKindSchema,
