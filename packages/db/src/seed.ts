@@ -73,7 +73,7 @@ async function seedDatabase() {
 		process.env.SEED_ADMIN_PASSWORD
 	)
 
-	const pool = new Pool({ connectionString })
+	const pool = new Pool({ connectionString, max: 2 })
 	const db = drizzle({ client: pool, schema })
 	const now = new Date()
 	const hashedSeedPassword = await hashPassword(seedPassword)
