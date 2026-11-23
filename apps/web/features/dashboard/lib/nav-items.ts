@@ -4,6 +4,7 @@ import {
 	CheckmarkBadge01Icon,
 	DashboardSquare01Icon,
 	FolderLibraryIcon,
+	InformationCircleIcon,
 	Key01Icon,
 	Settings02Icon,
 	UserMultipleIcon,
@@ -47,6 +48,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/knowledge",
 		icon: FolderLibraryIcon,
 		requiredPermission: ["knowledge.articles.manage", "knowledge.articles.approve"],
+	},
+	{
+		// TRK-2: wording shown after each official tracking status.
+		label: "Status explanations",
+		href: "/tracking-explanations",
+		icon: InformationCircleIcon,
+		requiredPermission: "tracking.explanations.manage",
 	},
 	{
 		// Grounded Q&A over the corpus (CH-1). Only users who can ask see it;

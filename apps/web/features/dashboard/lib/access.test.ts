@@ -156,6 +156,17 @@ describe("navItems", () => {
 			"Knowledge base"
 		)
 
+		// TRK-2: status explanations need tracking.explanations.manage.
+		expect(
+			getAccessibleNavItems({
+				roles: [],
+				permissions: ["tracking.explanations.manage"],
+			}).map(item => item.label)
+		).toContain("Status explanations")
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain(
+			"Status explanations"
+		)
+
 		expect(
 			getAccessibleNavItems({ roles: ["System Administrator"], permissions: [] }).map(
 				item => item.label
@@ -164,6 +175,7 @@ describe("navItems", () => {
 			"Dashboard",
 			"Corpus",
 			"Knowledge base",
+			"Status explanations",
 			"Chat",
 			"Agent inbox",
 			"User Management",

@@ -25,5 +25,11 @@ export const MOCK_RECORDS: Record<string, MockRecord | "timeout"> = {
 		office: "Cebu City Post Office",
 		at: "17 Nov 2026, 4:10 PM",
 	},
+	CE444555666PH: {
+		code: "HELD_AT_CUSTOMS",
+		text: "Held by the Bureau of Customs for inspection",
+		office: "NAIA Central Mail Exchange Center",
+		at: "20 Nov 2026, 9:15 AM",
+	},
 	RR000000000PH: "timeout",
 }

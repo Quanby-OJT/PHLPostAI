@@ -320,6 +320,7 @@ describe("CustomerChatService (CNV-1)", () => {
 			principal: "customer-session:session-1",
 			permissions: ["chat.query.submit"],
 			correlationId: "req-1",
+			language: "fil",
 		}
 
 		it("screens the question before anything is looked up or stored", async () => {
@@ -334,7 +335,7 @@ describe("CustomerChatService (CNV-1)", () => {
 			expect(ragGatewayService.screenQuery).toHaveBeenCalledWith(
 				expect.objectContaining({ query: INPUT.query, actorType: "customer" })
 			)
-			expect(trackingService.answer).toHaveBeenCalledWith("where is RR123456789PH")
+			expect(trackingService.answer).toHaveBeenCalledWith("where is RR123456789PH", "fil")
 		})
 
 		it("stores a tool turn without the number and the lookup row against the reply", async () => {

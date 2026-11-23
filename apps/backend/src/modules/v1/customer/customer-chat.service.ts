@@ -107,6 +107,7 @@ export class CustomerChatService {
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
+		language?: string
 	}): Promise<CustomerTurn> {
 		const { screenedQuery } = await this.ragGatewayService.screenQuery({
 			query: input.query,
@@ -116,7 +117,10 @@ export class CustomerChatService {
 			traceId: input.correlationId,
 			actorType: "customer",
 		})
-		const { reply, storedQuery, lookup } = await this.trackingService.answer(screenedQuery)
+		const { reply, storedQuery, lookup } = await this.trackingService.answer(
+			screenedQuery,
+			input.language
+		)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,

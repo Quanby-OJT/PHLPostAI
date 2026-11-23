@@ -953,6 +953,22 @@ export const trackingLookups = createTable(
 	]
 )
 
+/** PHLPost-approved wording for one official status code in one language (TRK-2). */
+export const statusExplanations = createTable(
+	"status_explanations",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		statusCode: t.text("status_code").notNull(),
+		language: t.text("language").notNull(),
+		explanation: t.text("explanation").notNull(),
+		nextSteps: t.text("next_steps"),
+		isActive: t.boolean("is_active").notNull().default(true),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [unique("status_explanations_code_language_uq").on(t.statusCode, t.language)]
+)
+
 export const relations = defineRelations(
 	{
 		users,
@@ -1049,6 +1065,7 @@ export const schema = Object.assign(
 		knowledgeArticles,
 		knowledgeArticleVersions,
 		trackingLookups,
+		statusExplanations,
 	},
 	relations
 )

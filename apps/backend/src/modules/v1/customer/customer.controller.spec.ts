@@ -470,6 +470,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
+				language: "en",
 			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(

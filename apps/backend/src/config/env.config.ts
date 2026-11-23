@@ -144,6 +144,8 @@ export const env = createEnv({
 			.string()
 			.default("track,tracking,trace,where is my,nasaan ang,nasaan na,nasan na,asan na"),
 		TRACKING_NUMBER_HASH_SECRET: z.string().min(16).optional(),
+		// TRK-2: status codes that mean the item is held by the Bureau of Customs.
+		TRACKING_CUSTOMS_STATUS_CODES: z.string().default("HELD_AT_CUSTOMS"),
 
 		// Authentication.
 		// Same schema object the @repo/auth package validates with — the two
