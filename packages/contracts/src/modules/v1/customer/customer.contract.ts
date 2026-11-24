@@ -4,7 +4,9 @@ import {
 	CustomerAnswerSchema,
 	CustomerChannelStatusSchema,
 	CustomerChatRequestSchema,
+	CustomerSessionLanguageSchema,
 	CustomerSessionSchema,
+	SetCustomerLanguageRequestSchema,
 	StartCustomerSessionRequestSchema,
 } from "./customer.schema.js"
 
@@ -40,6 +42,17 @@ export const customerContract = {
 			})
 			.input(StartCustomerSessionRequestSchema)
 			.output(CustomerSessionSchema),
+		setLanguage: oc
+			.route({
+				method: "POST",
+				path: "/customer/session/language",
+				summary: "Change the chat language",
+				description:
+					"Stores the language the customer picked from the widget menu on their Customer Session. Later replies are written in it; a message clearly written in another supported language is still answered in that language.",
+				tags: ["Customer"],
+			})
+			.input(SetCustomerLanguageRequestSchema)
+			.output(CustomerSessionLanguageSchema),
 	},
 	chat: {
 		send: oc

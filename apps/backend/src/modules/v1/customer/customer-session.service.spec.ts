@@ -139,4 +139,12 @@ describe("CustomerSessionService (CNV-1)", () => {
 			expect(service.idleExpiresAt(lastSeen).toISOString()).toBe("2026-11-18T10:30:00.000Z")
 		})
 	})
+
+	describe("language (CNV-4)", () => {
+		it("stores the language picked in the widget", async () => {
+			await service.setLanguage("session-1", "ceb")
+
+			expect(updates.values).toEqual([{ language: "ceb" }])
+		})
+	})
 })
