@@ -34,6 +34,8 @@ jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
 }))
 jest.mock("@repo/contracts", () => ({
+	CUSTOMER_LANGUAGES: ["en", "fil", "ceb", "ilo"],
+	UNTRANSLATED_POSTAL_TERMS: ["PHLPost"],
 	CustomerChatRequestSchema: {
 		safeParse: (value: unknown) => {
 			const body = value as { query?: unknown; conversationId?: string } | null
@@ -109,12 +111,14 @@ const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "retrieval" as const,
 }
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "tracking" as const,
 }
 
@@ -314,7 +318,27 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
 			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
-			expect(body).toEqual({ query: "how much", persist: false })
+			expect(body).toEqual({
+				query: "how much",
+				persist: false,
+				language: "en",
+				queryLanguage: "en",
+				glossary: ["PHLPost"],
+			})
+		})
+
+		it("asks for the reply in the customer's language (CNV-4)", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				language: "ceb",
+				replyLanguage: "ceb",
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "pila" }, "a-token", REQUEST, response as never)
+
+			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
+			expect(body).toEqual(expect.objectContaining({ language: "ceb", queryLanguage: "ceb" }))
 		})
 
 		it("identifies the caller as a customer session, never a user", async () => {
@@ -474,6 +498,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
+				sessionLanguage: "en",
 			})
 		})
 
@@ -537,7 +562,6 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				conversationId: "conversation-1",
 				classification: TRACKING_CLASSIFICATION,
 				correlationId: "req-1",
-				explanationLanguage: "en",
 			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(

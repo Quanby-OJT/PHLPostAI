@@ -80,6 +80,10 @@ export interface ChatForwardInput {
 	 * Omitted means the template behaviour: the RAG service persists.
 	 */
 	persist?: boolean
+	/** CNV-4: the reply language, the detected question language and the untranslated terms. */
+	language?: string
+	queryLanguage?: string
+	glossary?: readonly string[]
 }
 
 function base64UrlJson(value: unknown): string {
@@ -173,6 +177,9 @@ export class RagGatewayService {
 				...(input.conversationId !== undefined && { conversationId: input.conversationId }),
 				...(input.filters !== undefined && { filters: input.filters }),
 				...(input.persist !== undefined && { persist: input.persist }),
+				...(input.language !== undefined && { language: input.language }),
+				...(input.queryLanguage !== undefined && { queryLanguage: input.queryLanguage }),
+				...(input.glossary !== undefined && { glossary: input.glossary }),
 			}),
 			failureMessage: "RAG chat failed",
 		})

@@ -31,6 +31,7 @@ import {
 	type InquiryClassification,
 	type RagAnswerEnvelope,
 } from "./customer-chat.service"
+import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
@@ -110,7 +111,7 @@ export class CustomerController {
 
 			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(session, conversation.id, classification, correlationId)
+					return await this.answerTracking(conversation.id, classification, correlationId)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -127,6 +128,7 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
@@ -189,12 +191,7 @@ export class CustomerController {
 		// A tracking turn is answered from the connector, not streamed.
 		if (classification.route === "tracking") {
 			try {
-				const turn = await this.answerTracking(
-					session,
-					conversation.id,
-					classification,
-					correlationId
-				)
+				const turn = await this.answerTracking(conversation.id, classification, correlationId)
 				response.status(200).json(turn)
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
@@ -224,7 +221,11 @@ export class CustomerController {
 					"content-type": "application/json",
 					"x-request-id": correlationId,
 				},
-				body: JSON.stringify({ query: parsed.data.query, persist: false }),
+				body: JSON.stringify({
+					query: parsed.data.query,
+					persist: false,
+					...ragLanguageFields(classification),
+				}),
 				signal: abort.signal,
 			})
 		} catch {
@@ -319,12 +320,12 @@ export class CustomerController {
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			sessionLanguage: session.language,
 		})
 	}
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
-		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string
@@ -333,7 +334,6 @@ export class CustomerController {
 			conversationId,
 			classification,
 			correlationId,
-			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
 	}

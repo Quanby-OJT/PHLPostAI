@@ -1,6 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common"
 
-import type { CustomerAnswer, CustomerAnswerKind, CustomerAnswerSource } from "@repo/contracts"
+import type {
+	CustomerAnswer,
+	CustomerAnswerKind,
+	CustomerAnswerSource,
+	CustomerLanguage,
+} from "@repo/contracts"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { AssistantService } from "@/modules/v1/assistant/assistant.service"
@@ -10,6 +15,7 @@ import { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
 import { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
 import { ConversationService } from "./conversation.service"
+import { I_DONT_KNOW_REPLIES, replyLanguageFor, withLanguageNotice } from "./customer-language"
 import { routeForCategory, type InquiryRoute } from "./inquiry-routing"
 
 /**
@@ -56,6 +62,8 @@ export interface InquiryClassification {
 	screenedQuery: string
 	category: string
 	language: string | null
+	/** CNV-4: the language the reply is written in. */
+	replyLanguage: CustomerLanguage
 	route: InquiryRoute
 }
 
@@ -115,6 +123,7 @@ export class CustomerChatService {
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
+		sessionLanguage: string
 	}): Promise<InquiryClassification> {
 		const categories = await this.assistantService.listActiveCategories()
 		const result = await this.ragGatewayService.classifyInquiry({
@@ -136,6 +145,7 @@ export class CustomerChatService {
 			screenedQuery: result.screenedQuery,
 			category,
 			language: result.language,
+			replyLanguage: replyLanguageFor(result.language, input.sessionLanguage),
 			route: routeForCategory(category),
 		}
 	}
@@ -157,14 +167,14 @@ export class CustomerChatService {
 		conversationId: string
 		classification: InquiryClassification
 		correlationId: string
-		/** The language of the Status Explanation (TRK-2). */
-		explanationLanguage?: string
 	}): Promise<CustomerTurn> {
 		const { classification } = input
-		const { reply, storedQuery, lookup } = await this.trackingService.answer(
+		const result = await this.trackingService.answer(
 			classification.screenedQuery,
-			input.explanationLanguage
+			classification.replyLanguage
 		)
+		const { storedQuery, lookup } = result
+		const reply = withLanguageNotice(result.reply, classification.language)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
@@ -240,11 +250,12 @@ export class CustomerChatService {
 		envelope: RagAnswerEnvelope
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
-		classification?: Pick<InquiryClassification, "category" | "language">
+		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
 	}): Promise<CustomerTurn> {
-		const { conversationId, envelope } = input
+		const { conversationId, envelope, classification } = input
 		const answerKind = input.answerKind ?? this.answerKindFor(envelope)
-		const answer = input.answerOverride ?? asString(envelope.answer) ?? ""
+		const answer =
+			input.answerOverride ?? this.localizedAnswer(envelope, answerKind, classification)
 		// The RAG service owns the citation shape (ChatCitationSchema); it crosses
 		// the internal boundary unvalidated, as it does on the staff path.
 		const citations = (
@@ -286,6 +297,19 @@ export class CustomerChatService {
 			answerKind,
 			isIDontKnow: envelope.isIDontKnow === true,
 		}
+	}
+
+	/** CNV-4: "I don't know" in the reply language, plus the supported-languages notice. */
+	private localizedAnswer(
+		envelope: RagAnswerEnvelope,
+		answerKind: CustomerAnswerKind,
+		classification?: Pick<InquiryClassification, "language" | "replyLanguage">
+	): string {
+		const answer =
+			answerKind === "uncertain" && envelope.isIDontKnow === true && classification
+				? I_DONT_KNOW_REPLIES[classification.replyLanguage]
+				: (asString(envelope.answer) ?? "")
+		return withLanguageNotice(answer, classification?.language ?? null)
 	}
 
 	/**

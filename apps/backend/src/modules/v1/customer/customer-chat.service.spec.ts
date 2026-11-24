@@ -11,7 +11,12 @@ import {
 	CUSTOMER_REFUSAL_ANSWER,
 	CustomerChatService,
 } from "./customer-chat.service"
+import { ragLanguageFields, SUPPORTED_LANGUAGES_NOTICE } from "./customer-language"
 
+jest.mock("@repo/contracts", () => ({
+	CUSTOMER_LANGUAGES: ["en", "fil", "ceb", "ilo"],
+	UNTRANSLATED_POSTAL_TERMS: ["PHLPost", "Registered Mail"],
+}))
 jest.mock("@/modules/v1/knowledge/knowledge.repository", () => ({
 	KnowledgeRepository: class KnowledgeRepository {},
 }))
@@ -334,6 +339,7 @@ describe("CustomerChatService (CNV-1)", () => {
 			principal: "customer-session:session-1",
 			permissions: ["chat.query.submit"],
 			correlationId: "req-1",
+			sessionLanguage: "en",
 		}
 
 		it("screens and classifies over the active categories in one RAG call", async () => {
@@ -350,6 +356,7 @@ describe("CustomerChatService (CNV-1)", () => {
 				screenedQuery: "where is RR123456789PH",
 				category: "tracking",
 				language: "en",
+				replyLanguage: "en",
 				route: "tracking",
 			})
 		})
@@ -428,7 +435,7 @@ describe("CustomerChatService (CNV-1)", () => {
 			await service.completeTurn({
 				conversationId: "conversation-1",
 				envelope: { answer: "Bring a valid ID.", screenedQuery: "postal id requirements" },
-				classification: { category: "postal-id", language: "ceb" },
+				classification: { category: "postal-id", language: "ceb", replyLanguage: "ceb" },
 			})
 
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
@@ -451,10 +458,10 @@ describe("CustomerChatService (CNV-1)", () => {
 				screenedQuery: "where is RR123456789PH",
 				category: "tracking",
 				language: "en",
+				replyLanguage: "fil" as const,
 				route: "tracking" as const,
 			},
 			correlationId: "req-1",
-			explanationLanguage: "fil",
 		}
 
 		it("answers from the already screened question", async () => {
@@ -521,6 +528,113 @@ describe("CustomerChatService (CNV-1)", () => {
 			await service.answerTracking(INPUT)
 
 			expect(conversationService.recordTurn.mock.calls[0][0].onRecorded).toBeUndefined()
+		})
+	})
+
+	describe("CNV-4: reply in the customer's language", () => {
+		const INPUT = {
+			query: "a question",
+			principal: "customer-session:session-1",
+			permissions: ["chat.query.submit"],
+			correlationId: "req-1",
+			sessionLanguage: "en",
+		}
+
+		function detected(language: string | null) {
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery: "a question",
+				category: "service-info",
+				language,
+				fallbackUsed: language === null,
+			})
+		}
+
+		it.each([
+			["ceb", "en", "ceb"],
+			["fil", "ilo", "fil"],
+			["en", "fil", "fil"],
+			[null, "ilo", "ilo"],
+			["unsupported", "ceb", "en"],
+		] as [string | null, string, string][])(
+			"a %s message in a %s session is answered in %s",
+			async (language, sessionLanguage, replyLanguage) => {
+				detected(language)
+
+				await expect(service.classify({ ...INPUT, sessionLanguage })).resolves.toEqual(
+					expect.objectContaining({ language, replyLanguage })
+				)
+			}
+		)
+
+		it("sends the reply language, question language and glossary to the RAG service", () => {
+			expect(ragLanguageFields({ language: "ceb", replyLanguage: "ceb" })).toEqual({
+				language: "ceb",
+				queryLanguage: "ceb",
+				glossary: ["PHLPost", "Registered Mail"],
+			})
+			expect(ragLanguageFields({ language: null, replyLanguage: "fil" })).toEqual({
+				language: "fil",
+				glossary: ["PHLPost", "Registered Mail"],
+			})
+		})
+
+		it("gives the grounded I-don't-know in the reply language", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: { answer: "I don't know.", isIDontKnow: true, screenedQuery: "q" },
+				classification: { category: "other", language: "fil", replyLanguage: "fil" },
+			})
+
+			expect(turn).toMatchObject({ answer: "Hindi ko alam.", answerKind: "uncertain" })
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ answer: "Hindi ko alam.", language: "fil" })
+			)
+		})
+
+		it("answers an unsupported language in English and names the supported ones", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: { answer: "Express Mail is next-day [1].", screenedQuery: "q", citations: [] },
+				classification: { category: "service-info", language: "unsupported", replyLanguage: "en" },
+			})
+
+			expect(turn.answer).toBe(`Express Mail is next-day [1].\n\n${SUPPORTED_LANGUAGES_NOTICE}`)
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ language: "unsupported" })
+			)
+		})
+
+		it("adds the notice to a tracking reply too", async () => {
+			trackingService.answer.mockResolvedValue({
+				reply: "Please send your tracking number.",
+				storedQuery: "q",
+				lookup: null,
+			})
+
+			const turn = await service.answerTracking({
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "q",
+					category: "tracking",
+					language: "unsupported",
+					replyLanguage: "en",
+					route: "tracking",
+				},
+				correlationId: "req-1",
+			})
+
+			expect(trackingService.answer).toHaveBeenCalledWith("q", "en")
+			expect(turn.answer).toContain(SUPPORTED_LANGUAGES_NOTICE)
+		})
+
+		it("leaves a supported-language answer untouched", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: { answer: "Oo, puwede [1].", screenedQuery: "q", citations: [] },
+				classification: { category: "service-info", language: "fil", replyLanguage: "fil" },
+			})
+
+			expect(turn.answer).toBe("Oo, puwede [1].")
 		})
 	})
 })

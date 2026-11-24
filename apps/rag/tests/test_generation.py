@@ -307,7 +307,7 @@ async def test_prompt_is_grounded_with_numbered_context_and_idk_instruction(sett
     system = next(m for m in messages if m["role"] == "system")
     human = next(m for m in messages if m["role"] == "user")
     assert "ONLY the numbered context blocks" in system["content"]
-    assert "I don't know" in system["content"]
+    assert 'reply exactly: "I don\'t know."' in system["content"]
     assert "[1]\nAlpha." in human["content"]
     assert "[2]\nBeta." in human["content"]
     assert "what is alpha?" in human["content"]
