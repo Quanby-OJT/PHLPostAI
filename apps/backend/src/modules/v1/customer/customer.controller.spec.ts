@@ -29,12 +29,14 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { customer: { session: { start: {} }, chat: { send: {} } } },
+	v1: { customer: { session: { start: {}, setLanguage: {} }, chat: { send: {} } } },
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
 }))
 jest.mock("@repo/contracts", () => ({
+	CUSTOMER_LANGUAGES: ["en", "fil", "ceb", "ilo"],
+	UNTRANSLATED_POSTAL_TERMS: ["PHLPost"],
 	CustomerChatRequestSchema: {
 		safeParse: (value: unknown) => {
 			const body = value as { query?: unknown; conversationId?: string } | null
@@ -110,18 +112,25 @@ const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "retrieval" as const,
 }
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "tracking" as const,
 }
 
 describe("CustomerController (CNV-1 public chat)", () => {
 	let controller: CustomerController
-	let customerSessionService: { resolve: jest.Mock; start: jest.Mock; idleExpiresAt: jest.Mock }
+	let customerSessionService: {
+		resolve: jest.Mock
+		start: jest.Mock
+		idleExpiresAt: jest.Mock
+		setLanguage: jest.Mock
+	}
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
@@ -146,6 +155,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			resolve: jest.fn().mockResolvedValue(ACTIVE_SESSION),
 			start: jest.fn(),
 			idleExpiresAt: jest.fn().mockReturnValue(new Date("2026-11-18T10:30:00.000Z")),
+			setLanguage: jest.fn().mockResolvedValue(undefined),
 		}
 		conversationService = {
 			startCustomerConversation: jest
@@ -214,6 +224,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	describe("the routes are actually public", () => {
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 			["customerEvents", CustomerController.prototype.customerEvents],
@@ -229,10 +240,30 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 		])("%s carries no permission key (public route)", (_name, handler) => {
 			expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toBeUndefined()
+		})
+	})
+
+	describe("CNV-4: the widget menu sets the session language", () => {
+		type Handler = (args: { input: { language: string } }) => Promise<unknown>
+
+		it("stores the picked language on the customer's own session", async () => {
+			const handler = (await controller.setLanguage("token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).resolves.toEqual({ language: "ilo" })
+			expect(customerSessionService.setLanguage).toHaveBeenCalledWith("session-1", "ilo")
+		})
+
+		it("refuses a caller without a valid session", async () => {
+			customerSessionService.resolve.mockResolvedValue(null)
+			const handler = (await controller.setLanguage("lapsed-token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).rejects.toThrow()
+			expect(customerSessionService.setLanguage).not.toHaveBeenCalled()
 		})
 	})
 
@@ -339,7 +370,27 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
 			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
-			expect(body).toEqual({ query: "how much", persist: false })
+			expect(body).toEqual({
+				query: "how much",
+				persist: false,
+				language: "en",
+				queryLanguage: "en",
+				glossary: ["PHLPost"],
+			})
+		})
+
+		it("asks for the reply in the customer's language (CNV-4)", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				language: "ceb",
+				replyLanguage: "ceb",
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "pila" }, "a-token", REQUEST, response as never)
+
+			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
+			expect(body).toEqual(expect.objectContaining({ language: "ceb", queryLanguage: "ceb" }))
 		})
 
 		it("identifies the caller as a customer session, never a user", async () => {
@@ -504,6 +555,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
+				sessionLanguage: "en",
 				conversationId: "conversation-1",
 			})
 		})
@@ -568,7 +620,6 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				conversationId: "conversation-1",
 				classification: TRACKING_CLASSIFICATION,
 				correlationId: "req-1",
-				explanationLanguage: "en",
 			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
@@ -598,6 +649,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				screenedQuery: "how much is express mail to cebu for 2 kg",
 				category: "rates",
 				language: "en",
+				replyLanguage: "en" as const,
 				route: "rates" as const,
 			}
 			customerChatService.classify.mockResolvedValue(classification)

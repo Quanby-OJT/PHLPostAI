@@ -40,6 +40,15 @@ export const CustomerSessionSchema = z.object({
 	idleExpiresAt: z.string(),
 })
 
+/** CNV-4: the language picked from the widget menu; later replies use it. */
+export const SetCustomerLanguageRequestSchema = z.object({
+	language: CustomerLanguageSchema,
+})
+
+export const CustomerSessionLanguageSchema = z.object({
+	language: CustomerLanguageSchema,
+})
+
 export const CustomerChatRequestSchema = z.object({
 	query: z.string().trim().min(1).max(4000),
 	/** Continue a conversation opened by the SAME session; omitted -> new. */
@@ -85,5 +94,7 @@ export type CustomerAnswerKind = z.infer<typeof CustomerAnswerKindSchema>
 export type StartCustomerSessionRequest = z.infer<typeof StartCustomerSessionRequestSchema>
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>
 export type CustomerChatRequest = z.infer<typeof CustomerChatRequestSchema>
+export type SetCustomerLanguageRequest = z.infer<typeof SetCustomerLanguageRequestSchema>
+export type CustomerSessionLanguage = z.infer<typeof CustomerSessionLanguageSchema>
 export type CustomerAnswerSource = z.infer<typeof CustomerAnswerSourceSchema>
 export type CustomerAnswer = z.infer<typeof CustomerAnswerSchema>

@@ -54,7 +54,7 @@ SEEDED = [
         ("ilo", "ilo"),
         ("Ilocano", "ilo"),
         ("fil-PH", "fil"),
-        ("ja", None),
+        ("ja", "unsupported"),
         (None, None),
     ],
 )

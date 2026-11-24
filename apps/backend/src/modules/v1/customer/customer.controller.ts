@@ -36,6 +36,7 @@ import {
 	type InquiryClassification,
 	type RagAnswerEnvelope,
 } from "./customer-chat.service"
+import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
@@ -91,6 +92,19 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.session.setLanguage)
+	async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			await this.customerSessionService.setLanguage(session.id, input.language)
+			return { language: input.language }
+		})
+	}
+
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.chat.send)
 	async sendMessage(
 		@Headers("x-customer-session") sessionToken: string | undefined,
@@ -129,7 +143,7 @@ export class CustomerController {
 
 			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(session, conversation.id, classification, correlationId)
+					return await this.answerTracking(conversation.id, classification, correlationId)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -154,6 +168,7 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
@@ -236,7 +251,7 @@ export class CustomerController {
 			try {
 				const turn =
 					classification.route === "tracking"
-						? await this.answerTracking(session, conversation.id, classification, correlationId)
+						? await this.answerTracking(conversation.id, classification, correlationId)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(turn)
 			} catch {
@@ -267,7 +282,11 @@ export class CustomerController {
 					"content-type": "application/json",
 					"x-request-id": correlationId,
 				},
-				body: JSON.stringify({ query: parsed.data.query, persist: false }),
+				body: JSON.stringify({
+					query: parsed.data.query,
+					persist: false,
+					...ragLanguageFields(classification),
+				}),
 				signal: abort.signal,
 			})
 		} catch {
@@ -393,6 +412,7 @@ export class CustomerController {
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			sessionLanguage: session.language,
 			conversationId,
 		})
 	}
@@ -416,7 +436,6 @@ export class CustomerController {
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
-		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string
@@ -425,7 +444,6 @@ export class CustomerController {
 			conversationId,
 			classification,
 			correlationId,
-			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
 	}

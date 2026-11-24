@@ -4,7 +4,7 @@ import type { CustomerAnswer } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 
-import { startSession, streamQuestion } from "./assistant.client"
+import { setSessionLanguage, startSession, streamQuestion } from "./assistant.client"
 
 const FINAL: CustomerAnswer = {
 	answer: "165 pesos.",
@@ -71,6 +71,46 @@ describe("assistant client (CNV-1)", () => {
 				channelCode: "web-widget",
 				language: "en",
 			})
+		})
+	})
+
+	describe("changing the language (CNV-4)", () => {
+		it("opens a session in the picked language", async () => {
+			const fetchMock = vi.fn().mockResolvedValue(
+				jsonResponse({
+					sessionToken: "a-token",
+					channelCode: "web-widget",
+					language: "ceb",
+					idleExpiresAt: "2026-11-18T10:30:00.000Z",
+				})
+			)
+			vi.stubGlobal("fetch", fetchMock)
+
+			await startSession("ceb")
+
+			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+			expect(JSON.parse(init.body as string)).toEqual({ channelCode: "web-widget", language: "ceb" })
+		})
+
+		it("stores the picked language on the current session", async () => {
+			const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ language: "ilo" }))
+			vi.stubGlobal("fetch", fetchMock)
+
+			await setSessionLanguage("ilo", "a-token")
+
+			const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+			expect(String(url)).toContain("/v1/customer/session/language")
+			expect((init.headers as Record<string, string>)["x-customer-session"]).toBe("a-token")
+			expect(JSON.parse(init.body as string)).toEqual({ language: "ilo" })
+		})
+
+		it("reports an expired session as a 401", async () => {
+			vi.stubGlobal(
+				"fetch",
+				vi.fn().mockResolvedValue(jsonResponse({ message: "Invalid or expired customer session" }, 401))
+			)
+
+			await expect(setSessionLanguage("fil", "old-token")).rejects.toMatchObject({ status: 401 })
 		})
 	})
 
