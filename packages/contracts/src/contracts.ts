@@ -227,3 +227,18 @@ export type {
 	CustomerAnswer,
 	CustomerChannelStatus,
 } from "./modules/v1/customer/customer.schema.js"
+
+export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
+export {
+	CreateInquiryCategoryRequestSchema,
+	InquiryCategorySchema,
+	UpdateInquiryCategoryRequestSchema,
+} from "./modules/v1/assistant/assistant.schema.js"
+export type {
+	CreateInquiryCategoryRequest,
+	InquiryCategory,
+	UpdateInquiryCategoryRequest,
+} from "./modules/v1/assistant/assistant.schema.js"
+
+export { ratesContract } from "./modules/v1/rates/rates.contract.js"
+export * from "./modules/v1/rates/rates.schema.js"

@@ -186,7 +186,7 @@ async function upsertE2eUser(
 
 async function seedE2eUsers() {
 	const plan = prepareE2eSeed(process.env, process.argv.slice(2))
-	const pool = new Pool({ connectionString: plan.databaseUrl })
+	const pool = new Pool({ connectionString: plan.databaseUrl, max: 2 })
 	const db = drizzle({ client: pool, schema })
 	const now = new Date()
 

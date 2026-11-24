@@ -40,7 +40,7 @@ export class TrackingService {
 		this.source = registry.get(config.connectorCode)
 	}
 
-	/** Stand-in routing until CNV-2 classifies messages into the `tracking` category. */
+	/** Keyword check CNV-2 falls back on when the classifier model is unavailable. */
 	isTrackingQuestion(text: string): boolean {
 		return (
 			scanForTrackingNumber(text, this.config.numberPattern).kind === "number" ||

@@ -112,6 +112,26 @@ docker compose ps   # wait: migrate exits 0, backend + rag healthy
 
 **Stop:** `docker compose down` (add `-v` to wipe the database volume).
 
+## Shared Supabase database
+
+The team's shared database lives in Supabase. Use it for `pnpm db:migrate`
+and the one-time `pnpm db:seed`. Run tests against local Postgres only.
+
+1. In the Supabase dashboard, click **Connect** and copy the **Session pooler**
+   URI (port 5432). Use `/postgres` as the database name.
+2. Set it as `DATABASE_URL` in `packages/db/.env` and `apps/backend/.env`.
+   URL-encode special characters in the password.
+3. Set `SEED_ADMIN_PASSWORD` in `packages/db/.env` to a random value.
+4. Run migrations: `pnpm db:migrate`. If `vector` fails, enable pgvector under
+   Database → Extensions in the dashboard and run it again.
+5. Seed once, with the remote override for this command only:
+   `ALLOW_REMOTE_SEED=true pnpm db:seed`. Do not keep it in `.env`.
+6. Connection caps: the backend pool is `max: 5` and the seed pools are
+   `max: 2`. The Supabase pool size is 15, so keep RAG and any other client
+   within the remaining budget.
+7. Run unit and e2e tests with `DATABASE_URL` pointing at local Postgres, for
+   example `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ragai" pnpm test`.
+
 ## Health checks
 
 Template-default ports shown; use your `.env` ports if overridden.
@@ -333,6 +353,86 @@ Try it:
    ends with "What this means" and "Next steps".
 3. Track `CE444555666PH` and add an explanation for `HELD_AT_CUSTOMS` with the
    required documents as next steps.
+
+## Inquiry categories (CNV-2)
+
+Every customer message is screened and classified in one RAG call
+(`POST /internal/chat/classify`): one cheap-model call returns the Inquiry
+Category and the language (`en`, `fil`, `ceb`, `ilo`). The category decides
+the route (`apps/backend/src/modules/v1/customer/inquiry-routing.ts`):
+`tracking` goes to the TRK-1 tracking tool and `rates` to the KB-2 rate
+lookup tool; every other category goes to retrieval until its tool exists
+(SCM-1 adds `scam`). If the
+model is unavailable, a keyword classifier and the TRK-1 tracking check stand in.
+
+The message is stored with its category and `is_eligible` copied from the
+category at that moment, so changing eligibility only affects new messages.
+
+Categories come from `pnpm db:seed` (the seven domain codes). Staff with
+`settings.assistant.manage` manage them on **Inquiry Categories**
+(`/inquiry-categories`): add a category, change its eligibility, or deactivate
+it (`other` is the fallback and stays active). Every change is audited
+(`assistant.category.create` / `assistant.category.update`).
+
+Check what was stored:
+
+```powershell
+docker exec philpost_ai-postgres psql -U postgres -d ragai -c "select content, inquiry_category, is_eligible, language from messages where sender = 'customer' order by created_at desc limit 5;"
+```
+
+### Classifier accuracy (AC4)
+
+`apps/rag/tests/data/classifier_test_set.json` holds 106 labelled messages
+across all seven categories, in English, Filipino, Cebuano, and Ilocano. The
+**Classifier Eval** workflow runs them through the real cheap model when the
+classifier changes (or by hand) and fails below `CLASSIFIER_ACCURACY_FLOOR`
+(default `0.85`; set it as a repository variable to change it). Run it locally
+with a real `OPENAI_API_KEY` in `apps/rag/.env`:
+
+```powershell
+cd apps/rag
+uv run python -m app.classifier_eval
+```
+
+The JSON report lists accuracy overall and per category, and every mistake.
+`pnpm test` checks the test set and the scoring offline, without the model.
+
+## Postal rates (KB-2)
+
+The assistant quotes prices only from approved **Rate Entries** (PRD D4). For
+the `rates` category (CNV-2), a cheap-model call reads the service, the
+destination zone, and the weight from the question, choosing only from what
+the rate table has (`POST /internal/rates/extract`). The backend then looks up
+the newest approved entry in effect today (Philippine date) and replies with
+fixed wording: the price, the service name, and the effective date. A missing
+weight, destination, or service gets a follow-up question; the customer's next
+short reply ("2 kg", "to Cebu") completes it. No matching entry means "no
+published rate" and no price.
+
+Maintain the table on **Postal rates** (`/rates`):
+
+1. A user with `knowledge.rates.manage` (Knowledge Manager) opens **Import
+   CSV**, chooses a file, and clicks **Preview**. Every row is validated and
+   errors are listed by line; nothing is stored. A clean file can be
+   **submitted for approval**.
+2. A different user with `knowledge.articles.approve` (Knowledge Approver or
+   admin) opens **Review queue** and approves or rejects the batch (with a
+   note). The submitter cannot approve their own batch. Approved rows go live
+   at once (from their `effective_from` date).
+
+CSV columns: `service_code`, `service_name`, `zone`, `weight_min_g`,
+`weight_max_g`, `price_php`, `effective_from`, `effective_to` (optional), with
+dates as `YYYY-MM-DD`. Weight bands for the same service and zone may not
+overlap within a file for the same dates. `docs/samples/rates-sample.csv` has
+**sample** rows for local testing; they are not official PHLPost rates.
+
+Every step is audited: `rates.batch.submit`, `rates.batch.approve`,
+`rates.batch.approve_refused`, `rates.batch.reject`.
+
+Try it with the sample file approved: "How much is Express Mail to Cebu for a
+2 kg parcel?" quotes the Visayas rate; "How much to send a parcel?" asks for
+the weight and destination; "Express Mail to Visayas for 30 kg?" says there is
+no published rate.
 
 ## Troubleshooting
 

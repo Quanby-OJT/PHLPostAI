@@ -491,6 +491,8 @@ export const messages = createTable(
 		 */
 		answerKind: t.text("answer_kind").$type<"answer" | "uncertain" | "refusal" | "tool">(),
 		inquiryCategory: t.text("inquiry_category"),
+		isEligible: t.boolean("is_eligible"),
+		language: t.text("language"),
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
 		confidence: t.real("confidence"),
@@ -969,6 +971,52 @@ export const statusExplanations = createTable(
 	t => [unique("status_explanations_code_language_uq").on(t.statusCode, t.language)]
 )
 
+export type RateBatchStatus = "pending" | "approved" | "rejected"
+
+/** One CSV import of postal rates; its rows go live only when a second user approves it (KB-2). */
+export const rateBatches = createTable(
+	"rate_batches",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		fileName: t.text("file_name").notNull(),
+		rowCount: t.integer("row_count").notNull(),
+		status: t.text("status").notNull().default("pending").$type<RateBatchStatus>(),
+		submittedBy: t.text("submitted_by").references(() => users.id, { onDelete: "set null" }),
+		reviewedBy: t.text("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+		reviewedAt: t.timestamp("reviewed_at", { withTimezone: true }),
+		reviewNote: t.text("review_note"),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [index("rate_batches_status_idx").on(t.status)]
+)
+
+/** One structured postal rate. The only source of quoted prices (PRD D4). */
+export const rateEntries = createTable(
+	"rate_entries",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		batchId: t
+			.uuid("batch_id")
+			.notNull()
+			.references(() => rateBatches.id, { onDelete: "cascade" }),
+		serviceCode: t.text("service_code").notNull(),
+		serviceName: t.text("service_name").notNull(),
+		zone: t.text("zone").notNull(),
+		weightMinG: t.integer("weight_min_g").notNull(),
+		weightMaxG: t.integer("weight_max_g").notNull(),
+		priceCentavos: t.integer("price_centavos").notNull(),
+		effectiveFrom: t.date("effective_from", { mode: "string" }).notNull(),
+		effectiveTo: t.date("effective_to", { mode: "string" }),
+		status: t.text("status").notNull().default("pending").$type<RateBatchStatus>(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("rate_entries_lookup_idx").on(t.serviceCode, t.zone, t.status),
+		index("rate_entries_batch_idx").on(t.batchId),
+	]
+)
+
 export const relations = defineRelations(
 	{
 		users,
@@ -1028,6 +1076,16 @@ export const relations = defineRelations(
 	})
 )
 
+
+export const inquiryCategories = createTable("inquiry_categories", t => ({
+	code: t.text("code").primaryKey(),
+	name: t.text("name").notNull(),
+	isEligible: t.boolean("is_eligible").notNull().default(false),
+	isActive: t.boolean("is_active").notNull().default(true),
+	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
 // ============================================================================
 // SCHEMA
 // ============================================================================
@@ -1066,6 +1124,9 @@ export const schema = Object.assign(
 		knowledgeArticleVersions,
 		trackingLookups,
 		statusExplanations,
+		inquiryCategories,
+		rateBatches,
+		rateEntries,
 	},
 	relations
 )

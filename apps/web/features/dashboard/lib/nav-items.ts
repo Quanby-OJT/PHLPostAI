@@ -2,6 +2,7 @@ import {
 	BubbleChatIcon,
 	ChartLineData01Icon,
 	CheckmarkBadge01Icon,
+	Coins01Icon,
 	DashboardSquare01Icon,
 	FolderLibraryIcon,
 	Globe02Icon,
@@ -51,6 +52,14 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: ["knowledge.articles.manage", "knowledge.articles.approve"],
 	},
 	{
+		// KB-2: rate maintenance for knowledge.rates.manage, batch review for
+		// knowledge.articles.approve. Each route is guarded server-side.
+		label: "Postal rates",
+		href: "/rates",
+		icon: Coins01Icon,
+		requiredPermission: ["knowledge.rates.manage", "knowledge.articles.approve"],
+	},
+	{
 		// TRK-2: wording shown after each official tracking status.
 		label: "Status explanations",
 		href: "/tracking-explanations",
@@ -95,6 +104,14 @@ export const navItems: readonly DashboardNavItem[] = [
 		icon: ChartLineData01Icon,
 		section: "Administration",
 		requiredPermission: "reports.reports.view",
+	},
+	{
+		// CNV-2: inquiry category classification & self-service eligibility.
+		label: "Inquiry Categories",
+		href: "/inquiry-categories",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.assistant.manage",
 	},
 	{
 		// OB-5: read-only effective-config review (secrets masked server-side).

@@ -165,6 +165,8 @@ class Settings(BaseSettings):
     # Override the counter store (tests: memory://); default = REDIS_URL.
     rate_limit_storage: str | None = Field(alias="RATE_LIMIT_STORAGE", default=None)
     rate_limit_chat: str = Field(alias="RATE_LIMIT_CHAT", default="30/minute")
+    # CNV-2: classification runs once per customer message, before the chat call.
+    rate_limit_classify: str = Field(alias="RATE_LIMIT_CLASSIFY", default="30/minute")
     rate_limit_ingest: str = Field(alias="RATE_LIMIT_INGEST", default="10/minute")
     rate_limit_default: str = Field(alias="RATE_LIMIT_DEFAULT", default="120/minute")
 
