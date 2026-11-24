@@ -26,8 +26,8 @@ export class AuditService {
 	 * rejects any UPDATE or DELETE on audit_log via a trigger, so this is the
 	 * only write path.
 	 */
-	async writeAudit(entry: AuditEntry): Promise<void> {
-		await db.insert(auditLog).values({
+	async writeAudit(entry: AuditEntry, writer: Pick<typeof db, "insert"> = db): Promise<void> {
+		await writer.insert(auditLog).values({
 			actorId: entry.actorId,
 			actorType: entry.actorType,
 			action: entry.action,

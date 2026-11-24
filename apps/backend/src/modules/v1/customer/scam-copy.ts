@@ -8,6 +8,9 @@ export const SCAM_INDICATORS = [
 	"information_request",
 	"impersonation",
 	"urgency",
+	"lookalike_domain",
+	"unofficial_sender",
+	"unofficial_payment_channel",
 ] as const
 
 export type ScamIndicator = (typeof SCAM_INDICATORS)[number]
@@ -41,6 +44,9 @@ export const SCAM_COPY: Record<CustomerLanguage, ScamCopy> = {
 			information_request: "Request for sensitive information",
 			impersonation: "Possible impersonation",
 			urgency: "Pressure to act quickly",
+			lookalike_domain: "Link resembles an official PHLPost domain",
+			unofficial_sender: "Sender name outside the official PHLPost list",
+			unofficial_payment_channel: "Payment channel outside the official PHLPost list",
 		},
 		indicators: "Indicators found",
 		noIndicators: "There is not enough information to assess this message.",
@@ -67,6 +73,9 @@ export const SCAM_COPY: Record<CustomerLanguage, ScamCopy> = {
 			information_request: "Humihingi ng sensitibong impormasyon",
 			impersonation: "Posibleng pagpapanggap",
 			urgency: "Namimilit na kumilos agad",
+			lookalike_domain: "Link na kahawig ng opisyal na domain ng PHLPost",
+			unofficial_sender: "Pangalan ng nagpadala na wala sa opisyal na listahan ng PHLPost",
+			unofficial_payment_channel: "Paraan ng pagbabayad na wala sa opisyal na listahan ng PHLPost",
 		},
 		indicators: "Mga palatandaang nakita",
 		noIndicators: "Kulang ang impormasyon para masuri ang mensaheng ito.",
@@ -93,6 +102,9 @@ export const SCAM_COPY: Record<CustomerLanguage, ScamCopy> = {
 			information_request: "Nagpangayo og sensitibong impormasyon",
 			impersonation: "Posibleng pagpakaaron-ingnon",
 			urgency: "Nagpugos nga molihok dayon",
+			lookalike_domain: "Link nga susama sa opisyal nga domain sa PHLPost",
+			unofficial_sender: "Ngalan sa nagpadala nga wala sa opisyal nga listahan sa PHLPost",
+			unofficial_payment_channel: "Paagi sa pagbayad nga wala sa opisyal nga listahan sa PHLPost",
 		},
 		indicators: "Mga timailhan nga nakita",
 		noIndicators: "Kulang ang impormasyon aron masusi kining mensahe.",
@@ -119,6 +131,9 @@ export const SCAM_COPY: Record<CustomerLanguage, ScamCopy> = {
 			information_request: "Agkiddaw iti sensitibo nga impormasion",
 			impersonation: "Posible a panagpammarang a sabali a tao",
 			urgency: "Pilitenna a kumiloska a dagus",
+			lookalike_domain: "Link a kapada ti opisial a domain ti PHLPost",
+			unofficial_sender: "Nagan ti nangipatulod nga awan iti opisial a listaan ti PHLPost",
+			unofficial_payment_channel: "Wagas ti panagbayad nga awan iti opisial a listaan ti PHLPost",
 		},
 		indicators: "Dagiti nakitada a pagilasinan",
 		noIndicators: "Kulang ti impormasion tapno mausig daytoy a mensahe.",
@@ -134,12 +149,19 @@ export const SCAM_COPY: Record<CustomerLanguage, ScamCopy> = {
 
 export function formatScamAssessment(
 	risk: ScamAssessment["riskLevel"],
-	indicators: readonly ScamIndicator[],
-	language: CustomerLanguage
+	indicators: readonly string[],
+	language: CustomerLanguage,
+	names: ReadonlyMap<string, string> = new Map()
 ): string {
 	const copy = SCAM_COPY[language]
 	const findings = indicators.length
-		? [copy.indicators, ...indicators.map(code => `• ${copy.signals[code]}`)].join("\n")
+		? [
+				copy.indicators,
+				...indicators.map(
+					code =>
+						`• ${Object.hasOwn(copy.signals, code) ? copy.signals[code as ScamIndicator] : (names.get(code) ?? code)}`
+				),
+			].join("\n")
 		: copy.noIndicators
 	const guidance =
 		risk === "uncertain" || risk === "low"
