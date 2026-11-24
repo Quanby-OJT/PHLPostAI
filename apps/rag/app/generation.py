@@ -41,6 +41,7 @@ from app.providers import (
     SingleClientRouter,
     build_model_router,
 )
+from app.rate_extraction import RateService, extract_rate_query
 from app.rate_limit import rate_limit
 from app.reliability import CircuitBreaker, ReliabilityRouter, validate_output
 from app.response_cache import ResponseCache, build_response_cache
@@ -1675,4 +1676,35 @@ async def classify_inquiry(
         "category": classification.category,
         "language": classification.language,
         "fallbackUsed": classification.fallback_used,
+    }
+
+
+class RateExtractService(BaseModel):
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(default="", max_length=120)
+
+
+class RateExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+    services: list[RateExtractService] = Field(default_factory=list, max_length=200)
+    zones: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/rates/extract", dependencies=[Depends(rate_limit("rate_limit_classify"))])
+async def extract_rate(
+    payload: RateExtractRequest,
+    principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
+    client: Annotated[ChatModelClient, Depends(get_classifier_client)],
+) -> dict[str, Any]:
+    """KB-2: read service, zone, and weight from an already screened question.
+    The backend looks the price up in the rate table; the model never quotes one."""
+    del principal  # authentication only; nothing is stored or audited here
+    services = [RateService(item.code, item.name) for item in payload.services]
+    zones = [zone.strip() for zone in payload.zones if zone.strip()]
+    query = await extract_rate_query(client, payload.text, services, zones)
+    return {
+        "serviceCode": query.service_code,
+        "zone": query.zone,
+        "weightG": query.weight_g,
+        "fallbackUsed": query.fallback_used,
     }

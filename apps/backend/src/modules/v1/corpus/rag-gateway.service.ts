@@ -586,6 +586,39 @@ export class RagGatewayService {
 		}
 	}
 
+	/** KB-2: read service, zone and weight from a screened rates question. */
+	async extractRateQuery(input: {
+		text: string
+		services: readonly { code: string; name: string }[]
+		zones: readonly string[]
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+		traceId: string
+	}): Promise<{ serviceCode: string | null; zone: string | null; weightG: number | null }> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.traceId,
+			actorType: "customer",
+		})
+		const body = (await this.forward("/internal/rates/extract", {
+			headers: {
+				"authorization": `Bearer ${token}`,
+				"content-type": "application/json",
+				"x-request-id": input.requestId,
+			},
+			body: JSON.stringify({ text: input.text, services: input.services, zones: input.zones }),
+			failureMessage: "Rate question extraction failed",
+		})) as { serviceCode?: unknown; zone?: unknown; weightG?: unknown } | null
+		return {
+			serviceCode: typeof body?.serviceCode === "string" ? body.serviceCode : null,
+			zone: typeof body?.zone === "string" ? body.zone : null,
+			weightG: typeof body?.weightG === "number" ? body.weightG : null,
+		}
+	}
+
 	/** Shared transport: hard timeout + uniform error mapping. */
 	private async forward(
 		path: string,

@@ -101,7 +101,7 @@ export class CustomerController {
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, input.query, correlationId)
+				classification = await this.classify(session, conversation.id, input.query, correlationId)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 				if (refusal) return refusal
@@ -111,6 +111,14 @@ export class CustomerController {
 			if (classification.route === "tracking") {
 				try {
 					return await this.answerTracking(session, conversation.id, classification, correlationId)
+				} catch (error) {
+					return toORPCError(error)
+				}
+			}
+
+			if (classification.route === "rates") {
+				try {
+					return await this.answerRates(session, conversation.id, classification, correlationId)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -175,7 +183,12 @@ export class CustomerController {
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(session, parsed.data.query, correlationId)
+			classification = await this.classify(
+				session,
+				conversation.id,
+				parsed.data.query,
+				correlationId
+			)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 			if (refusal) {
@@ -186,15 +199,13 @@ export class CustomerController {
 			return
 		}
 
-		// A tracking turn is answered from the connector, not streamed.
-		if (classification.route === "tracking") {
+		// Tool turns (tracking, rates) are answered by their tool, not streamed.
+		if (classification.route === "tracking" || classification.route === "rates") {
 			try {
-				const turn = await this.answerTracking(
-					session,
-					conversation.id,
-					classification,
-					correlationId
-				)
+				const turn =
+					classification.route === "tracking"
+						? await this.answerTracking(session, conversation.id, classification, correlationId)
+						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(turn)
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
@@ -311,6 +322,7 @@ export class CustomerController {
 	/** CNV-2: screen and classify the question (Flow A steps 3 to 5). */
 	private classify(
 		session: CustomerSessionRow,
+		conversationId: string,
 		query: string,
 		correlationId: string
 	): Promise<InquiryClassification> {
@@ -319,7 +331,25 @@ export class CustomerController {
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			conversationId,
 		})
+	}
+
+	/** KB-2: answer from the rate table through the lookup tool. Already screened. */
+	private async answerRates(
+		session: CustomerSessionRow,
+		conversationId: string,
+		classification: InquiryClassification,
+		correlationId: string
+	): Promise<CustomerAnswer> {
+		const turn = await this.customerChatService.answerRates({
+			conversationId,
+			classification,
+			principal: this.principalFor(session),
+			permissions: CUSTOMER_SERVICE_PERMISSIONS,
+			correlationId,
+		})
+		return { ...turn, conversationId }
 	}
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */

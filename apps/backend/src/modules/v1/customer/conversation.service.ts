@@ -149,6 +149,38 @@ export class ConversationService {
 	}
 
 	/**
+	 * The latest customer message and assistant reply of a conversation (KB-2
+	 * reads it to complete a rates question the assistant asked a detail for).
+	 * Both texts are the stored, already masked forms.
+	 */
+	async lastExchange(conversationId: string): Promise<{
+		customer: { content: string; inquiryCategory: string | null } | null
+		assistant: { content: string; answerKind: string | null } | null
+	}> {
+		const rows = await db
+			.select({
+				sender: messages.sender,
+				content: messages.content,
+				inquiryCategory: messages.inquiryCategory,
+				answerKind: messages.answerKind,
+			})
+			.from(messages)
+			.where(eq(messages.conversationId, conversationId))
+			.orderBy(desc(messages.turnIndex))
+			.limit(2)
+		const assistant = rows.find(row => row.sender === "assistant")
+		const customer = rows.find(row => row.sender === "customer")
+		return {
+			customer: customer
+				? { content: customer.content, inquiryCategory: customer.inquiryCategory ?? null }
+				: null,
+			assistant: assistant
+				? { content: assistant.content, answerKind: assistant.answerKind ?? null }
+				: null,
+		}
+	}
+
+	/**
 	 * Append one customer turn and the assistant's reply in ONE transaction, so
 	 * a half-written turn is never visible (same contract as the template's
 	 * Python `persist_turn`).
