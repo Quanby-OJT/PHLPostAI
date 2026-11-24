@@ -109,7 +109,7 @@ channel ──< customer_session ──< conversation ──< message ──(cit
                                      └──< interaction_event
 
 knowledge_article ──< knowledge_article_version ──(approved)──> document ──< chunk
-rate_entry        status_explanation        risk_indicator        official_contact
+rate_batch ──< rate_entry        status_explanation        risk_indicator        official_contact
 inquiry_category  assistant_setting         kpi_definition        management_summary
 privacy_request   export_bundle             integration_log
 ```
@@ -127,7 +127,8 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `inquiry_categories` | `code`, `name`, `is_eligible`, `is_active` | Changing `is_eligible` applies to new messages only. Seeded with the seven domain codes (PRD A2 eligibility). Admins can add categories; the classifier chooses only from active ones. `other` is the fallback and can't be deactivated (CNV-2). |
 | `knowledge_articles` | `title`, `category`, `languages`, `current_version_id?`, `status` (`active`/`deactivated`) | `current_version_id` points at the serving `approved` version. Deactivating the article retires its approved version (5.2); a deactivated article accepts no new drafts, submissions, or approvals. |
 | `knowledge_article_versions` | `article_id`, `version`, `body`, `language`, `status`, `submitted_by?`, `approved_by?`, `approved_at?`, `document_id?`, `review_note?`, `indexing_job_id?`, `indexing_requested_by?`, `index_error?` | State machine 5.2. Only an `approved` version has a `document_id` and is retrievable. `indexing_*` track the ingestion job started on approval; `index_error` keeps the reason when indexing fails (Flow E failure branch). `review_note` is the approver's reason for returning a version. |
-| `rate_entries` | `service_code`, `zone`, `weight_min_g`, `weight_max_g`, `price_centavos`, `effective_from`, `effective_to?`, `status` | Prices are quoted from here only. Changes go through approval like articles. |
+| `rate_entries` | `service_code`, `zone`, `weight_min_g`, `weight_max_g`, `price_centavos`, `effective_from`, `effective_to?`, `status` | Prices are quoted from here only. Changes go through approval like articles. KB-2 adds `batch_id` (its `rate_batches` row) and `service_name` (the name quoted to customers); `status` follows its batch. The lookup uses the newest `approved` entry whose dates include today. |
+| `rate_batches` | `file_name`, `row_count`, `status` (`pending`/`approved`/`rejected`), `submitted_by`, `reviewed_by?`, `reviewed_at?`, `review_note?` | One CSV import (KB-2). Its rows go live only when a different user with `knowledge.articles.approve` approves it; the submitter cannot approve their own batch. |
 | `tracking_lookups` | `message_id`, `connector_code`, `tracking_number_hash`, `outcome` (`found`/`not_found`/`unavailable`), `status_code?`, `latency_ms` | The raw tracking number is not stored. `message_id` is the assistant's `tool` reply, written in the same transaction as the turn. The hash is an HMAC-SHA256 of the normalized number. A message with no number or a malformed one makes no lookup and no row. |
 | `status_explanations` | `status_code`, `language`, `explanation`, `next_steps?`, `is_active` | Unknown codes fall back to the raw official description. One row per (`status_code`, `language`). The explanation is appended after the official status, never substituted for it (TRK-2). The 'needs explanation' list is derived from `tracking_lookups.status_code` joined to the customer session's `language`; no extra table. |
 | `integration_log` | `connector_code`, `direction`, `endpoint`, `outcome`, `latency_ms`, `error?` | Insert-only. No payload bodies containing personal data. |

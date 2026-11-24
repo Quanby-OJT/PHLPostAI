@@ -112,6 +112,26 @@ docker compose ps   # wait: migrate exits 0, backend + rag healthy
 
 **Stop:** `docker compose down` (add `-v` to wipe the database volume).
 
+## Shared Supabase database
+
+The team's shared database lives in Supabase. Use it for `pnpm db:migrate`
+and the one-time `pnpm db:seed`. Run tests against local Postgres only.
+
+1. In the Supabase dashboard, click **Connect** and copy the **Session pooler**
+   URI (port 5432). Use `/postgres` as the database name.
+2. Set it as `DATABASE_URL` in `packages/db/.env` and `apps/backend/.env`.
+   URL-encode special characters in the password.
+3. Set `SEED_ADMIN_PASSWORD` in `packages/db/.env` to a random value.
+4. Run migrations: `pnpm db:migrate`. If `vector` fails, enable pgvector under
+   Database → Extensions in the dashboard and run it again.
+5. Seed once, with the remote override for this command only:
+   `ALLOW_REMOTE_SEED=true pnpm db:seed`. Do not keep it in `.env`.
+6. Connection caps: the backend pool is `max: 5` and the seed pools are
+   `max: 2`. The Supabase pool size is 15, so keep RAG and any other client
+   within the remaining budget.
+7. Run unit and e2e tests with `DATABASE_URL` pointing at local Postgres, for
+   example `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ragai" pnpm test`.
+
 ## Health checks
 
 Template-default ports shown; use your `.env` ports if overridden.
@@ -340,8 +360,9 @@ Every customer message is screened and classified in one RAG call
 (`POST /internal/chat/classify`): one cheap-model call returns the Inquiry
 Category and the language (`en`, `fil`, `ceb`, `ilo`). The category decides
 the route (`apps/backend/src/modules/v1/customer/inquiry-routing.ts`):
-`tracking` goes to the TRK-1 tracking tool; every other category goes to
-retrieval until its tool exists (KB-2 adds `rates`, SCM-1 adds `scam`). If the
+`tracking` goes to the TRK-1 tracking tool and `rates` to the KB-2 rate
+lookup tool; every other category goes to retrieval until its tool exists
+(SCM-1 adds `scam`). If the
 model is unavailable, a keyword classifier and the TRK-1 tracking check stand in.
 
 The message is stored with its category and `is_eligible` copied from the
@@ -376,6 +397,43 @@ uv run python -m app.classifier_eval
 The JSON report lists accuracy overall and per category, and every mistake.
 `pnpm test` checks the test set and the scoring offline, without the model.
 
+## Postal rates (KB-2)
+
+The assistant quotes prices only from approved **Rate Entries** (PRD D4). For
+the `rates` category (CNV-2), a cheap-model call reads the service, the
+destination zone, and the weight from the question, choosing only from what
+the rate table has (`POST /internal/rates/extract`). The backend then looks up
+the newest approved entry in effect today (Philippine date) and replies with
+fixed wording: the price, the service name, and the effective date. A missing
+weight, destination, or service gets a follow-up question; the customer's next
+short reply ("2 kg", "to Cebu") completes it. No matching entry means "no
+published rate" and no price.
+
+Maintain the table on **Postal rates** (`/rates`):
+
+1. A user with `knowledge.rates.manage` (Knowledge Manager) opens **Import
+   CSV**, chooses a file, and clicks **Preview**. Every row is validated and
+   errors are listed by line; nothing is stored. A clean file can be
+   **submitted for approval**.
+2. A different user with `knowledge.articles.approve` (Knowledge Approver or
+   admin) opens **Review queue** and approves or rejects the batch (with a
+   note). The submitter cannot approve their own batch. Approved rows go live
+   at once (from their `effective_from` date).
+
+CSV columns: `service_code`, `service_name`, `zone`, `weight_min_g`,
+`weight_max_g`, `price_php`, `effective_from`, `effective_to` (optional), with
+dates as `YYYY-MM-DD`. Weight bands for the same service and zone may not
+overlap within a file for the same dates. `docs/samples/rates-sample.csv` has
+**sample** rows for local testing; they are not official PHLPost rates.
+
+Every step is audited: `rates.batch.submit`, `rates.batch.approve`,
+`rates.batch.approve_refused`, `rates.batch.reject`.
+
+Try it with the sample file approved: "How much is Express Mail to Cebu for a
+2 kg parcel?" quotes the Visayas rate; "How much to send a parcel?" asks for
+the weight and destination; "Express Mail to Visayas for 30 kg?" says there is
+no published rate.
+
 ## Customer language (CNV-4)
 
 The language from the CNV-2 call decides the reply language
@@ -398,8 +456,9 @@ language. The grounded "I don't know" is fixed text in each language.
 The widget's **Language** menu switches the fixed interface text at once and
 stores the choice on the Customer Session (`POST /v1/customer/session/language`),
 so later replies use it without starting a new conversation. Tracking replies
-use the reply language for the Status Explanation; the fixed tracking and
-refusal sentences are still English.
+use the reply language for the Status Explanation; the fixed tracking, rates
+(KB-2) and refusal sentences are still English, with the supported-languages
+note added for an unsupported language.
 
 Try it at `/assistant`: ask `Unsaon pagkuha og Postal ID?` (Cebuano reply),
 pick **Ilocano** and ask in English (Ilocano reply), or ask in Japanese (English
