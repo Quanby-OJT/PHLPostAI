@@ -1,6 +1,6 @@
 "use client"
 
-import type { CustomerAnswer, CustomerSession } from "@repo/contracts"
+import type { CustomerAnswer, CustomerLanguage, CustomerSession } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -52,14 +52,30 @@ async function parseError(response: Response): Promise<ApiError> {
 }
 
 /** POST /customer/session — opens an anonymous session for the web widget. */
-export async function startSession(): Promise<CustomerSession> {
+export async function startSession(language: CustomerLanguage = "en"): Promise<CustomerSession> {
 	const response = await fetch(`${API_BASE}/customer/session`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ channelCode: "web-widget", language: "en" }),
+		body: JSON.stringify({ channelCode: "web-widget", language }),
 	})
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as CustomerSession
+}
+
+/** POST /customer/session/language — CNV-4: the language picked from the widget menu. */
+export async function setSessionLanguage(
+	language: CustomerLanguage,
+	sessionToken: string
+): Promise<void> {
+	const response = await fetch(`${API_BASE}/customer/session/language`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: sessionToken,
+		},
+		body: JSON.stringify({ language }),
+	})
+	if (!response.ok) throw await parseError(response)
 }
 
 export async function requestHumanHandoff(input: {

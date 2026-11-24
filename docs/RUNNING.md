@@ -434,6 +434,36 @@ Try it with the sample file approved: "How much is Express Mail to Cebu for a
 the weight and destination; "Express Mail to Visayas for 30 kg?" says there is
 no published rate.
 
+## Customer language (CNV-4)
+
+The language from the CNV-2 call decides the reply language
+(`apps/backend/src/modules/v1/customer/customer-language.ts`):
+
+| Message | Reply | Stored `messages.language` |
+| --- | --- | --- |
+| Filipino/Taglish, Cebuano or Ilocano | that language | the detected code |
+| English, or not detected | the session language (widget menu, default English) | `en`, or the session's |
+| Any other language | English, plus a note naming the four supported languages | `unsupported` |
+
+For knowledge answers the backend sends the reply language, the detected
+question language and the glossary (`UNTRANSLATED_POSTAL_TERMS` from
+`packages/contracts`) to `/internal/chat`. The RAG service translates a
+non-English question into English before hybrid search (the approved articles
+are in English), answers in the reply language, keeps the glossary terms as
+written, and cites the English articles. Cached answers are kept per reply
+language. The grounded "I don't know" is fixed text in each language.
+
+The widget's **Language** menu switches the fixed interface text at once and
+stores the choice on the Customer Session (`POST /v1/customer/session/language`),
+so later replies use it without starting a new conversation. Tracking replies
+use the reply language for the Status Explanation; the fixed tracking, rates
+(KB-2) and refusal sentences are still English, with the supported-languages
+note added for an unsupported language.
+
+Try it at `/assistant`: ask `Unsaon pagkuha og Postal ID?` (Cebuano reply),
+pick **Ilocano** and ask in English (Ilocano reply), or ask in Japanese (English
+reply with the supported-languages note).
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous
