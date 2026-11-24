@@ -90,6 +90,7 @@ export class CustomerController {
 		@Headers("x-customer-session") sessionToken: string | undefined,
 		@Req() request: RequestWithId
 	) {
+		const startedAt = performance.now()
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
 			const conversation = await this.resolveConversation(
@@ -103,14 +104,26 @@ export class CustomerController {
 			try {
 				classification = await this.classify(session, input.query, correlationId)
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
 
 			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(session, conversation.id, classification, correlationId)
+					return await this.answerTracking(
+						session,
+						conversation.id,
+						classification,
+						correlationId,
+						startedAt
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -129,7 +142,13 @@ export class CustomerController {
 					persist: false,
 				})) as RagAnswerEnvelope
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
@@ -138,6 +157,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				requestStartedAt: startedAt,
 			})
 			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
 		})
@@ -164,6 +184,7 @@ export class CustomerController {
 		@Req() request: RequestWithId,
 		@Res() response: Response
 	) {
+		const startedAt = performance.now()
 		const session = await this.requireSession(sessionToken)
 		const parsed = CustomerChatRequestSchema.safeParse(body)
 		if (!parsed.success) {
@@ -177,7 +198,13 @@ export class CustomerController {
 		try {
 			classification = await this.classify(session, parsed.data.query, correlationId)
 		} catch (error) {
-			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+			const refusal = await this.refuseIfScreened(
+				error,
+				session,
+				conversation.id,
+				correlationId,
+				startedAt
+			)
 			if (refusal) {
 				response.status(200).json(refusal)
 			} else {
@@ -193,7 +220,8 @@ export class CustomerController {
 					session,
 					conversation.id,
 					classification,
-					correlationId
+					correlationId,
+					startedAt
 				)
 				response.status(200).json(turn)
 			} catch {
@@ -242,6 +270,7 @@ export class CustomerController {
 				channelCode: conversation.channelCode ?? session.channelCode,
 				reason,
 				traceId: correlationId,
+				requestStartedAt: startedAt,
 			})
 			response.status(200).json({
 				...refusal,
@@ -279,6 +308,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				requestStartedAt: startedAt,
 			})
 			response.write(
 				formatSseFrame("final", {
@@ -327,12 +357,14 @@ export class CustomerController {
 		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		requestStartedAt?: number
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerTracking({
 			conversationId,
 			classification,
 			correlationId,
+			requestStartedAt,
 			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
@@ -399,7 +431,8 @@ export class CustomerController {
 		error: unknown,
 		session: CustomerSessionRow,
 		conversationId: string,
-		traceId: string
+		traceId: string,
+		requestStartedAt?: number
 	) {
 		const status =
 			error && typeof error === "object" && "getStatus" in error
@@ -413,6 +446,7 @@ export class CustomerController {
 			channelCode: session.channelCode,
 			reason: error instanceof Error ? error.message : "screened",
 			traceId,
+			requestStartedAt,
 		})
 		return { ...refusal, conversationId } satisfies CustomerAnswer
 	}
