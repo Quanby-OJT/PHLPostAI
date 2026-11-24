@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { and, desc, eq, sql } from "drizzle-orm"
 
 import type { CustomerAnswerKind } from "@repo/contracts"
-import { conversations, customerSessions, messages } from "@repo/db/schema"
+import { conversations, customerSessions, inquiryCategories, messages } from "@repo/db/schema"
 
 import { db, type DbTransaction } from "@/common/database/database.client"
 import { EventService } from "@/modules/v1/analytics/event.service"
@@ -15,6 +15,8 @@ export interface RecordTurnInput {
 	/** The SCREENED question — masked by the RAG service before it got here. */
 	maskedQuery: string
 	inquiryCategory?: string
+	/** The detected language (CNV-2); the session's language when absent. */
+	language?: string
 	answer: string
 	answerKind: CustomerAnswerKind
 	confidence?: number | null
@@ -182,6 +184,28 @@ export class ConversationService {
 			// conversation, so this fallback is belt-and-braces for the types.
 			const nextTurn = turnRow?.nextTurn ?? 0
 
+			// CNV-2: the category and its eligibility AT THIS MOMENT are stored on
+			// the message, so a later eligibility change leaves earlier rows alone.
+			const requestedCategory = (input.inquiryCategory ?? "other").trim().toLowerCase() || "other"
+			const [categoryRow] = await tx
+				.select({
+					code: inquiryCategories.code,
+					isEligible: inquiryCategories.isEligible,
+					isActive: inquiryCategories.isActive,
+				})
+				.from(inquiryCategories)
+				.where(eq(inquiryCategories.code, requestedCategory))
+				.limit(1)
+			const resolvedCategory = categoryRow?.isActive ? categoryRow.code : "other"
+			const eligibleSnapshot = categoryRow?.isActive ? categoryRow.isEligible : false
+			const [eventContext] = await tx
+				.select({ channelCode: conversations.channelCode, language: customerSessions.language })
+				.from(conversations)
+				.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+				.where(eq(conversations.id, input.conversationId))
+				.limit(1)
+			const resolvedLanguage = input.language ?? eventContext?.language ?? "en"
+
 			const [customerRow] = await tx
 				.insert(messages)
 				.values({
@@ -191,7 +215,9 @@ export class ConversationService {
 					// neither reader needs to know which path created the row.
 					role: "user",
 					sender: "customer",
-					inquiryCategory: input.inquiryCategory ?? "other",
+					inquiryCategory: resolvedCategory,
+					isEligible: eligibleSnapshot,
+					language: resolvedLanguage,
 					content: input.maskedQuery,
 					traceId: input.traceId ?? null,
 					turnIndex: nextTurn,
@@ -219,20 +245,11 @@ export class ConversationService {
 
 			if (!customerRow || !assistantRow) throw new Error("Failed to record turn")
 			const ids = { customerMessageId: customerRow.id, assistantMessageId: assistantRow.id }
-			const [eventContext] = await tx
-				.select({
-					channelCode: conversations.channelCode,
-					language: customerSessions.language,
-				})
-				.from(conversations)
-				.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
-				.where(eq(conversations.id, input.conversationId))
-				.limit(1)
 			const channelCode = eventContext?.channelCode
-			const language = eventContext?.language
+			const language = resolvedLanguage
 			if (!channelCode || !language)
 				throw new Error("Could not resolve the conversation event context")
-			const category = input.category ?? input.inquiryCategory ?? "other"
+			const category = input.category ?? resolvedCategory
 			await this.eventService.record(
 				{
 					conversationId: input.conversationId,

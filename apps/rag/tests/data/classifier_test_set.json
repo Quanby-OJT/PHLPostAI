@@ -1,0 +1,426 @@
+[
+ {
+  "text": "Where is my parcel RR123456789PH?",
+  "category": "tracking"
+ },
+ {
+  "text": "Can you check the status of my package EE987654321PH?",
+  "category": "tracking"
+ },
+ {
+  "text": "RR123456789PH",
+  "category": "tracking"
+ },
+ {
+  "text": "Track my parcel please",
+  "category": "tracking"
+ },
+ {
+  "text": "My tracking number is CP111222333PH, where is it now?",
+  "category": "tracking"
+ },
+ {
+  "text": "Has my package from Davao arrived at the post office yet?",
+  "category": "tracking"
+ },
+ {
+  "text": "Nasaan na ang padala ko? RR123456789PH",
+  "category": "tracking"
+ },
+ {
+  "text": "Pakicheck naman po kung nasaan na yung parcel ko",
+  "category": "tracking"
+ },
+ {
+  "text": "Asa na akong parcel? EE987654321PH",
+  "category": "tracking"
+ },
+ {
+  "text": "Ania ti status ti package ko? RR123456789PH",
+  "category": "tracking"
+ },
+ {
+  "text": "Is my item out for delivery today?",
+  "category": "tracking"
+ },
+ {
+  "text": "When will my package be delivered? The tracking number is RR555666777PH",
+  "category": "tracking"
+ },
+ {
+  "text": "I want to know where my registered mail is",
+  "category": "tracking"
+ },
+ {
+  "text": "Can you trace my EMS shipment from Manila?",
+  "category": "tracking"
+ },
+ {
+  "text": "Na-deliver na ba yung package ko?",
+  "category": "tracking"
+ },
+ {
+  "text": "How do I track a letter I sent last week?",
+  "category": "tracking"
+ },
+ {
+  "text": "How much is postage to Cebu?",
+  "category": "rates"
+ },
+ {
+  "text": "What is the shipping fee for a 2 kg box to Davao?",
+  "category": "rates"
+ },
+ {
+  "text": "How much does it cost to send a letter abroad?",
+  "category": "rates"
+ },
+ {
+  "text": "Magkano ang padala ng parcel papuntang Iloilo?",
+  "category": "rates"
+ },
+ {
+  "text": "What are your Express Mail rates?",
+  "category": "rates"
+ },
+ {
+  "text": "How much to send a package to the US?",
+  "category": "rates"
+ },
+ {
+  "text": "Pila ang bayad sa pagpadala og sulat sa Manila?",
+  "category": "rates"
+ },
+ {
+  "text": "Mano ti bayad ti panangipatulod ti parcel idiay Baguio?",
+  "category": "rates"
+ },
+ {
+  "text": "Is registered mail more expensive than ordinary mail?",
+  "category": "rates"
+ },
+ {
+  "text": "Price list for sending documents within Metro Manila",
+  "category": "rates"
+ },
+ {
+  "text": "How much is the stamp for a local letter?",
+  "category": "rates"
+ },
+ {
+  "text": "Magkano po ang EMS papuntang Japan?",
+  "category": "rates"
+ },
+ {
+  "text": "What is the rate for a 500 gram parcel?",
+  "category": "rates"
+ },
+ {
+  "text": "How much will it cost to ship a balikbayan box?",
+  "category": "rates"
+ },
+ {
+  "text": "Do you charge extra for heavier packages?",
+  "category": "rates"
+ },
+ {
+  "text": "What do I need for a Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "How do I apply for a Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Unsa ang requirements sa Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Ano ang requirements para sa Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "How long does it take to get my Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Can I renew my Postal ID online?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Where can I claim my Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Magkano ang Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Is the Postal ID a valid government ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "I lost my Postal ID, how do I get a replacement?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Ania dagiti kasapulan para iti Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Can I use my PSA birth certificate to apply for a Postal ID?",
+  "category": "postal-id"
+ },
+ {
+  "text": "Pwede bang mag-apply ng Postal ID ang estudyante?",
+  "category": "postal-id"
+ },
+ {
+  "text": "My Postal ID has the wrong address, how do I fix it?",
+  "category": "postal-id"
+ },
+ {
+  "text": "How much is the Postal ID fee?",
+  "category": "postal-id"
+ },
+ {
+  "text": "What time does the post office open?",
+  "category": "service-info"
+ },
+ {
+  "text": "Is the Quezon City post office open on Saturday?",
+  "category": "service-info"
+ },
+ {
+  "text": "Where is the nearest PHLPost branch?",
+  "category": "service-info"
+ },
+ {
+  "text": "Anong oras bukas ang post office?",
+  "category": "service-info"
+ },
+ {
+  "text": "Do you offer pick-up service for parcels?",
+  "category": "service-info"
+ },
+ {
+  "text": "Can I send money through PHLPost?",
+  "category": "service-info"
+ },
+ {
+  "text": "How do I send a package internationally?",
+  "category": "service-info"
+ },
+ {
+  "text": "Unsa ang oras sa post office sa Cebu?",
+  "category": "service-info"
+ },
+ {
+  "text": "Do you deliver to remote islands?",
+  "category": "service-info"
+ },
+ {
+  "text": "Can I rent a post office box?",
+  "category": "service-info"
+ },
+ {
+  "text": "What items are not allowed to be mailed?",
+  "category": "service-info"
+ },
+ {
+  "text": "How do I send a registered letter?",
+  "category": "service-info"
+ },
+ {
+  "text": "Ania ti oras ti post office ditoy Laoag?",
+  "category": "service-info"
+ },
+ {
+  "text": "Is there a PHLPost office inside SM Megamall?",
+  "category": "service-info"
+ },
+ {
+  "text": "Do you accept cash on delivery?",
+  "category": "service-info"
+ },
+ {
+  "text": "I received a suspicious text message with a fake PHLPost tracking link",
+  "category": "scam"
+ },
+ {
+  "text": "Is this message from PHLPost real? It asks me to pay a redelivery fee",
+  "category": "scam"
+ },
+ {
+  "text": "Someone called saying my parcel is held and I must pay to release it",
+  "category": "scam"
+ },
+ {
+  "text": "I got an email asking for my card details to deliver a package",
+  "category": "scam"
+ },
+ {
+  "text": "Is this link phlpost-delivery-ph.com legit?",
+  "category": "scam"
+ },
+ {
+  "text": "May nag-text na may package daw ako at kailangan magbayad, scam ba ito?",
+  "category": "scam"
+ },
+ {
+  "text": "I think I was scammed by someone pretending to be PHLPost",
+  "category": "scam"
+ },
+ {
+  "text": "A message says my parcel was returned and I need to click a link",
+  "category": "scam"
+ },
+ {
+  "text": "Naa koy text nga naay parcel nga kinahanglan bayran, scam ba ni?",
+  "category": "scam"
+ },
+ {
+  "text": "Someone on Facebook is selling Postal IDs, is that legit?",
+  "category": "scam"
+ },
+ {
+  "text": "I paid a fake courier fee, what should I do?",
+  "category": "scam"
+ },
+ {
+  "text": "How do I report a phishing message using the PHLPost name?",
+  "category": "scam"
+ },
+ {
+  "text": "Adda nag-text kaniak nga maipapan kano ti parcel ko no agbayadak, scam kadi?",
+  "category": "scam"
+ },
+ {
+  "text": "Is it true PHLPost sends SMS asking for GCash payment?",
+  "category": "scam"
+ },
+ {
+  "text": "A caller asked for my OTP to release my package",
+  "category": "scam"
+ },
+ {
+  "text": "I want to file a complaint about my lost package",
+  "category": "complaint"
+ },
+ {
+  "text": "My parcel arrived damaged and I want to complain",
+  "category": "complaint"
+ },
+ {
+  "text": "The delivery staff was very rude to me",
+  "category": "complaint"
+ },
+ {
+  "text": "My package has been delayed for three weeks, this is unacceptable",
+  "category": "complaint"
+ },
+ {
+  "text": "Gusto kong mag-reklamo, nawala ang padala ko",
+  "category": "complaint"
+ },
+ {
+  "text": "I am very unhappy with your service",
+  "category": "complaint"
+ },
+ {
+  "text": "The post office staff refused to accept my parcel without explanation",
+  "category": "complaint"
+ },
+ {
+  "text": "My mail was delivered to the wrong address again",
+  "category": "complaint"
+ },
+ {
+  "text": "Nagreklamo ko kay guba ang akong parcel pag-abot",
+  "category": "complaint"
+ },
+ {
+  "text": "Someone opened my package before it reached me",
+  "category": "complaint"
+ },
+ {
+  "text": "I want to report a missing item from my box",
+  "category": "complaint"
+ },
+ {
+  "text": "Your branch closed early and I wasted a trip, I want to complain",
+  "category": "complaint"
+ },
+ {
+  "text": "Mangireklamoak ta naawan ti parcel ko",
+  "category": "complaint"
+ },
+ {
+  "text": "The rider marked my parcel delivered but I never received it",
+  "category": "complaint"
+ },
+ {
+  "text": "I want a refund for my damaged shipment",
+  "category": "complaint"
+ },
+ {
+  "text": "asdfgh qwerty",
+  "category": "other"
+ },
+ {
+  "text": "Hello",
+  "category": "other"
+ },
+ {
+  "text": "I want to speak with a person",
+  "category": "other"
+ },
+ {
+  "text": "What is the weather today?",
+  "category": "other"
+ },
+ {
+  "text": "Tell me a joke",
+  "category": "other"
+ },
+ {
+  "text": "Who won the basketball game last night?",
+  "category": "other"
+ },
+ {
+  "text": "Can you help me with my homework?",
+  "category": "other"
+ },
+ {
+  "text": "Thank you",
+  "category": "other"
+ },
+ {
+  "text": "Salamat po",
+  "category": "other"
+ },
+ {
+  "text": "What is the capital of France?",
+  "category": "other"
+ },
+ {
+  "text": "Recommend a good restaurant in Makati",
+  "category": "other"
+ },
+ {
+  "text": "Can you write me a poem?",
+  "category": "other"
+ },
+ {
+  "text": "How do I cook adobo?",
+  "category": "other"
+ },
+ {
+  "text": "Okay",
+  "category": "other"
+ },
+ {
+  "text": "Who is the president of the Philippines?",
+  "category": "other"
+ }
+]

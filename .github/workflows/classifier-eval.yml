@@ -1,0 +1,53 @@
+# CNV-2 AC4: classifier accuracy check. Runs the labelled test set
+# (apps/rag/tests/data/classifier_test_set.json) through the real cheap model
+# and fails the job when accuracy drops below CLASSIFIER_ACCURACY_FLOOR.
+# It calls OpenAI, so it runs only when the classifier changes, or by hand.
+name: Classifier Eval
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - "apps/rag/app/classification.py"
+      - "apps/rag/app/classifier_eval.py"
+      - "apps/rag/tests/data/classifier_test_set.json"
+  push:
+    branches: [dev]
+    paths:
+      - "apps/rag/app/classification.py"
+      - "apps/rag/app/classifier_eval.py"
+      - "apps/rag/tests/data/classifier_test_set.json"
+  workflow_dispatch:
+
+concurrency:
+  group: classifier-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  accuracy:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CLASSIFIER_ACCURACY_FLOOR: ${{ vars.CLASSIFIER_ACCURACY_FLOOR || '0.85' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install rag dependencies
+        working-directory: apps/rag
+        run: uv sync --frozen
+
+      - name: Run the classifier accuracy check
+        working-directory: apps/rag
+        # shell: bash adds pipefail, so the script's exit code survives `tee`.
+        # Exit 1 = below the floor; exit 2 = cannot run (no key / set too small).
+        shell: bash
+        run: uv run python -m app.classifier_eval | tee classifier-report.json
+
+      - name: Upload the accuracy report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: classifier-eval-report
+          path: apps/rag/classifier-report.json

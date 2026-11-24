@@ -221,3 +221,15 @@ export type {
 	CustomerAnswerSource,
 	CustomerAnswer,
 } from "./modules/v1/customer/customer.schema.js"
+
+export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
+export {
+	CreateInquiryCategoryRequestSchema,
+	InquiryCategorySchema,
+	UpdateInquiryCategoryRequestSchema,
+} from "./modules/v1/assistant/assistant.schema.js"
+export type {
+	CreateInquiryCategoryRequest,
+	InquiryCategory,
+	UpdateInquiryCategoryRequest,
+} from "./modules/v1/assistant/assistant.schema.js"

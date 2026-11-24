@@ -96,6 +96,14 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "reports.reports.view",
 	},
 	{
+		// CNV-2: inquiry category classification & self-service eligibility.
+		label: "Inquiry Categories",
+		href: "/inquiry-categories",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.assistant.manage",
+	},
+	{
 		// OB-5: read-only effective-config review (secrets masked server-side).
 		label: "Configuration",
 		href: "/ops-config",
