@@ -112,6 +112,26 @@ docker compose ps   # wait: migrate exits 0, backend + rag healthy
 
 **Stop:** `docker compose down` (add `-v` to wipe the database volume).
 
+## Shared Supabase database
+
+The team's shared database lives in Supabase. Use it for `pnpm db:migrate`
+and the one-time `pnpm db:seed`. Run tests against local Postgres only.
+
+1. In the Supabase dashboard, click **Connect** and copy the **Session pooler**
+   URI (port 5432). Use `/postgres` as the database name.
+2. Set it as `DATABASE_URL` in `packages/db/.env` and `apps/backend/.env`.
+   URL-encode special characters in the password.
+3. Set `SEED_ADMIN_PASSWORD` in `packages/db/.env` to a random value.
+4. Run migrations: `pnpm db:migrate`. If `vector` fails, enable pgvector under
+   Database → Extensions in the dashboard and run it again.
+5. Seed once, with the remote override for this command only:
+   `ALLOW_REMOTE_SEED=true pnpm db:seed`. Do not keep it in `.env`.
+6. Connection caps: the backend pool is `max: 5` and the seed pools are
+   `max: 2`. The Supabase pool size is 15, so keep RAG and any other client
+   within the remaining budget.
+7. Run unit and e2e tests with `DATABASE_URL` pointing at local Postgres, for
+   example `DATABASE_URL="postgresql://postgres:postgres@localhost:5432/ragai" pnpm test`.
+
 ## Health checks
 
 Template-default ports shown; use your `.env` ports if overridden.
