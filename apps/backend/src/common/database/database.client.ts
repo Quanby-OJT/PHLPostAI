@@ -17,6 +17,9 @@ import { env } from "@/config/env.config"
  * const todos = await db.select().from(todos)
  * ```
  */
-export const db = drizzle(env.DATABASE_URL, { schema })
+export const db = drizzle({
+	connection: { connectionString: env.DATABASE_URL, max: 5 },
+	schema,
+})
 
 export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]

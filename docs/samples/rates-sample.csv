@@ -1,0 +1,11 @@
+service_code,service_name,zone,weight_min_g,weight_max_g,price_php,effective_from,effective_to
+express-mail,Express Mail,Metro Manila,1,500,120.00,2026-11-01,
+express-mail,Express Mail,Metro Manila,501,2000,180.00,2026-11-01,
+express-mail,Express Mail,Luzon,1,500,150.00,2026-11-01,
+express-mail,Express Mail,Luzon,501,2000,220.00,2026-11-01,
+express-mail,Express Mail,Visayas,1,500,170.00,2026-11-01,
+express-mail,Express Mail,Visayas,501,2000,260.00,2026-11-01,
+express-mail,Express Mail,Mindanao,1,500,180.00,2026-11-01,
+express-mail,Express Mail,Mindanao,501,2000,280.00,2026-11-01,
+registered-mail,Registered Mail,Metro Manila,1,250,45.00,2026-11-01,
+registered-mail,Registered Mail,Visayas,1,250,60.00,2026-11-01,

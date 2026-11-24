@@ -5,6 +5,8 @@ import type { CustomerAnswer, CustomerAnswerKind, CustomerAnswerSource } from "@
 import { AuditService } from "@/common/audit/audit.service"
 import { AssistantService } from "@/modules/v1/assistant/assistant.service"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
+import { RateLookupService } from "@/modules/v1/rates/rate-lookup.service"
+import { RATE_FOLLOW_UP_PREFIX } from "@/modules/v1/rates/rates.replies"
 import { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
 import { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
 import { TrackingService } from "@/modules/v1/tracking/tracking.service"
@@ -57,6 +59,8 @@ export interface InquiryClassification {
 	category: string
 	language: string | null
 	route: InquiryRoute
+	/** KB-2: the earlier rates question this message completes, if any. */
+	context?: string
 }
 
 /** The RAG service's `final` SSE frame / JSON answer, as far as CNV-1 needs it. */
@@ -101,7 +105,8 @@ export class CustomerChatService {
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly trackingService: TrackingService,
 		private readonly trackingRepository: TrackingRepository,
-		private readonly assistantService: AssistantService
+		private readonly assistantService: AssistantService,
+		private readonly rateLookupService: RateLookupService
 	) {}
 
 	/**
@@ -115,6 +120,7 @@ export class CustomerChatService {
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
+		conversationId?: string
 	}): Promise<InquiryClassification> {
 		const categories = await this.assistantService.listActiveCategories()
 		const result = await this.ragGatewayService.classifyInquiry({
@@ -132,11 +138,81 @@ export class CustomerChatService {
 			: active.has(result.category)
 				? result.category
 				: "other"
+		const followUp = input.conversationId
+			? await this.rateFollowUp(input.conversationId, category, active)
+			: null
+		if (followUp) {
+			return {
+				screenedQuery: result.screenedQuery,
+				category: "rates",
+				language: result.language,
+				route: "rates",
+				context: followUp,
+			}
+		}
 		return {
 			screenedQuery: result.screenedQuery,
 			category,
 			language: result.language,
 			route: routeForCategory(category),
+		}
+	}
+
+	/**
+	 * KB-2 AC2: after the assistant asked for a missing rate detail, a short
+	 * reply ("2 kg", "to Cebu") completes that question instead of starting a
+	 * new topic. Returns the earlier (masked) question to combine with it.
+	 */
+	private async rateFollowUp(
+		conversationId: string,
+		category: string,
+		active: ReadonlySet<string>
+	): Promise<string | null> {
+		if (!active.has("rates") || (category !== "rates" && category !== "other")) return null
+		const last = await this.conversationService.lastExchange(conversationId)
+		if (!last.assistant?.content.startsWith(RATE_FOLLOW_UP_PREFIX) || !last.customer) return null
+		return last.customer.content
+	}
+
+	/**
+	 * KB-2 (PRD D4): a rates turn. The price comes only from the approved rate
+	 * table through the lookup tool; the model never quotes one.
+	 */
+	async answerRates(input: {
+		conversationId: string
+		classification: InquiryClassification
+		principal: string
+		permissions: readonly string[]
+		correlationId: string
+	}): Promise<CustomerTurn> {
+		const { classification } = input
+		const question = classification.context
+			? `${classification.context}\n${classification.screenedQuery}`
+			: classification.screenedQuery
+		const { reply } = await this.rateLookupService.answer(question, {
+			principal: input.principal,
+			permissions: input.permissions,
+			correlationId: input.correlationId,
+		})
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId: input.conversationId,
+			maskedQuery: classification.screenedQuery,
+			inquiryCategory: classification.category,
+			language: classification.language ?? undefined,
+			answer: reply,
+			answerKind: "tool",
+			traceId: input.correlationId,
+			category: "rates",
+		})
+
+		return {
+			answer: reply,
+			messageId: assistantMessageId,
+			sources: [],
+			citations: [],
+			answerKind: "tool",
+			isIDontKnow: false,
 		}
 	}
 

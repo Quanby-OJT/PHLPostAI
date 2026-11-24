@@ -175,6 +175,7 @@ describe("navItems", () => {
 			"Dashboard",
 			"Corpus",
 			"Knowledge base",
+			"Postal rates",
 			"Status explanations",
 			"Chat",
 			"Agent inbox",

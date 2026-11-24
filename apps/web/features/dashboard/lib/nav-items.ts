@@ -2,6 +2,7 @@ import {
 	BubbleChatIcon,
 	ChartLineData01Icon,
 	CheckmarkBadge01Icon,
+	Coins01Icon,
 	DashboardSquare01Icon,
 	FolderLibraryIcon,
 	InformationCircleIcon,
@@ -48,6 +49,14 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/knowledge",
 		icon: FolderLibraryIcon,
 		requiredPermission: ["knowledge.articles.manage", "knowledge.articles.approve"],
+	},
+	{
+		// KB-2: rate maintenance for knowledge.rates.manage, batch review for
+		// knowledge.articles.approve. Each route is guarded server-side.
+		label: "Postal rates",
+		href: "/rates",
+		icon: Coins01Icon,
+		requiredPermission: ["knowledge.rates.manage", "knowledge.articles.approve"],
 	},
 	{
 		// TRK-2: wording shown after each official tracking status.
