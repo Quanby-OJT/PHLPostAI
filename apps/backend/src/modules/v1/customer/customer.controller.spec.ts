@@ -28,7 +28,7 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { customer: { session: { start: {} }, chat: { send: {} } } },
+	v1: { customer: { session: { start: {}, setLanguage: {} }, chat: { send: {} } } },
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -124,7 +124,12 @@ const TRACKING_CLASSIFICATION = {
 
 describe("CustomerController (CNV-1 public chat)", () => {
 	let controller: CustomerController
-	let customerSessionService: { resolve: jest.Mock; start: jest.Mock; idleExpiresAt: jest.Mock }
+	let customerSessionService: {
+		resolve: jest.Mock
+		start: jest.Mock
+		idleExpiresAt: jest.Mock
+		setLanguage: jest.Mock
+	}
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
@@ -143,6 +148,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			resolve: jest.fn().mockResolvedValue(ACTIVE_SESSION),
 			start: jest.fn(),
 			idleExpiresAt: jest.fn().mockReturnValue(new Date("2026-11-18T10:30:00.000Z")),
+			setLanguage: jest.fn().mockResolvedValue(undefined),
 		}
 		conversationService = {
 			startCustomerConversation: jest
@@ -200,6 +206,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	describe("the routes are actually public", () => {
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 		])("%s carries the PUBLIC metadata the guards read", (_name, handler) => {
@@ -208,10 +215,30 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 		])("%s carries no permission key (public route)", (_name, handler) => {
 			expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toBeUndefined()
+		})
+	})
+
+	describe("CNV-4: the widget menu sets the session language", () => {
+		type Handler = (args: { input: { language: string } }) => Promise<unknown>
+
+		it("stores the picked language on the customer's own session", async () => {
+			const handler = (await controller.setLanguage("token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).resolves.toEqual({ language: "ilo" })
+			expect(customerSessionService.setLanguage).toHaveBeenCalledWith("session-1", "ilo")
+		})
+
+		it("refuses a caller without a valid session", async () => {
+			customerSessionService.resolve.mockResolvedValue(null)
+			const handler = (await controller.setLanguage("lapsed-token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).rejects.toThrow()
+			expect(customerSessionService.setLanguage).not.toHaveBeenCalled()
 		})
 	})
 

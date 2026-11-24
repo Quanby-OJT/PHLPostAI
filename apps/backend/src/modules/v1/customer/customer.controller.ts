@@ -86,6 +86,19 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.session.setLanguage)
+	async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			await this.customerSessionService.setLanguage(session.id, input.language)
+			return { language: input.language }
+		})
+	}
+
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.chat.send)
 	async sendMessage(
 		@Headers("x-customer-session") sessionToken: string | undefined,

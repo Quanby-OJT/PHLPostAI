@@ -19,7 +19,6 @@ const DEFAULT_RETRY_AFTER_SECONDS = 60
 export interface StoredSession {
 	sessionToken: string
 	idleExpiresAt: string
-	language: CustomerLanguage
 }
 
 /** 429 from the per-session or per-IP limiter (CHN-1). */
@@ -61,6 +60,22 @@ export async function startSession(language: CustomerLanguage = "en"): Promise<C
 	})
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as CustomerSession
+}
+
+/** POST /customer/session/language — CNV-4: the language picked from the widget menu. */
+export async function setSessionLanguage(
+	language: CustomerLanguage,
+	sessionToken: string
+): Promise<void> {
+	const response = await fetch(`${API_BASE}/customer/session/language`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: sessionToken,
+		},
+		body: JSON.stringify({ language }),
+	})
+	if (!response.ok) throw await parseError(response)
 }
 
 export async function requestHumanHandoff(input: {

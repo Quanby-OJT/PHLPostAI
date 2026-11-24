@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { CUSTOMER_LANGUAGES, type CustomerAnswer, type CustomerAnswerSource, type CustomerLanguage } from "@repo/contracts"
+import {
+	CUSTOMER_LANGUAGES,
+	type CustomerAnswer,
+	type CustomerAnswerSource,
+	type CustomerLanguage,
+} from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 
@@ -10,10 +15,17 @@ import {
 	RateLimitedError,
 	requestHumanHandoff,
 	SESSION_STORAGE_KEY,
+	setSessionLanguage,
 	startSession,
 	streamQuestion,
 	type StoredSession,
 } from "../api/assistant.client"
+import {
+	ASSISTANT_COPY,
+	HANDOFF_REASONS,
+	LANGUAGE_LABELS,
+	type HandoffReason,
+} from "../lib/assistant-copy"
 
 /** TODO(CHN-1): replace with PHLPost's real privacy notice URL. */
 const PRIVACY_NOTICE_URL = "/privacy"
@@ -21,14 +33,9 @@ const PRIVACY_NOTICE_URL = "/privacy"
 /** Per-tab chat state (CHN-1: the Conversation continues across page loads in one tab). */
 const CHAT_STORAGE_KEY = "phlpost.assistant.chat"
 
-const LANGUAGE_LABELS: Record<CustomerLanguage, string> = {
-  en: "English",
-  fil: "Filipino",
-  ceb: "Cebuano",
-  ilo: "Ilocano",
+function isCustomerLanguage(value: unknown): value is CustomerLanguage {
+	return typeof value === "string" && (CUSTOMER_LANGUAGES as readonly string[]).includes(value)
 }
-
-const UI_COPY: Record<CustomerLanguage,{aiNotice:string;privacy:string;language:string;beforeStartTitle:string;beforeStartBody:string;privacyPrefix:string;accept:string;emptyPrompt:string;sources:string;handoffQueued:string;needPerson:string;confirmHandoff:string;requestingHandoff:string;questionLabel:string;questionPlaceholder:string;ask:string;asking:string}>={en:{aiNotice:"{copy.aiNotice}",privacy:"Privacy notice",language:"Language",beforeStartTitle:"Before you start",beforeStartBody:"{copy.beforeStartBody}",privacyPrefix:"{copy.privacyPrefix}",accept:"I understand, start chat",emptyPrompt:"Ask a question about PHLPost services.",sources:"From these PHLPost articles:",handoffQueued:"Your request is in the queue. A PHLPost agent will join when available.",needPerson:"Need a person?",confirmHandoff:"Confirm human handoff",requestingHandoff:"Requesting…",questionLabel:"Your question",questionPlaceholder:"How do I send Express Mail?",ask:"Ask",asking:"Asking…"},fil:{aiNotice:"Nakikipag-chat ka sa isang AI assistant, hindi sa isang tao.",privacy:"Paunawa sa privacy",language:"Wika",beforeStartTitle:"Bago ka magsimula",beforeStartBody:"Ang chat na ito ay sinasagot ng AI assistant gamit ang impormasyong inaprubahan ng PHLPost, at maaari itong magkamali. Huwag magbahagi ng password o detalye ng bayad.",privacyPrefix:"Basahin kung paano pinangangasiwaan ang iyong chat sa ",accept:"Nauunawaan ko, simulan ang chat",emptyPrompt:"Magtanong tungkol sa mga serbisyo ng PHLPost.",sources:"Mula sa mga artikulong ito ng PHLPost:",handoffQueued:"Nasa pila na ang iyong kahilingan. Sasali ang isang PHLPost agent kapag may available.",needPerson:"Kailangan mo ba ng makakausap na tao?",confirmHandoff:"Kumpirmahin ang human handoff",requestingHandoff:"Hinihiling…",questionLabel:"Ang iyong tanong",questionPlaceholder:"Paano magpadala ng Express Mail?",ask:"Itanong",asking:"Nagtatanong…"},ceb:{aiNotice:"Nakig-chat ka sa usa ka AI assistant, dili sa usa ka tawo.",privacy:"Pahibalo sa privacy",language:"Pinulongan",beforeStartTitle:"Sa dili ka pa magsugod",beforeStartBody:"Kini nga chat tubagon sa AI assistant gamit ang impormasyon nga giaprobahan sa PHLPost, ug mahimong masayop. Ayaw ipaambit ang password o detalye sa bayad.",privacyPrefix:"Basaha kon giunsa pagdumala ang imong chat sa ",accept:"Nakasabot ko, sugdi ang chat",emptyPrompt:"Pagpangutana bahin sa mga serbisyo sa PHLPost.",sources:"Gikan sa kini nga mga artikulo sa PHLPost:",handoffQueued:"Naa na sa linya ang imong hangyo. Moapil ang PHLPost agent kon adunay bakante.",needPerson:"Nagkinahanglan ka bag kaistorya nga tawo?",confirmHandoff:"Kumpirmaha ang human handoff",requestingHandoff:"Gihangyo…",questionLabel:"Imong pangutana",questionPlaceholder:"Unsaon pagpadala og Express Mail?",ask:"Pangutana",asking:"Nagpangutana…"},ilo:{aiNotice:"Makisarsaritaka iti AI assistant, saan a tao.",privacy:"Pakdaar maipapan iti privacy",language:"Pagsasao",beforeStartTitle:"Sakbay a mangrugi",beforeStartBody:"Daytoy a chat ket sungbatan ti AI assistant babaen ti impormasion nga inaprobaran ti PHLPost, ket mabalin nga agbiddut. Saan a mangibinglay iti password wenno detalye ti bayad.",privacyPrefix:"Basaen no kasano a maasikaso ti chat-mo iti ",accept:"Maawatak, rugian ti chat",emptyPrompt:"Agdamag maipapan kadagiti serbisyo ti PHLPost.",sources:"Manipud kadagitoy nga artikulo ti PHLPost:",handoffQueued:"Adda iti pila ti kiddawmo. Sumrek ti PHLPost agent no adda mabalin.",needPerson:"Masapulmo kadi ti kasarita a tao?",confirmHandoff:"Kumpirmaren ti human handoff",requestingHandoff:"Kiddawen…",questionLabel:"Ti saludsodmo",questionPlaceholder:"Kasano ti agipatulod iti Express Mail?",ask:"Agdamag",asking:"Agdamdamag…"}}
 
 interface Turn {
 	sender: "customer" | "assistant"
@@ -44,6 +51,7 @@ interface StoredChat {
 	conversationId?: string
 	turns: Turn[]
 	handoffDone?: boolean
+	language?: CustomerLanguage
 }
 
 function readStoredSession(): StoredSession | null {
@@ -62,6 +70,14 @@ function storeSession(session: StoredSession): void {
 		window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session))
 	} catch {
 		// Storage can be unavailable; the chat still works, it just won't survive a reload.
+	}
+}
+
+function clearStoredSession(): void {
+	try {
+		window.sessionStorage.removeItem(SESSION_STORAGE_KEY)
+	} catch {
+		// See storeSession.
 	}
 }
 
@@ -101,7 +117,7 @@ export function AssistantChat() {
 	const [error, setError] = useState<string | null>(null)
 	const [waitSeconds, setWaitSeconds] = useState(0)
 	const [handoffDone, setHandoffDone] = useState(false)
-	const [handoffReason, setHandoffReason] = useState("I want to speak with a person")
+	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
@@ -115,17 +131,16 @@ export function AssistantChat() {
 			setConversationId(stored.conversationId)
 			setTurns(stored.turns.filter(turn => !turn.streaming))
 			setHandoffDone(stored.handoffDone ?? false)
+			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
-		const saved = readStoredSession()
-		if (saved?.language) setLanguage(saved.language)
 		setReady(true)
 	}, [])
 
 	// Save the chat whenever a turn settles.
 	useEffect(() => {
 		if (!ready || busy) return
-		storeChat({ accepted, conversationId, turns, handoffDone })
-	}, [accepted, busy, conversationId, handoffDone, ready, turns])
+		storeChat({ accepted, conversationId, turns, handoffDone, language })
+	}, [accepted, busy, conversationId, handoffDone, language, ready, turns])
 
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -145,35 +160,36 @@ export function AssistantChat() {
 		if (accepted && !busy && waitSeconds === 0) inputRef.current?.focus()
 	}, [accepted, busy, waitSeconds])
 
-	/** The stored session, or a freshly opened one. */
-		const ensureSession = useCallback(
-			async (forceNew = false, targetLanguage: CustomerLanguage = language): Promise<string> => {
-				if (!forceNew) {
-					const stored = readStoredSession()
-					if (stored && (!stored.language || stored.language === targetLanguage)) return stored.sessionToken
-				}
-				const session = await startSession(targetLanguage)
-				storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt, language: targetLanguage })
-				return session.sessionToken
-			},
-			[language]
-		)
-
-		const handleLanguageChange = useCallback(
-			async (nextLanguage: CustomerLanguage) => {
-				setLanguage(nextLanguage)
-				setError(null)
+	/** The stored session, or a freshly opened one in the chosen language. */
+	const ensureSession = useCallback(
+		async (forceNew = false): Promise<string> => {
+			if (!forceNew) {
 				const stored = readStoredSession()
-				if (stored) storeSession({ ...stored, language: nextLanguage })
-				if (accepted && !busy) {
-					try {
-						await ensureSession(true, nextLanguage)
-						setConversationId(undefined)
-					} catch {}
-				}
-			},
-			[accepted, busy, ensureSession]
-		)
+				if (stored) return stored.sessionToken
+			}
+			const session = await startSession(language)
+			storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt })
+			return session.sessionToken
+		},
+		[language]
+	)
+
+	/** CNV-4: switch the fixed text now, and store the choice on the session for later replies. */
+	const changeLanguage = useCallback(async (next: CustomerLanguage) => {
+		setLanguage(next)
+		setError(null)
+		const stored = readStoredSession()
+		if (!stored) return
+		try {
+			await setSessionLanguage(next, stored.sessionToken)
+		} catch (caught) {
+			if (caught instanceof ApiError && caught.status === 401) {
+				clearStoredSession()
+				return
+			}
+			setError(ASSISTANT_COPY[next].languageFailed)
+		}
+	}, [])
 
 	const appendFinal = useCallback((final: CustomerAnswer) => {
 		setConversationId(final.conversationId)
@@ -246,16 +262,24 @@ export function AssistantChat() {
 				} else {
 					setTurns(previous => previous.slice(0, -1))
 					setError(
-						caught instanceof ApiError
-							? caught.message
-							: "The assistant is unavailable. Please try again."
+						caught instanceof ApiError ? caught.message : ASSISTANT_COPY[language].unavailable
 					)
 				}
 			} finally {
 				setBusy(false)
 			}
 		},
-		[accepted, appendFinal, busy, conversationId, ensureSession, handoffDone, question, waitSeconds]
+		[
+			accepted,
+			appendFinal,
+			busy,
+			conversationId,
+			ensureSession,
+			handoffDone,
+			language,
+			question,
+			waitSeconds,
+		]
 	)
 
 	const requestAgent = useCallback(
@@ -270,15 +294,13 @@ export function AssistantChat() {
 				setHandoffDone(true)
 			} catch (caught) {
 				setError(
-					caught instanceof ApiError
-						? caught.message
-						: "We couldn't request an agent. Please try again."
+					caught instanceof ApiError ? caught.message : ASSISTANT_COPY[language].handoffFailed
 				)
 			} finally {
 				setHandoffBusy(false)
 			}
 		},
-		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason]
+		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
 	)
 
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
@@ -293,38 +315,43 @@ export function AssistantChat() {
 
 	if (!ready) return null
 
-	const copy = UI_COPY[language]
+	const copy = ASSISTANT_COPY[language]
 
 	return (
-		<div className="fixed inset-0 mx-auto flex max-w-3xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
+		<div
+			lang={language}
+			className="fixed inset-0 mx-auto flex max-w-3xl flex-col gap-3 overflow-hidden p-3 sm:p-4"
+		>
 			<header className="flex items-start justify-between gap-3 border-b pb-3">
 				<div>
 					<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
-				<p className="text-sm">
-					You are chatting with an AI assistant, not a person.{" "}
-					<a
-						href={PRIVACY_NOTICE_URL}
-						target="_blank"
-						rel="noopener noreferrer"
-						className="text-primary underline underline-offset-2"
-					>
-						Privacy notice
-					</a>
-				</p>
+					<p className="text-sm">
+						{copy.aiNotice}{" "}
+						<a
+							href={PRIVACY_NOTICE_URL}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="text-primary underline underline-offset-2"
+						>
+							{copy.privacyNotice}
+						</a>
+					</p>
 				</div>
 				<div className="flex shrink-0 flex-col items-end gap-1">
 					<label htmlFor="assistant-language" className="text-muted-foreground text-xs font-medium">
-						Language
+						{copy.language}
 					</label>
 					<select
 						id="assistant-language"
-						aria-label="Language"
 						value={language}
-						onChange={e => void handleLanguageChange(e.target.value as CustomerLanguage)}
-						className="bg-background rounded-md border px-2.5 py-1.5 text-xs font-medium"
+						onChange={event => {
+							if (isCustomerLanguage(event.target.value)) void changeLanguage(event.target.value)
+						}}
+						disabled={busy}
+						className="bg-background min-h-9 rounded-md border px-2.5 text-xs font-medium"
 					>
 						{CUSTOMER_LANGUAGES.map(code => (
-							<option key={code} value={code}>
+							<option key={code} value={code} lang={code}>
 								{LANGUAGE_LABELS[code]}
 							</option>
 						))}
@@ -338,21 +365,18 @@ export function AssistantChat() {
 					className="bg-muted space-y-4 overflow-y-auto rounded-lg border p-4 text-sm"
 				>
 					<h2 id="ai-notice-title" className="text-base font-semibold">
-						Before you start
+						{copy.beforeStartTitle}
 					</h2>
+					<p>{copy.beforeStartBody}</p>
 					<p>
-						This chat is answered by an AI assistant. It replies using information PHLPost has
-						approved, and it can make mistakes. Do not share passwords or payment details.
-					</p>
-					<p>
-						Read how your chat is handled in the{" "}
+						{copy.privacyPrefix}
 						<a
 							href={PRIVACY_NOTICE_URL}
 							target="_blank"
 							rel="noopener noreferrer"
 							className="text-primary underline underline-offset-2"
 						>
-							privacy notice
+							{copy.privacyLink}
 						</a>
 						.
 					</p>
@@ -361,14 +385,14 @@ export function AssistantChat() {
 						onClick={() => setAccepted(true)}
 						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
 					>
-						I understand, start chat
+						{copy.accept}
 					</button>
 				</section>
 			) : (
 				<>
 					<div
 						role="log"
-						aria-label="Conversation"
+						aria-label={copy.conversation}
 						aria-live="polite"
 						aria-relevant="additions text"
 						className="flex-1 space-y-4 overflow-y-auto"
@@ -389,7 +413,7 @@ export function AssistantChat() {
 										}`}
 									>
 										<span className="sr-only">
-											{turn.sender === "customer" ? "You said: " : "Assistant said: "}
+											{turn.sender === "customer" ? copy.youSaid : copy.assistantSaid}
 										</span>
 										<p className="whitespace-pre-wrap">
 											{turn.content}
@@ -415,7 +439,7 @@ export function AssistantChat() {
 
 					{handoffDone ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
-							Your request is in the queue. A PHLPost agent will join when available.
+							{copy.handoffQueued}
 						</p>
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
@@ -423,12 +447,14 @@ export function AssistantChat() {
 								<span className="mb-1 block">{copy.needPerson}</span>
 								<select
 									value={handoffReason}
-									onChange={event => setHandoffReason(event.target.value)}
+									onChange={event => setHandoffReason(event.target.value as HandoffReason)}
 									className="bg-background min-h-11 w-full rounded-lg border px-3"
 								>
-									<option>I want to speak with a person</option>
-									<option>I still need help</option>
-									<option>The answer did not solve my question</option>
+									{HANDOFF_REASONS.map(reason => (
+										<option key={reason} value={reason}>
+											{copy.handoffReasons[reason]}
+										</option>
+									))}
 								</select>
 							</label>
 							<button
@@ -443,8 +469,7 @@ export function AssistantChat() {
 
 					{waitSeconds > 0 ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
-							You&apos;re sending messages too quickly. Please wait {waitSeconds} second
-							{waitSeconds === 1 ? "" : "s"} before sending another.
+							{copy.tooQuick(waitSeconds)}
 						</p>
 					) : null}
 
@@ -456,7 +481,7 @@ export function AssistantChat() {
 
 					<form onSubmit={ask} className="flex gap-2 border-t pt-3">
 						<label className="sr-only" htmlFor="assistant-question">
-							Your question
+							{copy.questionLabel}
 						</label>
 						<input
 							ref={inputRef}

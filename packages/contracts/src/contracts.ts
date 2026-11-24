@@ -208,6 +208,8 @@ export {
 	StartCustomerSessionRequestSchema,
 	CustomerSessionSchema,
 	CustomerChatRequestSchema,
+	SetCustomerLanguageRequestSchema,
+	CustomerSessionLanguageSchema,
 	CustomerAnswerSourceSchema,
 	CustomerAnswerSchema,
 } from "./modules/v1/customer/customer.schema.js"
@@ -218,6 +220,8 @@ export type {
 	StartCustomerSessionRequest,
 	CustomerSession,
 	CustomerChatRequest,
+	SetCustomerLanguageRequest,
+	CustomerSessionLanguage,
 	CustomerAnswerSource,
 	CustomerAnswer,
 } from "./modules/v1/customer/customer.schema.js"
