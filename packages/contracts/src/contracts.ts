@@ -213,6 +213,8 @@ export {
 	StartCustomerSessionRequestSchema,
 	CustomerSessionSchema,
 	CustomerChatRequestSchema,
+	SetCustomerLanguageRequestSchema,
+	CustomerSessionLanguageSchema,
 	CustomerAnswerSourceSchema,
 	CustomerAnswerSchema,
 } from "./modules/v1/customer/customer.schema.js"
@@ -223,6 +225,8 @@ export type {
 	StartCustomerSessionRequest,
 	CustomerSession,
 	CustomerChatRequest,
+	SetCustomerLanguageRequest,
+	CustomerSessionLanguage,
 	CustomerAnswerSource,
 	CustomerAnswer,
 } from "./modules/v1/customer/customer.schema.js"
@@ -241,3 +245,9 @@ export type {
 
 export { ratesContract } from "./modules/v1/rates/rates.contract.js"
 export * from "./modules/v1/rates/rates.schema.js"
+
+export {
+	PHLPOST_GLOSSARY_SEED,
+	UNTRANSLATED_POSTAL_TERMS,
+} from "./modules/v1/customer/postal-glossary.seed.js"
+export type { PostalGlossaryTerm } from "./modules/v1/customer/postal-glossary.seed.js"
