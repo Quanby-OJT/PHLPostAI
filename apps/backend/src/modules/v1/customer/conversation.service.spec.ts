@@ -10,6 +10,7 @@ jest.mock("@repo/db/schema", () => ({
 		channelCode: "channel_code",
 	},
 	customerSessions: { id: "id", language: "language" },
+	inquiryCategories: { code: "code", isEligible: "is_eligible", isActive: "is_active" },
 	messages: {
 		name: "messages",
 		id: "id",
@@ -31,6 +32,7 @@ const inserted: { table: string; values: Record<string, unknown> }[] = []
 let maxTurnIndex: number | null = null
 let insertCounter = 0
 let lockedConversationStatus = "ai_active"
+let categoryRows: { code: string; isEligible: boolean; isActive: boolean }[] = []
 
 function chainedInsert(table?: { name?: string }) {
 	return {
@@ -60,6 +62,15 @@ const tx = {
 		}
 		if ("nextTurn" in selection) {
 			return { from: () => ({ where: async () => [{ nextTurn: (maxTurnIndex ?? -1) + 1 }] }) }
+		}
+		if ("isEligible" in selection) {
+			return {
+				from: () => ({
+					where: () => ({
+						limit: async () => categoryRows,
+					}),
+				}),
+			}
 		}
 		if ("channelCode" in selection) {
 			return {
@@ -116,6 +127,7 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 		maxTurnIndex = null
 		lockedConversationStatus = "ai_active"
 		ownedRows = []
+		categoryRows = [{ code: "other", isEligible: false, isActive: true }]
 	})
 
 	describe("opening a customer conversation", () => {
@@ -352,6 +364,63 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 				assistantMessageId: "message-2",
 			})
 			expect(inserted[1]?.values.answerKind).toBe("tool")
+		})
+	})
+
+	describe("CNV-2: category and eligibility are stored as they are at that moment", () => {
+		const TURN = {
+			conversationId: "conversation-1",
+			maskedQuery: "how much is postage",
+			answer: "165 pesos.",
+			answerKind: "answer" as const,
+		}
+
+		it("AC1: copies the category's current eligibility onto the customer message", async () => {
+			categoryRows = [{ code: "rates", isEligible: true, isActive: true }]
+
+			await service.recordTurn({ ...TURN, inquiryCategory: "rates", language: "fil" })
+
+			expect(inserted[0]?.values).toEqual(
+				expect.objectContaining({ inquiryCategory: "rates", isEligible: true, language: "fil" })
+			)
+		})
+
+		it("AC3: stores the new setting after eligibility changes", async () => {
+			categoryRows = [{ code: "rates", isEligible: false, isActive: true }]
+
+			await service.recordTurn({ ...TURN, inquiryCategory: "rates" })
+
+			expect(inserted[0]?.values).toEqual(
+				expect.objectContaining({ inquiryCategory: "rates", isEligible: false })
+			)
+		})
+
+		it("AC2: stores an unknown category as other and not eligible", async () => {
+			categoryRows = []
+
+			await service.recordTurn({ ...TURN, inquiryCategory: "refunds" })
+
+			expect(inserted[0]?.values).toEqual(
+				expect.objectContaining({ inquiryCategory: "other", isEligible: false })
+			)
+		})
+
+		it("stores an inactive category as other and not eligible", async () => {
+			categoryRows = [{ code: "rates", isEligible: true, isActive: false }]
+
+			await service.recordTurn({ ...TURN, inquiryCategory: "rates" })
+
+			expect(inserted[0]?.values).toEqual(
+				expect.objectContaining({ inquiryCategory: "other", isEligible: false })
+			)
+		})
+
+		it("uses the session's language when none was detected", async () => {
+			categoryRows = [{ code: "rates", isEligible: true, isActive: true }]
+
+			await service.recordTurn({ ...TURN, inquiryCategory: "rates" })
+
+			expect(inserted[0]?.values.language).toBe("en")
 		})
 	})
 

@@ -23,12 +23,13 @@ import logging
 import re
 import time
 import uuid
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from app.budget import current_context_budget, select_within_budget
+from app.classification import DEFAULT_CATEGORIES, Category, classify_text
 from app.compression import Compressor, build_compressor, compress_with_fallback
 from app.config import Settings
 from app.conversations import ConversationsRepository
@@ -40,6 +41,7 @@ from app.providers import (
     SingleClientRouter,
     build_model_router,
 )
+from app.rate_extraction import RateService, extract_rate_query
 from app.rate_limit import rate_limit
 from app.reliability import CircuitBreaker, ReliabilityRouter, validate_output
 from app.response_cache import ResponseCache, build_response_cache
@@ -1608,19 +1610,101 @@ async def screen_only(
 ) -> dict[str, Any]:
     """TRK-1: the SC-1 screen without retrieval or generation, for tool turns
     (tracking) that the backend answers itself. Same audit on a block."""
-    from fastapi import HTTPException
-
     result = screen_query(payload.query, request.app.state.settings)
     if result.blocked:
-        assert result.injection is not None
-        await repository.write_audit(
-            actor_id=principal.sub,
-            actor_type=principal.actor_type,
-            action="chat.query.blocked",
-            resource_type="query",
-            resource_id=principal.trace_id or str(uuid.uuid4()),
-            before=None,
-            after={"injection": result.injection, "action": "block"},
-        )
-        raise HTTPException(status_code=400, detail=str(QueryBlockedError(result.injection)))
+        await _refuse_blocked(result.injection, principal, repository)
     return {"screenedQuery": result.query, "piiTypes": result.pii_types}
+
+
+async def _refuse_blocked(
+    injection: str | None,
+    principal: ServicePrincipal,
+    repository: ConversationsRepository,
+) -> NoReturn:
+    """Audit a screening block and answer 400, as the chat routes do."""
+    from fastapi import HTTPException
+
+    assert injection is not None
+    await repository.write_audit(
+        actor_id=principal.sub,
+        actor_type=principal.actor_type,
+        action="chat.query.blocked",
+        resource_type="query",
+        resource_id=principal.trace_id or str(uuid.uuid4()),
+        before=None,
+        after={"injection": injection, "action": "block"},
+    )
+    raise HTTPException(status_code=400, detail=str(QueryBlockedError(injection)))
+
+
+class ClassifyCategory(BaseModel):
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(default="", max_length=120)
+
+
+class ClassifyRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=4000)
+    categories: list[ClassifyCategory] = Field(default_factory=list, max_length=50)
+
+
+def get_classifier_client(request: Request) -> ChatModelClient:
+    """CNV-2 seam: the cheap tier of the deployment's router (overridden in tests)."""
+    settings: Settings = request.app.state.settings
+    return build_model_router(settings, bucket=get_provider_bucket(request)).cheap
+
+
+@router.post("/chat/classify", dependencies=[Depends(rate_limit("rate_limit_classify"))])
+async def classify_inquiry(
+    payload: ClassifyRequest,
+    request: Request,
+    principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
+    repository: Annotated[ConversationsRepository, Depends(get_conversations_repository)],
+    client: Annotated[ChatModelClient, Depends(get_classifier_client)],
+) -> dict[str, Any]:
+    """CNV-2 (Flow A steps 3 and 4): screen first, then one cheap-model call for
+    the category and language of the SCREENED text. A block is audited and 400."""
+    result = screen_query(payload.query, request.app.state.settings)
+    if result.blocked:
+        await _refuse_blocked(result.injection, principal, repository)
+    categories = [Category(item.code, item.name) for item in payload.categories]
+    classification = await classify_text(
+        client, result.query, categories or list(DEFAULT_CATEGORIES)
+    )
+    return {
+        "screenedQuery": result.query,
+        "piiTypes": result.pii_types,
+        "category": classification.category,
+        "language": classification.language,
+        "fallbackUsed": classification.fallback_used,
+    }
+
+
+class RateExtractService(BaseModel):
+    code: str = Field(min_length=1, max_length=60)
+    name: str = Field(default="", max_length=120)
+
+
+class RateExtractRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+    services: list[RateExtractService] = Field(default_factory=list, max_length=200)
+    zones: list[str] = Field(default_factory=list, max_length=200)
+
+
+@router.post("/rates/extract", dependencies=[Depends(rate_limit("rate_limit_classify"))])
+async def extract_rate(
+    payload: RateExtractRequest,
+    principal: Annotated[ServicePrincipal, Depends(verify_service_jwt)],
+    client: Annotated[ChatModelClient, Depends(get_classifier_client)],
+) -> dict[str, Any]:
+    """KB-2: read service, zone, and weight from an already screened question.
+    The backend looks the price up in the rate table; the model never quotes one."""
+    del principal  # authentication only; nothing is stored or audited here
+    services = [RateService(item.code, item.name) for item in payload.services]
+    zones = [zone.strip() for zone in payload.zones if zone.strip()]
+    query = await extract_rate_query(client, payload.text, services, zones)
+    return {
+        "serviceCode": query.service_code,
+        "zone": query.zone,
+        "weightG": query.weight_g,
+        "fallbackUsed": query.fallback_used,
+    }

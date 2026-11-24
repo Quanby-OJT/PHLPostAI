@@ -1,5 +1,6 @@
 import { oc } from "@orpc/contract"
 
+import { assistantContract } from "./assistant/assistant.contract.js"
 import { analyticsContract } from "./analytics/analytics.contract.js"
 import { apiKeysContract } from "./apikeys/apikeys.contract.js"
 import { chatContract } from "./chat/chat.contract.js"
@@ -10,6 +11,7 @@ import { healthContract } from "./health/health.contract.js"
 import { knowledgeContract } from "./knowledge/knowledge.contract.js"
 import { meContract } from "./me/me.contract.js"
 import { opsContract } from "./ops/ops.contract.js"
+import { ratesContract } from "./rates/rates.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
 import { reportsContract } from "./reports/reports.contract.js"
 import { trackingContract } from "./tracking/tracking.contract.js"
@@ -29,10 +31,12 @@ export const v1Contract = oc.prefix("/v1").router(
         eval: evalContract,
         ops: opsContract,
         reports: reportsContract,
-        analytics: analyticsContract,
+        assistant: assistantContract,
+		analytics: analyticsContract,
         knowledge: knowledgeContract,
         customer: customerContract,
         tracking: trackingContract,
+        rates: ratesContract,
     })
 )
 

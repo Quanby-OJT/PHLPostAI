@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common"
 
 import { env } from "@/config/env.config"
 
+import { AssistantModule } from "./assistant/assistant.module"
 import { ApiKeysV1Module } from "./apikeys/apikeys.module"
 import { AnalyticsModule } from "./analytics/analytics.module"
 import { ChatModule } from "./chat/chat.module"
@@ -14,11 +15,13 @@ import { HealthModule } from "./health/health.module"
 import { KnowledgeModule } from "./knowledge/knowledge.module"
 import { MeModule } from "./me/me.module"
 import { OpsModule } from "./ops/ops.module"
+import { RatesModule } from "./rates/rates.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
 import { ReportsModule } from "./reports/reports.module"
 
 @Module({
 	imports: [
+		AssistantModule,
 		ApiKeysV1Module,
 		AnalyticsModule,
 		ChatModule,
@@ -28,6 +31,7 @@ import { ReportsModule } from "./reports/reports.module"
 		EscalationsModule,
 		HealthModule,
 		KnowledgeModule,
+		RatesModule,
 		MeModule,
 		OpsModule,
 		ReportsModule,

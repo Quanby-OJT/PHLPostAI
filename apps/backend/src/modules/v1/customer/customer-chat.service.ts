@@ -3,12 +3,16 @@ import { Injectable, Logger } from "@nestjs/common"
 import type { CustomerAnswer, CustomerAnswerKind, CustomerAnswerSource } from "@repo/contracts"
 
 import { AuditService } from "@/common/audit/audit.service"
+import { AssistantService } from "@/modules/v1/assistant/assistant.service"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
+import { RateLookupService } from "@/modules/v1/rates/rate-lookup.service"
+import { RATE_FOLLOW_UP_PREFIX } from "@/modules/v1/rates/rates.replies"
 import { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
 import { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
 import { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
 import { ConversationService } from "./conversation.service"
+import { routeForCategory, type InquiryRoute } from "./inquiry-routing"
 
 /**
  * What the assistant says when screening refuses a question (AC4). Fixed text:
@@ -28,14 +32,15 @@ export const INQUIRY_CATEGORY_CODES = [
 	"other",
 ] as const
 
-/** Classifies the screened customer text into the domain's supported categories. */
+/** Keyword fallback for when the classifier model is unavailable (CNV-2). */
 export function classifyInquiryCategory(query: string): (typeof INQUIRY_CATEGORY_CODES)[number] {
 	const value = query.toLowerCase()
-	if (/\b(track|tracking|parcel|package|mail item)\b/.test(value)) return "tracking"
-	if (/\b(rate|rates|price|cost|postage)\b/.test(value)) return "rates"
-	if (/\bpostal[ -]?id\b/.test(value)) return "postal-id"
+	if (/\b(complaint|complain|unhappy|bad service|delayed package|lost package)\b/.test(value))
+		return "complaint"
 	if (/\b(scam|fraud|phishing|suspicious)\b/.test(value)) return "scam"
-	if (/\b(complaint|complain|unhappy|bad service)\b/.test(value)) return "complaint"
+	if (/\bpostal[ -]?id\b/.test(value)) return "postal-id"
+	if (/\b(rate|rates|price|cost|postage)\b/.test(value)) return "rates"
+	if (/\b(track|tracking|parcel|package|mail item)\b/.test(value)) return "tracking"
 	if (/\b(service|office|branch|hours|deliver|delivery|send|post)\b/.test(value)) {
 		return "service-info"
 	}
@@ -47,6 +52,16 @@ export function classifyInquiryCategory(query: string): (typeof INQUIRY_CATEGORY
  * caller, which is the layer that resolved the conversation.
  */
 export type CustomerTurn = Omit<CustomerAnswer, "conversationId">
+
+/** Flow A step 4: the screened question, its Inquiry Category, language and route. */
+export interface InquiryClassification {
+	screenedQuery: string
+	category: string
+	language: string | null
+	route: InquiryRoute
+	/** KB-2: the earlier rates question this message completes, if any. */
+	context?: string
+}
 
 /** The RAG service's `final` SSE frame / JSON answer, as far as CNV-1 needs it. */
 export interface RagAnswerEnvelope {
@@ -89,43 +104,149 @@ export class CustomerChatService {
 		private readonly auditService: AuditService,
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly trackingService: TrackingService,
-		private readonly trackingRepository: TrackingRepository
+		private readonly trackingRepository: TrackingRepository,
+		private readonly assistantService: AssistantService,
+		private readonly rateLookupService: RateLookupService
 	) {}
 
-	isTrackingQuestion(query: string): boolean {
-		return this.trackingService.isTrackingQuestion(query)
-	}
-
 	/**
-	 * TRK-1 (Flow B): a tracking turn. Screened like every other turn, answered
-	 * from the connector without the model, and stored with its lookup row in
-	 * one transaction. A screening block surfaces as the gateway's 400.
+	 * CNV-2 (Flow A steps 3 to 5): screen and classify in one RAG call, over the
+	 * active categories, then pick the route from the category. A screening
+	 * block surfaces as the gateway's 400. When the model is unavailable the
+	 * keyword fallback and TRK-1's tracking check stand in.
 	 */
-	async answerTracking(input: {
-		conversationId: string
+	async classify(input: {
 		query: string
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
-		language?: string
-	}): Promise<CustomerTurn> {
-		const { screenedQuery } = await this.ragGatewayService.screenQuery({
+		conversationId?: string
+	}): Promise<InquiryClassification> {
+		const categories = await this.assistantService.listActiveCategories()
+		const result = await this.ragGatewayService.classifyInquiry({
 			query: input.query,
+			categories,
 			userId: input.principal,
 			permissions: input.permissions,
 			requestId: input.correlationId,
 			traceId: input.correlationId,
 			actorType: "customer",
 		})
+		const active = new Set(categories.map(category => category.code))
+		const category = result.fallbackUsed
+			? this.fallbackCategory(result.screenedQuery, active)
+			: active.has(result.category)
+				? result.category
+				: "other"
+		const followUp = input.conversationId
+			? await this.rateFollowUp(input.conversationId, category, active)
+			: null
+		if (followUp) {
+			return {
+				screenedQuery: result.screenedQuery,
+				category: "rates",
+				language: result.language,
+				route: "rates",
+				context: followUp,
+			}
+		}
+		return {
+			screenedQuery: result.screenedQuery,
+			category,
+			language: result.language,
+			route: routeForCategory(category),
+		}
+	}
+
+	/**
+	 * KB-2 AC2: after the assistant asked for a missing rate detail, a short
+	 * reply ("2 kg", "to Cebu") completes that question instead of starting a
+	 * new topic. Returns the earlier (masked) question to combine with it.
+	 */
+	private async rateFollowUp(
+		conversationId: string,
+		category: string,
+		active: ReadonlySet<string>
+	): Promise<string | null> {
+		if (!active.has("rates") || (category !== "rates" && category !== "other")) return null
+		const last = await this.conversationService.lastExchange(conversationId)
+		if (!last.assistant?.content.startsWith(RATE_FOLLOW_UP_PREFIX) || !last.customer) return null
+		return last.customer.content
+	}
+
+	/**
+	 * KB-2 (PRD D4): a rates turn. The price comes only from the approved rate
+	 * table through the lookup tool; the model never quotes one.
+	 */
+	async answerRates(input: {
+		conversationId: string
+		classification: InquiryClassification
+		principal: string
+		permissions: readonly string[]
+		correlationId: string
+	}): Promise<CustomerTurn> {
+		const { classification } = input
+		const question = classification.context
+			? `${classification.context}\n${classification.screenedQuery}`
+			: classification.screenedQuery
+		const { reply } = await this.rateLookupService.answer(question, {
+			principal: input.principal,
+			permissions: input.permissions,
+			correlationId: input.correlationId,
+		})
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId: input.conversationId,
+			maskedQuery: classification.screenedQuery,
+			inquiryCategory: classification.category,
+			language: classification.language ?? undefined,
+			answer: reply,
+			answerKind: "tool",
+			traceId: input.correlationId,
+			category: "rates",
+		})
+
+		return {
+			answer: reply,
+			messageId: assistantMessageId,
+			sources: [],
+			citations: [],
+			answerKind: "tool",
+			isIDontKnow: false,
+		}
+	}
+
+	private fallbackCategory(screenedQuery: string, active: ReadonlySet<string>): string {
+		if (active.has("tracking") && this.trackingService.isTrackingQuestion(screenedQuery)) {
+			return "tracking"
+		}
+		const category = classifyInquiryCategory(screenedQuery)
+		return active.has(category) ? category : "other"
+	}
+
+	/**
+	 * TRK-1 (Flow B): a tracking turn, already screened and classified. Answered
+	 * from the connector without the model, and stored with its lookup row in
+	 * one transaction.
+	 */
+	async answerTracking(input: {
+		conversationId: string
+		classification: InquiryClassification
+		correlationId: string
+		/** The language of the Status Explanation (TRK-2). */
+		explanationLanguage?: string
+	}): Promise<CustomerTurn> {
+		const { classification } = input
 		const { reply, storedQuery, lookup } = await this.trackingService.answer(
-			screenedQuery,
-			input.language
+			classification.screenedQuery,
+			input.explanationLanguage
 		)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery: storedQuery,
-			inquiryCategory: classifyInquiryCategory(screenedQuery),
+			inquiryCategory: classification.category,
+			language: classification.language ?? undefined,
 			answer: reply,
 			answerKind: "tool",
 			category: "tracking",
@@ -195,6 +316,7 @@ export class CustomerChatService {
 		envelope: RagAnswerEnvelope
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
+		classification?: Pick<InquiryClassification, "category" | "language">
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope } = input
 		const answerKind = input.answerKind ?? this.answerKindFor(envelope)
@@ -216,7 +338,8 @@ export class CustomerChatService {
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId,
 			maskedQuery: maskedQuery ?? "",
-			inquiryCategory: classifyInquiryCategory(maskedQuery ?? ""),
+			inquiryCategory: input.classification?.category ?? classifyInquiryCategory(maskedQuery ?? ""),
+			language: input.classification?.language ?? undefined,
 			answer,
 			answerKind,
 			confidence:
