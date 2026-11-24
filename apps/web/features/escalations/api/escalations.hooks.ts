@@ -63,7 +63,8 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 	if (!response.ok) {
 		let message = `Request failed (${response.status})`
 		try {
-			message = ((await response.json()) as { message?: string }).message ?? message
+			const body = (await response.json()) as { message?: string; error?: { message?: string } }
+			message = body?.error?.message ?? body?.message ?? message
 		} catch {
 			// Keep the status-based message for non-JSON errors.
 		}
@@ -91,11 +92,12 @@ export function useEscalationDetailQuery(id: string | null) {
 	})
 }
 
-export function useClaimEscalationMutation(id: string) {
+export function useClaimEscalationMutation() {
 	const client = useQueryClient()
 	return useMutation({
-		mutationFn: () => postJson(`/escalations/${id}/claim`),
-		onSuccess: async () => {
+		mutationFn: (id: string) => postJson(`/escalations/${id}/claim`),
+		onSettled: async (_data, error, id) => {
+			if (error && !(error instanceof ApiError && error.status === 409)) return
 			await Promise.all([
 				client.invalidateQueries({ queryKey: ["escalations", "queue"] }),
 				client.invalidateQueries({ queryKey: ["escalations", "detail", id] }),

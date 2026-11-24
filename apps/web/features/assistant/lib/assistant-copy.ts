@@ -29,7 +29,7 @@ export interface AssistantCopy {
 	emptyPrompt: string
 	youSaid: string
 	assistantSaid: string
-	agentSaid: string
+	agentLabel: string
 	sources: string
 	handoffQueued: string
 	handoffJoined: string
@@ -63,7 +63,7 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Ask a question about PHLPost services.",
 		youSaid: "You said: ",
 		assistantSaid: "Assistant said: ",
-		agentSaid: "PHLPost agent said: ",
+		agentLabel: "PHLPost agent",
 		sources: "From these PHLPost articles:",
 		handoffQueued: "Your request is in the queue. A PHLPost agent will join when available.",
 		handoffJoined: "A PHLPost agent has joined. You can continue the conversation here.",
@@ -100,7 +100,7 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Magtanong tungkol sa mga serbisyo ng PHLPost.",
 		youSaid: "Sinabi mo: ",
 		assistantSaid: "Sinabi ng assistant: ",
-		agentSaid: "Sinabi ng PHLPost agent: ",
+		agentLabel: "PHLPost agent",
 		sources: "Mula sa mga artikulong ito ng PHLPost:",
 		handoffQueued:
 			"Nasa pila na ang iyong kahilingan. Sasali ang isang PHLPost agent kapag may available na.",
@@ -139,7 +139,7 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Pangutana bahin sa mga serbisyo sa PHLPost.",
 		youSaid: "Ingon nimo: ",
 		assistantSaid: "Ingon sa assistant: ",
-		agentSaid: "Ingon sa PHLPost agent: ",
+		agentLabel: "PHLPost agent",
 		sources: "Gikan niining mga artikulo sa PHLPost:",
 		handoffQueued:
 			"Naa na sa linya ang imong hangyo. Moapil ang usa ka PHLPost agent kon naa nay bakante.",
@@ -177,7 +177,7 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Agdamag maipapan kadagiti serbisio ti PHLPost.",
 		youSaid: "Kinunam: ",
 		assistantSaid: "Kinuna ti assistant: ",
-		agentSaid: "Kinuna ti agent ti PHLPost: ",
+		agentLabel: "Agent ti PHLPost",
 		sources: "Manipud kadagitoy nga artikulo ti PHLPost:",
 		handoffQueued:
 			"Adda iti pila ti kiddawmo. Sumangpet ti maysa nga agent ti PHLPost no adda makaasikaso.",

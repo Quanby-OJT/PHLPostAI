@@ -487,11 +487,17 @@ export function AssistantChat() {
 												: "bg-muted border"
 										}`}
 									>
-										<span className="sr-only">
+										<span
+											className={
+												turn.sender === "agent"
+													? "text-muted-foreground text-xs font-medium"
+													: "sr-only"
+											}
+										>
 											{turn.sender === "customer"
 												? copy.youSaid
 												: turn.sender === "agent"
-													? copy.agentSaid
+													? copy.agentLabel
 													: copy.assistantSaid}
 										</span>
 										<p className="whitespace-pre-wrap">

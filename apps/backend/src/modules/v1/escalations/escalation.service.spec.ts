@@ -92,7 +92,8 @@ describe("EscalationService", () => {
 		expect(result).toMatchObject({ status: "claimed", assignedAgentId: "agent-1" })
 		expect(conversationService.activateAgent).toHaveBeenCalledWith(mockTx, "conversation-1")
 		expect(auditService.writeAudit).toHaveBeenCalledWith(
-			expect.objectContaining({ action: "escalations.claimed" })
+			expect.objectContaining({ action: "escalations.claimed", actorId: "agent-1" }),
+			mockTx
 		)
 		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
 	})
@@ -110,6 +111,8 @@ describe("EscalationService", () => {
 
 		await expect(service.claim("escalation-1", "agent-2")).rejects.toBeInstanceOf(ConflictException)
 		expect(mockUpdate).not.toHaveBeenCalled()
+		expect(auditService.writeAudit).not.toHaveBeenCalled()
+		expect(liveService.publish).not.toHaveBeenCalled()
 	})
 
 	it("stores replies through ConversationService and publishes them", async () => {
@@ -136,6 +139,10 @@ describe("EscalationService", () => {
 			agentId: "agent-1",
 			content: "How can I help?",
 		})
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "escalations.agent_replied", actorId: "agent-1" }),
+			mockTx
+		)
 		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
 	})
 

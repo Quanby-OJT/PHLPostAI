@@ -36,21 +36,24 @@ export class EscalationService {
 				.set({ status: "claimed", assignedAgentId: agentId, claimedAt: now, updatedAt: now })
 				.where(eq(escalations.id, id))
 			await this.conversationService.activateAgent(tx, row.conversationId)
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.claimed",
+					resourceType: "escalation",
+					resourceId: id,
+					before: { status: "queued" },
+					after: { status: "claimed", assignedAgentId: agentId },
+				},
+				tx
+			)
 			return {
 				id,
 				conversationId: row.conversationId,
 				status: "claimed" as const,
 				assignedAgentId: agentId,
 			}
-		})
-		await this.auditService.writeAudit({
-			actorId: agentId,
-			actorType: "user",
-			action: "escalations.claimed",
-			resourceType: "escalation",
-			resourceId: id,
-			before: { status: "queued" },
-			after: { status: "claimed", assignedAgentId: agentId },
 		})
 		await this.conversationLiveService.publish(result.conversationId)
 		return result
@@ -68,15 +71,18 @@ export class EscalationService {
 				agentId,
 				content,
 			})
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.agent_replied",
+					resourceType: "escalation",
+					resourceId: id,
+					after: { messageId: message.id },
+				},
+				tx
+			)
 			return { message, conversationId: row.conversationId }
-		})
-		await this.auditService.writeAudit({
-			actorId: agentId,
-			actorType: "user",
-			action: "escalations.agent_replied",
-			resourceType: "escalation",
-			resourceId: id,
-			after: { messageId: result.message.id },
 		})
 		await this.conversationLiveService.publish(result.conversationId)
 		return result.message

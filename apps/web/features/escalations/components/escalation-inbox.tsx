@@ -28,7 +28,7 @@ export function EscalationInbox() {
 	const [selectedId, setSelectedId] = useState<string | null>(null)
 	const selected = selectedId ?? queue.data?.[0]?.id ?? null
 	const detail = useEscalationDetailQuery(selected)
-	const claim = useClaimEscalationMutation(selected ?? "")
+	const claim = useClaimEscalationMutation()
 	const reply = useReplyEscalationMutation(selected ?? "")
 	const resolve = useResolveEscalationMutation(selected ?? "")
 	const [replyText, setReplyText] = useState("")
@@ -37,7 +37,8 @@ export function EscalationInbox() {
 		selected,
 		Boolean(detail.data?.canHandle && detail.data.status === "claimed")
 	)
-	const actionError = claim.error ?? reply.error ?? resolve.error
+	const claimError = claim.variables === selected ? claim.error : null
+	const actionError = reply.error ?? resolve.error
 
 	return (
 		<section className="grid min-h-[34rem] gap-4 lg:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.5fr)]">
@@ -86,6 +87,11 @@ export function EscalationInbox() {
 			</div>
 
 			<div className="rounded-xl border">
+				{claimError ? (
+					<p role="alert" className="text-destructive border-b p-4 text-sm">
+						{claimError.message}
+					</p>
+				) : null}
 				{!selected ? (
 					<div className="text-muted-foreground flex h-full items-center justify-center p-6 text-sm">
 						Select a queued chat to view its history.
@@ -121,12 +127,15 @@ export function EscalationInbox() {
 									)
 								)}
 							</p>
-							{detail.data.status === "queued" ? (
+							{selected && detail.data.status === "queued" ? (
 								<Button
 									type="button"
 									className="mt-3"
 									disabled={claim.isPending}
-									onClick={() => claim.mutate()}
+									onClick={() => {
+										setSelectedId(selected)
+										claim.mutate(selected)
+									}}
 								>
 									{claim.isPending ? "Claiming…" : "Claim conversation"}
 								</Button>
