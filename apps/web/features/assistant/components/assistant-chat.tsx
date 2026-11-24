@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import type { CustomerAnswer, CustomerAnswerSource } from "@repo/contracts"
+import { CUSTOMER_LANGUAGES, type CustomerAnswer, type CustomerAnswerSource, type CustomerLanguage } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 
@@ -20,6 +20,13 @@ const PRIVACY_NOTICE_URL = "/privacy"
 
 /** Per-tab chat state (CHN-1: the Conversation continues across page loads in one tab). */
 const CHAT_STORAGE_KEY = "phlpost.assistant.chat"
+
+const LANGUAGE_LABELS: Record<CustomerLanguage, string> = {
+  en: "English",
+  fil: "Filipino",
+  ceb: "Cebuano",
+  ilo: "Ilocano",
+}
 
 interface Turn {
 	sender: "customer" | "assistant"
@@ -94,6 +101,7 @@ export function AssistantChat() {
 	const [handoffDone, setHandoffDone] = useState(false)
 	const [handoffReason, setHandoffReason] = useState("I want to speak with a person")
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
 
@@ -106,6 +114,8 @@ export function AssistantChat() {
 			setTurns(stored.turns.filter(turn => !turn.streaming))
 			setHandoffDone(stored.handoffDone ?? false)
 		}
+		const saved = readStoredSession()
+		if (saved?.language) setLanguage(saved.language)
 		setReady(true)
 	}, [])
 
@@ -134,15 +144,34 @@ export function AssistantChat() {
 	}, [accepted, busy, waitSeconds])
 
 	/** The stored session, or a freshly opened one. */
-	const ensureSession = useCallback(async (forceNew = false): Promise<string> => {
-		if (!forceNew) {
-			const stored = readStoredSession()
-			if (stored) return stored.sessionToken
-		}
-		const session = await startSession()
-		storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt })
-		return session.sessionToken
-	}, [])
+		const ensureSession = useCallback(
+			async (forceNew = false, targetLanguage: CustomerLanguage = language): Promise<string> => {
+				if (!forceNew) {
+					const stored = readStoredSession()
+					if (stored && (!stored.language || stored.language === targetLanguage)) return stored.sessionToken
+				}
+				const session = await startSession(targetLanguage)
+				storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt, language: targetLanguage })
+				return session.sessionToken
+			},
+			[language]
+		)
+
+		const handleLanguageChange = useCallback(
+			async (nextLanguage: CustomerLanguage) => {
+				setLanguage(nextLanguage)
+				setError(null)
+				const stored = readStoredSession()
+				if (stored) storeSession({ ...stored, language: nextLanguage })
+				if (accepted && !busy) {
+					try {
+						await ensureSession(true, nextLanguage)
+						setConversationId(undefined)
+					} catch {}
+				}
+			},
+			[accepted, busy, ensureSession]
+		)
 
 	const appendFinal = useCallback((final: CustomerAnswer) => {
 		setConversationId(final.conversationId)
@@ -264,8 +293,9 @@ export function AssistantChat() {
 
 	return (
 		<div className="fixed inset-0 mx-auto flex max-w-3xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
-			<header className="border-b pb-3">
-				<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
+			<header className="flex items-start justify-between gap-3 border-b pb-3">
+				<div>
+					<h1 className="text-xl font-semibold">PHLPost Assistant</h1>
 				<p className="text-sm">
 					You are chatting with an AI assistant, not a person.{" "}
 					<a
@@ -277,6 +307,25 @@ export function AssistantChat() {
 						Privacy notice
 					</a>
 				</p>
+				</div>
+				<div className="flex shrink-0 flex-col items-end gap-1">
+					<label htmlFor="assistant-language" className="text-muted-foreground text-xs font-medium">
+						Language
+					</label>
+					<select
+						id="assistant-language"
+						aria-label="Language"
+						value={language}
+						onChange={e => void handleLanguageChange(e.target.value as CustomerLanguage)}
+						className="bg-background rounded-md border px-2.5 py-1.5 text-xs font-medium"
+					>
+						{CUSTOMER_LANGUAGES.map(code => (
+							<option key={code} value={code}>
+								{LANGUAGE_LABELS[code]}
+							</option>
+						))}
+					</select>
+				</div>
 			</header>
 
 			{!accepted ? (

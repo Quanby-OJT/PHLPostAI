@@ -1,6 +1,6 @@
 "use client"
 
-import type { CustomerAnswer, CustomerSession } from "@repo/contracts"
+import type { CustomerAnswer, CustomerLanguage, CustomerSession } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -19,6 +19,7 @@ const DEFAULT_RETRY_AFTER_SECONDS = 60
 export interface StoredSession {
 	sessionToken: string
 	idleExpiresAt: string
+	language: CustomerLanguage
 }
 
 /** 429 from the per-session or per-IP limiter (CHN-1). */
@@ -52,11 +53,11 @@ async function parseError(response: Response): Promise<ApiError> {
 }
 
 /** POST /customer/session — opens an anonymous session for the web widget. */
-export async function startSession(): Promise<CustomerSession> {
+export async function startSession(language: CustomerLanguage = "en"): Promise<CustomerSession> {
 	const response = await fetch(`${API_BASE}/customer/session`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ channelCode: "web-widget", language: "en" }),
+		body: JSON.stringify({ channelCode: "web-widget", language }),
 	})
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as CustomerSession

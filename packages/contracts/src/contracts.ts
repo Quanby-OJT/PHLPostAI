@@ -233,3 +233,9 @@ export type {
 	InquiryCategory,
 	UpdateInquiryCategoryRequest,
 } from "./modules/v1/assistant/assistant.schema.js"
+
+export {
+	PHLPOST_GLOSSARY_SEED,
+	UNTRANSLATED_POSTAL_TERMS,
+} from "./modules/v1/customer/postal-glossary.seed.js"
+export type { PostalGlossaryTerm } from "./modules/v1/customer/postal-glossary.seed.js"

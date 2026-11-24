@@ -94,12 +94,46 @@ class ConversationAccessError(Exception):
 # ONLY the numbered context blocks, must cite them as [n], and must answer
 # exactly "I don't know." when the context is insufficient.
 _SYSTEM_PROMPT = (
-    "You are a retrieval-grounded assistant. Answer the user's question using "
-    "ONLY the numbered context blocks provided. Cite every statement with the "
-    "bracketed number(s) of the supporting block(s), e.g. [1] or [1][3]. Never "
-    "use outside knowledge and never invent citations. If the context does not "
-    'contain the information needed to answer, reply exactly: "I don\'t know."'
+    "You are a retrieval-grounded PHLPost assistant. Answer the user's question "
+    "using ONLY the numbered context blocks provided. Cite every statement with "
+    "the bracketed number(s) of the supporting block(s), e.g. [1] or [1][3]. "
+    "Never use outside knowledge and never invent citations. If the context does "
+    "not contain the information needed to answer, reply in the target language "
+    "with a grounded 'I don't know' equivalent (e.g. 'I don't know.', "
+    "'Hindi ko alam.', 'Wala ko kabalo.', or 'Diak ammo.')."
 )
+
+_LANGUAGE_LABELS = {
+    "en": "English",
+    "fil": "Filipino / Tagalog (follow the user's dominant language if Taglish)",
+    "ceb": "Cebuano / Bisaya",
+    "ilo": "Ilocano",
+}
+
+_POSTAL_GLOSSARY_TERMS = (
+    "PHLPost, Postal ID, Postal ID card, Registered Mail, Ordinary Mail, "
+    "Express Mail / EMS, Philately / Stamp, Post Office, Tracking Number, "
+    "Forwarding / Hold Mail, COD (Cash on Delivery)"
+)
+
+
+def _response_language_instruction(language: str | None) -> str:
+    code = (language or "en").strip().lower()
+    if code == "unsupported" or code not in _LANGUAGE_LABELS:
+        return (
+            " Respond in clear English, and briefly note that supported reply "
+            "languages are English, Filipino, Cebuano, and Ilocano."
+        )
+    if code == "en":
+        return " Respond in clear English."
+    label = _LANGUAGE_LABELS[code]
+    return (
+        f" Respond in {label}. Keep official PHLPost / postal terms natural and "
+        f"accurate (preserve proper nouns and official terms such as "
+        f"{_POSTAL_GLOSSARY_TERMS} where appropriate, without translating "
+        f"official product names awkwardly)."
+    )
+
 
 _CITATION_MARKER = re.compile(r"\[(\d+)\]")
 
@@ -159,13 +193,13 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def build_grounded_prompt() -> Any:
+def build_grounded_prompt(language: str | None = "en") -> Any:
     """The GN-1 grounded prompt as an LCEL ChatPromptTemplate."""
     from langchain_core.prompts import ChatPromptTemplate
 
     return ChatPromptTemplate.from_messages(
         [
-            ("system", _SYSTEM_PROMPT),
+            ("system", _SYSTEM_PROMPT + _response_language_instruction(language)),
             ("human", "Context blocks:\n{context}\n\nQuestion: {question}"),
         ]
     )
@@ -464,6 +498,21 @@ class GenerationService:
             logger.warning("chat.regenerate_failed", exc_info=True)
             return None
 
+    async def _translate_for_retrieval(self, *, query: str, language: str | None) -> str:
+        code = (language or "en").strip().lower()
+        if code in ("", "en", "unsupported"):
+            return query
+        try:
+            client, _routing = await self._route(query=query, chunks=[])
+            translated, _ = await client.complete([
+                {"role": "system", "content": f"Translate this PHLPost query into concise English for search. Keep {_POSTAL_GLOSSARY_TERMS}. Output ONLY the English query."},
+                {"role": "user", "content": query},
+            ])
+            return translated.strip().strip('"') or query
+        except Exception:
+            logger.warning("chat.query_translation_degraded", exc_info=True)
+            return query
+
     async def _prepare(
         self,
         *,
@@ -471,6 +520,7 @@ class GenerationService:
         k: int | None,
         filters: dict[str, Any] | None = None,
         on_status: Any = None,
+        language: str | None = "en",
     ) -> dict[str, Any]:
         """Shared Flow B steps 3-5 for both response modes: hybrid retrieve
         (RT-1/RT-2), hard token budget (GN-2, rank-then-select), grounded
@@ -489,8 +539,9 @@ class GenerationService:
                 logger.warning("agentic.loop_degraded_to_linear", exc_info=True)
                 agentic_trace = None
                 chunks = None
+        retrieval_query = await self._translate_for_retrieval(query=query, language=language)
         if chunks is None:
-            chunks = await self._retrieval.retrieve(query, k=k, filters=filters)
+            chunks = await self._retrieval.retrieve(retrieval_query, k=k, filters=filters)
         retrieved_record = [
             {
                 "id": chunk["id"],
@@ -554,7 +605,7 @@ class GenerationService:
 
         messages: list[dict[str, str]] | None = None
         if used_chunks:
-            prompt = build_grounded_prompt().format_messages(
+            prompt = build_grounded_prompt(language).format_messages(
                 context=_format_context(used_chunks), question=query
             )
             messages = [
@@ -639,6 +690,7 @@ class GenerationService:
         conversation_id: str | None = None,
         filters: dict[str, Any] | None = None,
         persist: bool = True,
+        language: str | None = "en",
     ) -> dict[str, Any]:
         started = time.perf_counter()
         trace_id = principal.trace_id or str(uuid.uuid4())
@@ -740,11 +792,12 @@ class GenerationService:
         started: float,
         filters: dict[str, Any] | None,
         persist: bool = True,
+        language: str | None = "en",
     ) -> dict[str, Any]:
         """The uncoalesced miss path: retrieve → budget → route → generate →
         validate → persist → audit → (CP-1 store). `persist=False` skips the
         conversations/messages write for callers that own those rows (CNV-1)."""
-        prep = await self._prepare(query=query, k=k, filters=filters)
+        prep = await self._prepare(query=query, k=k, filters=filters, language=language)
         chunks = prep["chunks"]
         retrieved_record = prep["retrieved_record"]
         used_chunks = prep["used_chunks"]
