@@ -130,6 +130,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		recordRefusal: jest.Mock
 		classify: jest.Mock
 		answerTracking: jest.Mock
+		answerRates: jest.Mock
 	}
 	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
 	let fetchMock: jest.Mock
@@ -164,6 +165,14 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				isIDontKnow: false,
 			}),
 			classify: jest.fn().mockResolvedValue(RETRIEVAL_CLASSIFICATION),
+			answerRates: jest.fn().mockResolvedValue({
+				answer: "The published Express Mail rate to Visayas for an item of 2 kg is ₱320.00.",
+				messageId: "message-2",
+				sources: [],
+				citations: [],
+				answerKind: "tool",
+				isIDontKnow: false,
+			}),
 			answerTracking: jest.fn().mockResolvedValue({
 				answer: "Here is the latest status from the PHLPost tracking system:",
 				messageId: "message-2",
@@ -474,6 +483,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
+				conversationId: "conversation-1",
 			})
 		})
 
@@ -558,6 +568,38 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 			expect(state.statusCode).toBe(502)
 			expect(customerChatService.recordRefusal).not.toHaveBeenCalled()
+		})
+	})
+
+	describe("KB-2: the rates category is answered by the lookup tool", () => {
+		it("answers as JSON without opening a RAG stream", async () => {
+			const classification = {
+				screenedQuery: "how much is express mail to cebu for 2 kg",
+				category: "rates",
+				language: "en",
+				route: "rates" as const,
+			}
+			customerChatService.classify.mockResolvedValue(classification)
+			const { response, state } = responseDouble()
+
+			await controller.streamMessage(
+				{ query: "how much is express mail to cebu for 2 kg" },
+				"token",
+				REQUEST,
+				response as never
+			)
+
+			expect(fetchMock).not.toHaveBeenCalled()
+			expect(customerChatService.answerRates).toHaveBeenCalledWith({
+				conversationId: "conversation-1",
+				classification,
+				principal: "customer-session:session-1",
+				permissions: ["chat.query.submit", "corpus.read"],
+				correlationId: "req-1",
+			})
+			expect(state.json).toEqual(
+				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
 		})
 	})
 })

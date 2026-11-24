@@ -233,3 +233,6 @@ export type {
 	InquiryCategory,
 	UpdateInquiryCategoryRequest,
 } from "./modules/v1/assistant/assistant.schema.js"
+
+export { ratesContract } from "./modules/v1/rates/rates.contract.js"
+export * from "./modules/v1/rates/rates.schema.js"

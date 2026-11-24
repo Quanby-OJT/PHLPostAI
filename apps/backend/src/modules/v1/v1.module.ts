@@ -15,6 +15,7 @@ import { HealthModule } from "./health/health.module"
 import { KnowledgeModule } from "./knowledge/knowledge.module"
 import { MeModule } from "./me/me.module"
 import { OpsModule } from "./ops/ops.module"
+import { RatesModule } from "./rates/rates.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
 import { ReportsModule } from "./reports/reports.module"
 
@@ -30,6 +31,7 @@ import { ReportsModule } from "./reports/reports.module"
 		EscalationsModule,
 		HealthModule,
 		KnowledgeModule,
+		RatesModule,
 		MeModule,
 		OpsModule,
 		ReportsModule,
