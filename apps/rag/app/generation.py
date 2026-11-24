@@ -505,7 +505,13 @@ class GenerationService:
         try:
             client, _routing = await self._route(query=query, chunks=[])
             translated, _ = await client.complete([
-                {"role": "system", "content": f"Translate this PHLPost query into concise English for search. Keep {_POSTAL_GLOSSARY_TERMS}. Output ONLY the English query."},
+                {
+                    "role": "system",
+                    "content": (
+                        "Translate this PHLPost query into concise English for search. "
+                        f"Keep {_POSTAL_GLOSSARY_TERMS}. Output ONLY the English query."
+                    ),
+                },
                 {"role": "user", "content": query},
             ])
             return translated.strip().strip('"') or query

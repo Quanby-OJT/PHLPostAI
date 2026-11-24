@@ -28,6 +28,8 @@ const LANGUAGE_LABELS: Record<CustomerLanguage, string> = {
   ilo: "Ilocano",
 }
 
+const UI_COPY: Record<CustomerLanguage,{aiNotice:string;privacy:string;language:string;beforeStartTitle:string;beforeStartBody:string;privacyPrefix:string;accept:string;emptyPrompt:string;sources:string;handoffQueued:string;needPerson:string;confirmHandoff:string;requestingHandoff:string;questionLabel:string;questionPlaceholder:string;ask:string;asking:string}>={en:{aiNotice:"{copy.aiNotice}",privacy:"Privacy notice",language:"Language",beforeStartTitle:"Before you start",beforeStartBody:"{copy.beforeStartBody}",privacyPrefix:"{copy.privacyPrefix}",accept:"I understand, start chat",emptyPrompt:"Ask a question about PHLPost services.",sources:"From these PHLPost articles:",handoffQueued:"Your request is in the queue. A PHLPost agent will join when available.",needPerson:"Need a person?",confirmHandoff:"Confirm human handoff",requestingHandoff:"Requesting…",questionLabel:"Your question",questionPlaceholder:"How do I send Express Mail?",ask:"Ask",asking:"Asking…"},fil:{aiNotice:"Nakikipag-chat ka sa isang AI assistant, hindi sa isang tao.",privacy:"Paunawa sa privacy",language:"Wika",beforeStartTitle:"Bago ka magsimula",beforeStartBody:"Ang chat na ito ay sinasagot ng AI assistant gamit ang impormasyong inaprubahan ng PHLPost, at maaari itong magkamali. Huwag magbahagi ng password o detalye ng bayad.",privacyPrefix:"Basahin kung paano pinangangasiwaan ang iyong chat sa ",accept:"Nauunawaan ko, simulan ang chat",emptyPrompt:"Magtanong tungkol sa mga serbisyo ng PHLPost.",sources:"Mula sa mga artikulong ito ng PHLPost:",handoffQueued:"Nasa pila na ang iyong kahilingan. Sasali ang isang PHLPost agent kapag may available.",needPerson:"Kailangan mo ba ng makakausap na tao?",confirmHandoff:"Kumpirmahin ang human handoff",requestingHandoff:"Hinihiling…",questionLabel:"Ang iyong tanong",questionPlaceholder:"Paano magpadala ng Express Mail?",ask:"Itanong",asking:"Nagtatanong…"},ceb:{aiNotice:"Nakig-chat ka sa usa ka AI assistant, dili sa usa ka tawo.",privacy:"Pahibalo sa privacy",language:"Pinulongan",beforeStartTitle:"Sa dili ka pa magsugod",beforeStartBody:"Kini nga chat tubagon sa AI assistant gamit ang impormasyon nga giaprobahan sa PHLPost, ug mahimong masayop. Ayaw ipaambit ang password o detalye sa bayad.",privacyPrefix:"Basaha kon giunsa pagdumala ang imong chat sa ",accept:"Nakasabot ko, sugdi ang chat",emptyPrompt:"Pagpangutana bahin sa mga serbisyo sa PHLPost.",sources:"Gikan sa kini nga mga artikulo sa PHLPost:",handoffQueued:"Naa na sa linya ang imong hangyo. Moapil ang PHLPost agent kon adunay bakante.",needPerson:"Nagkinahanglan ka bag kaistorya nga tawo?",confirmHandoff:"Kumpirmaha ang human handoff",requestingHandoff:"Gihangyo…",questionLabel:"Imong pangutana",questionPlaceholder:"Unsaon pagpadala og Express Mail?",ask:"Pangutana",asking:"Nagpangutana…"},ilo:{aiNotice:"Makisarsaritaka iti AI assistant, saan a tao.",privacy:"Pakdaar maipapan iti privacy",language:"Pagsasao",beforeStartTitle:"Sakbay a mangrugi",beforeStartBody:"Daytoy a chat ket sungbatan ti AI assistant babaen ti impormasion nga inaprobaran ti PHLPost, ket mabalin nga agbiddut. Saan a mangibinglay iti password wenno detalye ti bayad.",privacyPrefix:"Basaen no kasano a maasikaso ti chat-mo iti ",accept:"Maawatak, rugian ti chat",emptyPrompt:"Agdamag maipapan kadagiti serbisyo ti PHLPost.",sources:"Manipud kadagitoy nga artikulo ti PHLPost:",handoffQueued:"Adda iti pila ti kiddawmo. Sumrek ti PHLPost agent no adda mabalin.",needPerson:"Masapulmo kadi ti kasarita a tao?",confirmHandoff:"Kumpirmaren ti human handoff",requestingHandoff:"Kiddawen…",questionLabel:"Ti saludsodmo",questionPlaceholder:"Kasano ti agipatulod iti Express Mail?",ask:"Agdamag",asking:"Agdamdamag…"}}
+
 interface Turn {
 	sender: "customer" | "assistant"
 	content: string
@@ -291,6 +293,8 @@ export function AssistantChat() {
 
 	if (!ready) return null
 
+	const copy = UI_COPY[language]
+
 	return (
 		<div className="fixed inset-0 mx-auto flex max-w-3xl flex-col gap-3 overflow-hidden p-3 sm:p-4">
 			<header className="flex items-start justify-between gap-3 border-b pb-3">
@@ -370,7 +374,7 @@ export function AssistantChat() {
 						className="flex-1 space-y-4 overflow-y-auto"
 					>
 						{turns.length === 0 ? (
-							<p className="mt-16 text-center text-sm">Ask a question about PHLPost services.</p>
+							<p className="mt-16 text-center text-sm">{copy.emptyPrompt}</p>
 						) : (
 							turns.map((turn, index) => (
 								<div
@@ -394,7 +398,7 @@ export function AssistantChat() {
 
 										{turn.sources && turn.sources.length > 0 ? (
 											<div className="mt-3 border-t pt-2">
-												<p className="text-xs font-medium">From these PHLPost articles:</p>
+												<p className="text-xs font-medium">{copy.sources}</p>
 												<ul className="mt-1 list-inside list-disc text-xs">
 													{turn.sources.map(source => (
 														<li key={source.articleId}>{source.title}</li>
@@ -416,7 +420,7 @@ export function AssistantChat() {
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
 							<label className="min-w-0 flex-1 text-sm">
-								<span className="mb-1 block">Need a person?</span>
+								<span className="mb-1 block">{copy.needPerson}</span>
 								<select
 									value={handoffReason}
 									onChange={event => setHandoffReason(event.target.value)}
@@ -432,7 +436,7 @@ export function AssistantChat() {
 								className="bg-secondary text-secondary-foreground min-h-11 rounded-lg px-4 text-sm font-medium disabled:opacity-50"
 								disabled={handoffBusy || busy}
 							>
-								{handoffBusy ? "Requesting…" : "Confirm human handoff"}
+								{handoffBusy ? copy.requestingHandoff : copy.confirmHandoff}
 							</button>
 						</form>
 					) : null}
@@ -459,7 +463,7 @@ export function AssistantChat() {
 							id="assistant-question"
 							value={question}
 							onChange={event => setQuestion(event.target.value)}
-							placeholder="How do I send Express Mail?"
+							placeholder={copy.questionPlaceholder}
 							autoComplete="off"
 							maxLength={1000}
 							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
@@ -470,7 +474,7 @@ export function AssistantChat() {
 							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
 							disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
 						>
-							{busy ? "Asking…" : "Ask"}
+							{busy ? copy.asking : copy.ask}
 						</button>
 					</form>
 				</>
