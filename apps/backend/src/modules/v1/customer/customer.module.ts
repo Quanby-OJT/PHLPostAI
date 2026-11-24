@@ -2,9 +2,9 @@ import { Module } from "@nestjs/common"
 
 import { AnalyticsModule } from "@/modules/v1/analytics/analytics.module"
 import { AssistantModule } from "@/modules/v1/assistant/assistant.module"
-import { RatesModule } from "@/modules/v1/rates/rates.module"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
+import { RatesModule } from "@/modules/v1/rates/rates.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
 
 import { AllowedOriginGuard } from "./allowed-origin.guard"
@@ -13,6 +13,7 @@ import { ConversationService } from "./conversation.service"
 import { CustomerChatService } from "./customer-chat.service"
 import { CustomerSessionService } from "./customer-session.service"
 import { CustomerController } from "./customer.controller"
+import { ScamAssessmentService } from "./scam-assessment.service"
 
 /**
  * Public customer chat (CNV-1). `KnowledgeModule` is imported for its
@@ -37,6 +38,7 @@ import { CustomerController } from "./customer.controller"
 		RagGatewayService,
 		ChannelsService,
 		AllowedOriginGuard,
+		ScamAssessmentService,
 	],
 
 	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard],

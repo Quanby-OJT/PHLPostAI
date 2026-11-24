@@ -111,7 +111,7 @@ export interface AssistantStreamHandlers {
  * A 429 throws RateLimitedError so the widget can show a "please wait" notice.
  */
 export async function streamQuestion(
-	input: { query: string; conversationId?: string },
+	input: { query: string; conversationId?: string; intent?: "scam" },
 	sessionToken: string,
 	handlers: AssistantStreamHandlers,
 	signal?: AbortSignal

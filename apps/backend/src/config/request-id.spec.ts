@@ -93,6 +93,15 @@ describe("Request-Id (integration)", () => {
 		expect(res.headers["x-request-id"]).toBe("my-trace-id")
 	})
 
+	it("omits anonymous customer session credentials from request logs", async () => {
+		await request(server()).get("/ping").set("X-Customer-Session", "synthetic-session-token")
+
+		const logged = JSON.stringify(logLines)
+		expect(logLines.length).toBeGreaterThan(0)
+		expect(logged).not.toContain("x-customer-session")
+		expect(logged).not.toContain("synthetic-session-token")
+	})
+
 	it("uses one correlation id across the log line, the Nest route, and the response header", async () => {
 		const res = await request(server()).get("/ping")
 

@@ -84,6 +84,41 @@ beforeEach(() => {
 })
 
 describe("AssistantChat (CHN-1)", () => {
+	it("assesses pasted scam text without rendering or saving the original submission", async () => {
+		const query = "My email is first.last@example.com\nPay at https://parcel-payment.example"
+		const assessment: CustomerAnswer = {
+			...FINAL,
+			answer: "Assessed risk: High\nAvoid opening links.",
+			sources: [],
+			answerKind: "tool",
+			scamAssessment: {
+				riskLevel: "high",
+				indicators: ["payment_request", "unofficial_domain"],
+				confidence: 1,
+			},
+		}
+		vi.mocked(streamQuestion).mockImplementationOnce(async (_input, _token, handlers) => {
+			handlers.onFinal(assessment)
+		})
+		const user = userEvent.setup()
+		render(<AssistantChat />)
+		await user.click(screen.getByRole("button", { name: "I understand, start chat" }))
+		await user.click(screen.getByRole("button", { name: "Check a suspicious message" }))
+		const pasteBox = screen.getByRole("textbox", { name: "Paste the message, email, or link" })
+		expect(document.activeElement).toBe(pasteBox)
+		await user.paste(query)
+		await user.click(screen.getByRole("button", { name: "Check message" }))
+		await screen.findByText(/Assessed risk: High/)
+		expect(startSession).toHaveBeenCalledWith("en")
+		expect(streamQuestion).toHaveBeenCalledWith(
+			{ query, intent: "scam", conversationId: undefined },
+			"new-token",
+			expect.any(Object)
+		)
+		expect(screen.queryByText(/parcel-payment\.example/)).toBeNull()
+		expect(window.sessionStorage.getItem(CHAT_STORAGE_KEY)).not.toContain("first.last@example.com")
+	})
+
 	describe("AI notice (AC1)", () => {
 		it("shows the AI notice and no input before the customer accepts", () => {
 			render(<AssistantChat />)

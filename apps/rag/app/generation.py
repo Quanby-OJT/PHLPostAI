@@ -47,6 +47,7 @@ from app.reliability import CircuitBreaker, ReliabilityRouter, validate_output
 from app.reply_language import ENGLISH, LanguageContext
 from app.response_cache import ResponseCache, build_response_cache
 from app.retrieval import RetrievalFilters, RetrievalService, get_retrieval_service
+from app.scam_assessment import ScamAssessmentRequest, assess_submission
 from app.security import ServicePrincipal, verify_service_jwt
 from app.security_screen import QueryBlockedError, screen_query
 from app.single_flight import SingleFlight, SingleFlightError
@@ -1699,6 +1700,9 @@ class ClassifyCategory(BaseModel):
 
 class ClassifyRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
+    model_query: str | None = Field(
+        default=None, alias="modelQuery", min_length=1, max_length=12000
+    )
     categories: list[ClassifyCategory] = Field(default_factory=list, max_length=50)
 
 
@@ -1722,8 +1726,13 @@ async def classify_inquiry(
     if result.blocked:
         await _refuse_blocked(result.injection, principal, repository)
     categories = [Category(item.code, item.name) for item in payload.categories]
+    model_query = (
+        screen_query(payload.model_query, request.app.state.settings).query
+        if payload.model_query is not None
+        else result.query
+    )
     classification = await classify_text(
-        client, result.query, categories or list(DEFAULT_CATEGORIES)
+        client, model_query, categories or list(DEFAULT_CATEGORIES)
     )
     return {
         "screenedQuery": result.query,
@@ -1732,6 +1741,20 @@ async def classify_inquiry(
         "language": classification.language,
         "fallbackUsed": classification.fallback_used,
     }
+
+
+@router.post("/scam/assess", dependencies=[Depends(rate_limit("rate_limit_classify"))])
+async def assess_scam(
+    payload: ScamAssessmentRequest,
+    request: Request,
+    client: Annotated[ChatModelClient, Depends(get_classifier_client)],
+) -> dict[str, object]:
+    settings: Settings = request.app.state.settings
+    return await assess_submission(
+        client,
+        payload,
+        timeout_seconds=settings.external_call_timeout_seconds,
+    )
 
 
 class RateExtractService(BaseModel):

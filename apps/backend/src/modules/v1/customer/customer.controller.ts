@@ -33,6 +33,7 @@ import {
 } from "./customer-chat.service"
 import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
+import { ScamAssessmentService } from "./scam-assessment.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
 /** Permissions the public turn's service JWT carries into the RAG service. */
@@ -59,7 +60,8 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
-		private readonly ragGatewayService: RagGatewayService
+		private readonly ragGatewayService: RagGatewayService,
+		private readonly scamAssessmentService: ScamAssessmentService
 	) {}
 
 	@AllowAnonymous()
@@ -115,24 +117,22 @@ export class CustomerController {
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, conversation.id, input.query, correlationId)
+				classification = await this.classify(session, conversation.id, input, correlationId)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
 
-			if (classification.route === "tracking") {
+			if (classification.route !== "retrieval") {
 				try {
-					return await this.answerTracking(conversation.id, classification, correlationId)
-				} catch (error) {
-					return toORPCError(error)
-				}
-			}
-
-			if (classification.route === "rates") {
-				try {
-					return await this.answerRates(session, conversation.id, classification, correlationId)
+					return await this.answerTool(
+						session,
+						conversation.id,
+						input.query,
+						classification,
+						correlationId
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -198,12 +198,7 @@ export class CustomerController {
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(
-				session,
-				conversation.id,
-				parsed.data.query,
-				correlationId
-			)
+			classification = await this.classify(session, conversation.id, parsed.data, correlationId)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 			if (refusal) {
@@ -214,13 +209,16 @@ export class CustomerController {
 			return
 		}
 
-		// Tool turns (tracking, rates) are answered by their tool, not streamed.
-		if (classification.route === "tracking" || classification.route === "rates") {
+		// Tool results arrive as one completed turn after persistence.
+		if (classification.route !== "retrieval") {
 			try {
-				const turn =
-					classification.route === "tracking"
-						? await this.answerTracking(conversation.id, classification, correlationId)
-						: await this.answerRates(session, conversation.id, classification, correlationId)
+				const turn = await this.answerTool(
+					session,
+					conversation.id,
+					parsed.data.query,
+					classification,
+					correlationId
+				)
 				response.status(200).json(turn)
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
@@ -342,11 +340,11 @@ export class CustomerController {
 	private classify(
 		session: CustomerSessionRow,
 		conversationId: string,
-		query: string,
+		input: { query: string; intent?: "scam" },
 		correlationId: string
 	): Promise<InquiryClassification> {
 		return this.customerChatService.classify({
-			query,
+			...input,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
@@ -355,34 +353,35 @@ export class CustomerController {
 		})
 	}
 
-	/** KB-2: answer from the rate table through the lookup tool. Already screened. */
-	private async answerRates(
+	private async answerTool(
 		session: CustomerSessionRow,
 		conversationId: string,
+		query: string,
 		classification: InquiryClassification,
 		correlationId: string
 	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerRates({
+		const context = {
 			conversationId,
 			classification,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
-		})
-		return { ...turn, conversationId }
-	}
-
-	/** TRK-1: answer from the tracking connector. The question is already screened. */
-	private async answerTracking(
-		conversationId: string,
-		classification: InquiryClassification,
-		correlationId: string
-	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerTracking({
-			conversationId,
-			classification,
-			correlationId,
-		})
+		}
+		if (classification.route === "scam") {
+			return this.scamAssessmentService.answer({
+				...context,
+				query,
+				sessionLanguage: session.language,
+			})
+		}
+		const turn =
+			classification.route === "tracking"
+				? await this.customerChatService.answerTracking({
+						conversationId,
+						classification,
+						correlationId,
+					})
+				: await this.customerChatService.answerRates(context)
 		return { ...turn, conversationId }
 	}
 

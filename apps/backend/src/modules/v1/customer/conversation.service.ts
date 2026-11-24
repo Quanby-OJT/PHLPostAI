@@ -27,7 +27,7 @@ export interface RecordTurnInput {
 	traceId?: string | null
 	modelUsed?: string | null
 	category?: string
-	additionalEventKinds?: "tracking_lookup"[]
+	additionalEventKinds?: ("tracking_lookup" | "scam_assessed")[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
 		tx: DbTransaction,

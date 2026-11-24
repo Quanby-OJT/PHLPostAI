@@ -1,8 +1,8 @@
 import type { AuditService } from "@/common/audit/audit.service"
 import type { AssistantService } from "@/modules/v1/assistant/assistant.service"
-import type { RateLookupService } from "@/modules/v1/rates/rate-lookup.service"
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import type { KnowledgeRepository } from "@/modules/v1/knowledge/knowledge.repository"
+import type { RateLookupService } from "@/modules/v1/rates/rate-lookup.service"
 import type { TrackingRepository } from "@/modules/v1/tracking/tracking.repository"
 import type { TrackingService } from "@/modules/v1/tracking/tracking.service"
 
@@ -378,7 +378,7 @@ describe("CustomerChatService (CNV-1)", () => {
 
 		it.each([
 			["rates", "rates"],
-			["scam", "retrieval"],
+			["scam", "scam"],
 			["postal-id", "retrieval"],
 			["other", "retrieval"],
 		])("routes %s to %s", async (category, route) => {

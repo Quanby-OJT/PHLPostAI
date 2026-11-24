@@ -1,5 +1,5 @@
 import { defineRelations, sql } from "drizzle-orm"
-import { customType, index, primaryKey, unique, type AnyPgColumn } from "drizzle-orm/pg-core"
+import { check, customType, index, primaryKey, unique, type AnyPgColumn } from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -1089,6 +1089,82 @@ export const inquiryCategories = createTable("inquiry_categories", t => ({
 // ============================================================================
 // SCHEMA
 // ============================================================================
+export const scamSubmissions = createTable(
+	"scam_submissions",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		conversationId: t
+			.uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id, { onDelete: "cascade" }),
+		kind: t.text("kind", { enum: ["text", "link", "email", "image"] }).notNull(),
+		contentMasked: t.text("content_masked").notNull(),
+		extractedUrls: t.jsonb("extracted_urls").$type<string[]>().notNull(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("scam_submissions_conversation_idx").on(t.conversationId),
+		check("scam_submissions_kind_check", sql`${t.kind} in ('text', 'link', 'email', 'image')`),
+		check("scam_submissions_urls_check", sql`jsonb_typeof(${t.extractedUrls}) = 'array'`),
+	]
+)
+
+export const scamAssessments = createTable(
+	"scam_assessments",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		submissionId: t
+			.uuid("submission_id")
+			.notNull()
+			.unique()
+			.references(() => scamSubmissions.id, { onDelete: "cascade" }),
+		riskLevel: t.text("risk_level", { enum: ["low", "medium", "high", "uncertain"] }).notNull(),
+		indicators: t.jsonb("indicators").$type<string[]>().notNull(),
+		confidence: t.real("confidence").notNull(),
+		guidanceKey: t.text("guidance_key").notNull(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		check(
+			"scam_assessments_risk_check",
+			sql`${t.riskLevel} in ('low', 'medium', 'high', 'uncertain')`
+		),
+		check("scam_assessments_indicators_check", sql`jsonb_typeof(${t.indicators}) = 'array'`),
+		check("scam_assessments_confidence_check", sql`${t.confidence} between 0 and 1`),
+	]
+)
+
+export const riskIndicators = createTable("risk_indicators", t => ({
+	id: t.uuid("id").primaryKey().defaultRandom(),
+	code: t.text("code").notNull().unique(),
+	name: t.text("name").notNull(),
+	weight: t.integer("weight").notNull(),
+	isActive: t.boolean("is_active").notNull().default(true),
+	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
+export const officialContacts = createTable(
+	"official_contacts",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		kind: t.text("kind", { enum: ["domain", "sender", "payment-channel"] }).notNull(),
+		value: t.text("value").notNull(),
+		isActive: t.boolean("is_active").notNull().default(true),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		unique("official_contacts_kind_value_uq").on(t.kind, t.value),
+		check(
+			"official_contacts_kind_check",
+			sql`${t.kind} in ('domain', 'sender', 'payment-channel')`
+		),
+	]
+)
+
 export const schema = Object.assign(
 	{
 		users,
@@ -1125,6 +1201,10 @@ export const schema = Object.assign(
 		trackingLookups,
 		statusExplanations,
 		inquiryCategories,
+		scamSubmissions,
+		scamAssessments,
+		riskIndicators,
+		officialContacts,
 		rateBatches,
 		rateEntries,
 	},

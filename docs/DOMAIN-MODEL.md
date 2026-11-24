@@ -118,6 +118,8 @@ privacy_request   export_bundle             integration_log
 
 All tables are defined with `createTable` in `packages/db/src/schema.ts` and ship as ordered Drizzle migrations. Money is integer centavos. Timestamps are UTC; reports use Asia/Manila.
 
+**These table and column names are binding.** Add a new name to this document before using it in the same pull request. A listed column can be added in the first ticket that needs it. Unless stated otherwise, these domain tables have `id`, `created_at`, and `updated_at`. `?` marks a nullable column.
+
 | Table | Key columns | Lifecycle notes |
 |---|---|---|
 | `channels` | `code`, `name`, `is_enabled`, `config` (jsonb) | Seeded with `web-widget`. Disable, never delete, once used. `config.allowedOrigins` (string array) lists the origins allowed to call the public chat API (CHN-1). |
@@ -149,6 +151,14 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `management_summaries` | `period`, `draft`, `figures` (jsonb), `status`, `approved_by?` | `draft → approved`, or `discarded`. |
 | `privacy_requests` | `kind` (`access`/`delete`), `session_token_hash`, `status`, `handled_by` | `received → fulfilled`, or `rejected` with reason. |
 | `export_bundles` | `scope` (jsonb), `status`, `file_ref`, `checksum`, `requested_by` | Files expire; the request stays in the audit trail. |
+
+### SCM-1 assessment conventions
+
+- `scam_submissions.conversation_id` references the owning Conversation. `scam_assessments.submission_id` is unique and references its Scam Submission. Store the turn, both records, and `scam_assessed` together. That event contains no submission text, links, or other free text.
+- `scam_submissions.extracted_urls` is a JSON array of safe link evidence. Keep the canonical origin for a configured official host and a redaction marker for every other URL. Discard link credentials, paths, query strings, and fragments. The optional `image_ref` and `matched_pattern_id` columns are reserved for SCM-5 and SCM-4.
+- Compare lowercase, IDNA-normalized hostnames with active `official_contacts` rows of kind `domain`. Authorize a subdomain by its own row. Public assessment uses the contact rows and the existing anonymous customer session. The initial entries use hosts PHLPost publishes on its own website.
+- SCM-1 codes for the documented indicators are `payment_request`, `unofficial_domain`, `suspicious_link`, `prompt_injection`, `information_request`, `impersonation`, and `urgency`. The model can suggest payment, sensitive-information, impersonation, and urgency signals. Domain, malformed-link, and injection evidence comes from local checks.
+- `guidance_key` selects fixed text for `low`, `medium`, `high`, or `uncertain` in the reply language. Scam Confidence is a 0–1 score for the available assessment evidence. A deterministic fee request with an unofficial domain is `high` (1 for the rule match). Other local indicators establish a `medium` floor (0.5 when used alone). Insufficient evidence is `uncertain` (0).
 
 ### Interaction Event kinds
 

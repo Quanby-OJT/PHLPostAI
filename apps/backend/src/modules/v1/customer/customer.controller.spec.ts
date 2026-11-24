@@ -203,7 +203,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
-			ragGatewayService as unknown as RagGatewayService
+			ragGatewayService as unknown as RagGatewayService,
+			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[4]
 		)
 	})
 
