@@ -5,6 +5,7 @@ import {
 	Coins01Icon,
 	DashboardSquare01Icon,
 	FolderLibraryIcon,
+	Globe02Icon,
 	InformationCircleIcon,
 	Key01Icon,
 	Settings02Icon,
@@ -126,6 +127,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		icon: Settings02Icon,
 		section: "Administration",
 		requiredPermission: "ops.config.view",
+	},
+	{
+		label: "Channels",
+		href: "/channels",
+		icon: Globe02Icon,
+		section: "Administration",
+		requiredPermission: "channels.channels.manage",
 	},
 	{
 		// Integrator API keys console (SC-3). Keys act with the owner's

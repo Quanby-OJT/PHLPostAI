@@ -9,6 +9,7 @@ import { ApiError } from "@/core/lib/api-error"
 import {
 	RateLimitedError,
 	SESSION_STORAGE_KEY,
+	setSessionLanguage,
 	startSession,
 	streamQuestion,
 } from "../api/assistant.client"
@@ -16,7 +17,12 @@ import { AssistantChat } from "./assistant-chat"
 
 vi.mock("../api/assistant.client", async importOriginal => {
 	const actual = await importOriginal<Record<string, unknown>>()
-	return { ...actual, startSession: vi.fn(), streamQuestion: vi.fn() }
+	return {
+		...actual,
+		startSession: vi.fn(),
+		streamQuestion: vi.fn(),
+		setSessionLanguage: vi.fn(),
+	}
 })
 
 const CHAT_STORAGE_KEY = "phlpost.assistant.chat"
@@ -39,7 +45,12 @@ const NEW_SESSION = {
 }
 
 /** Chat state as the widget saves it in the tab (CHN-1). */
-function seedChat(chat: { accepted: boolean; conversationId?: string; turns?: unknown[] }) {
+function seedChat(chat: {
+	accepted: boolean
+	conversationId?: string
+	turns?: unknown[]
+	language?: string
+}) {
 	window.sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({ turns: [], ...chat }))
 }
 
@@ -63,6 +74,7 @@ beforeAll(() => {
 beforeEach(() => {
 	window.sessionStorage.clear()
 	vi.mocked(startSession).mockReset().mockResolvedValue(NEW_SESSION)
+	vi.mocked(setSessionLanguage).mockReset().mockResolvedValue(undefined)
 	vi.mocked(streamQuestion)
 		.mockReset()
 		.mockImplementation(async (_input, _token, handlers) => {
@@ -211,6 +223,79 @@ describe("AssistantChat (CHN-1)", () => {
 			expect(calls[1]![0].conversationId).toBeUndefined()
 			expect(calls[1]![1]).toBe("new-token")
 			expect(screen.queryByRole("alert")).toBeNull()
+		})
+	})
+
+	describe("language menu (CNV-4)", () => {
+		async function pick(user: ReturnType<typeof userEvent.setup>, language: string) {
+			await user.selectOptions(screen.getByRole("combobox", { name: "Language" }), language)
+		}
+
+		it("switches the fixed text as soon as a language is picked", async () => {
+			const user = userEvent.setup()
+			const { container } = render(<AssistantChat />)
+
+			await pick(user, "ceb")
+
+			expect(screen.getByRole("button", { name: "Nakasabot ko, sugdi ang chat" })).toBeTruthy()
+			expect(screen.getByRole("combobox", { name: "Pinulongan" })).toBeTruthy()
+			expect(container.querySelector("[lang='ceb']")).toBeTruthy()
+		})
+
+		it("opens a new session in the picked language", async () => {
+			seedChat({ accepted: true })
+			const user = userEvent.setup()
+			render(<AssistantChat />)
+
+			await pick(user, "fil")
+			await user.type(screen.getByRole("textbox", { name: "Ang iyong tanong" }), "Magkano?")
+			await user.click(screen.getByRole("button", { name: "Itanong" }))
+			await screen.findByText(FINAL.answer)
+
+			expect(startSession).toHaveBeenCalledWith("fil")
+			expect(setSessionLanguage).not.toHaveBeenCalled()
+		})
+
+		it("updates the current session and keeps the conversation going", async () => {
+			seedSession("old-token")
+			seedChat({ accepted: true, conversationId: "conv-1" })
+			const user = userEvent.setup()
+			render(<AssistantChat />)
+
+			await pick(user, "ilo")
+			await user.type(screen.getByRole("textbox", { name: "Ti saludsodmo" }), "Mano?")
+			await user.click(screen.getByRole("button", { name: "Agdamag" }))
+			await screen.findByText(FINAL.answer)
+
+			expect(setSessionLanguage).toHaveBeenCalledWith("ilo", "old-token")
+			expect(startSession).not.toHaveBeenCalled()
+			const [input, token] = vi.mocked(streamQuestion).mock.calls[0]!
+			expect(input.conversationId).toBe("conv-1")
+			expect(token).toBe("old-token")
+		})
+
+		it("starts over in the picked language when the session has expired", async () => {
+			seedSession("old-token")
+			seedChat({ accepted: true, conversationId: "conv-1" })
+			vi.mocked(setSessionLanguage).mockRejectedValue(new ApiError(401, "expired"))
+			const user = userEvent.setup()
+			render(<AssistantChat />)
+
+			await pick(user, "ceb")
+			await user.type(screen.getByRole("textbox", { name: "Imong pangutana" }), "Pila?")
+			await user.click(screen.getByRole("button", { name: "Pangutana" }))
+			await screen.findByText(FINAL.answer)
+
+			expect(startSession).toHaveBeenCalledWith("ceb")
+			expect(vi.mocked(streamQuestion).mock.calls[0]![0].conversationId).toBeUndefined()
+			expect(screen.queryByRole("alert")).toBeNull()
+		})
+
+		it("remembers the picked language after a reload", () => {
+			seedChat({ accepted: true, language: "fil" })
+			render(<AssistantChat />)
+
+			expect(screen.getByRole("textbox", { name: "Ang iyong tanong" })).toBeTruthy()
 		})
 	})
 })

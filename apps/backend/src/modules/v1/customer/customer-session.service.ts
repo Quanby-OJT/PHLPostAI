@@ -89,4 +89,12 @@ export class CustomerSessionService {
 			.where(eq(customerSessions.id, row.id))
 		return { ...row, lastSeenAt: touched }
 	}
+
+	/** CNV-4: the language the customer picked in the widget menu. */
+	async setLanguage(sessionId: string, language: CustomerLanguage): Promise<void> {
+		await db
+			.update(customerSessions)
+			.set({ language })
+			.where(eq(customerSessions.id, sessionId))
+	}
 }

@@ -3,6 +3,8 @@ import { UnauthorizedException } from "@nestjs/common"
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
+import { ChannelAdapterRegistry, type ChannelAdapter } from "../channels/channel-adapter"
+import type { ChannelsService } from "./channels.service"
 import type { ConversationService } from "./conversation.service"
 import { CUSTOMER_REFUSAL_ANSWER, type CustomerChatService } from "./customer-chat.service"
 import type { CustomerSessionService } from "./customer-session.service"
@@ -28,18 +30,20 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: {
-		customer: {
-			session: { start: {} },
-			conversation: { end: {} },
-			chat: { send: {} },
-		},
-	},
+v1: {
+  customer: {
+    session: { start: {}, setLanguage: {} },
+    conversation: { end: {} },
+    chat: { send: {} },
+  },
+},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
 }))
 jest.mock("@repo/contracts", () => ({
+	CUSTOMER_LANGUAGES: ["en", "fil", "ceb", "ilo"],
+	UNTRANSLATED_POSTAL_TERMS: ["PHLPost"],
 	CustomerChatRequestSchema: {
 		safeParse: (value: unknown) => {
 			const body = value as { query?: unknown; conversationId?: string } | null
@@ -104,29 +108,51 @@ const REQUEST = { id: "req-1" } as never
 const ACTIVE_SESSION = {
 	id: "session-1",
 	tokenHash: "hash",
-	channelCode: "web",
+	channelCode: "test-adapter",
 	language: "en",
 	consentedAt: new Date(),
 	lastSeenAt: new Date(),
 	createdAt: new Date(),
 }
 
+/** Separate test-only channel proves the controller uses the adapter registry. */
+class TestChannelAdapter implements ChannelAdapter {
+	readonly code = "test-adapter"
+	readonly capabilities = { streaming: true, attachments: false, conversationHistory: true }
+	receive = jest.fn((payload: unknown) => {
+		const value = payload as { query?: unknown; conversationId?: unknown }
+		if (typeof value.query !== "string") throw new Error("Invalid test channel message")
+		return {
+			text: value.query,
+			...(typeof value.conversationId === "string" ? { conversationId: value.conversationId } : {}),
+		}
+	})
+	send = jest.fn(<T>(message: T): T => message)
+}
+
 const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "retrieval" as const,
 }
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
 	language: "en",
+	replyLanguage: "en" as const,
 	route: "tracking" as const,
 }
 
 describe("CustomerController (CNV-1 public chat)", () => {
 	let controller: CustomerController
-	let customerSessionService: { resolve: jest.Mock; start: jest.Mock; idleExpiresAt: jest.Mock }
+	let customerSessionService: {
+		resolve: jest.Mock
+		start: jest.Mock
+		idleExpiresAt: jest.Mock
+		setLanguage: jest.Mock
+	}
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
@@ -141,6 +167,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		answerRates: jest.Mock
 	}
 	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
+	let channelAdapter: TestChannelAdapter
 	let fetchMock: jest.Mock
 
 	beforeEach(() => {
@@ -148,6 +175,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			resolve: jest.fn().mockResolvedValue(ACTIVE_SESSION),
 			start: jest.fn(),
 			idleExpiresAt: jest.fn().mockReturnValue(new Date("2026-11-18T10:30:00.000Z")),
+			setLanguage: jest.fn().mockResolvedValue(undefined),
 		}
 		conversationService = {
 			startCustomerConversation: jest
@@ -199,11 +227,16 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		fetchMock = jest.fn()
 		global.fetch = fetchMock as unknown as typeof fetch
 
+		const channelAdapters = new ChannelAdapterRegistry()
+		channelAdapter = new TestChannelAdapter()
+		channelAdapters.register(channelAdapter)
 		controller = new CustomerController(
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
-			ragGatewayService as unknown as RagGatewayService
+			ragGatewayService as unknown as RagGatewayService,
+			channelAdapters,
+			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService
 		)
 	})
 
@@ -215,6 +248,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	describe("the routes are actually public", () => {
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 		])("%s carries the PUBLIC metadata the guards read", (_name, handler) => {
@@ -223,10 +257,30 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 		it.each([
 			["startSession", CustomerController.prototype.startSession],
+			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
 		])("%s carries no permission key (public route)", (_name, handler) => {
 			expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toBeUndefined()
+		})
+	})
+
+	describe("CNV-4: the widget menu sets the session language", () => {
+		type Handler = (args: { input: { language: string } }) => Promise<unknown>
+
+		it("stores the picked language on the customer's own session", async () => {
+			const handler = (await controller.setLanguage("token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).resolves.toEqual({ language: "ilo" })
+			expect(customerSessionService.setLanguage).toHaveBeenCalledWith("session-1", "ilo")
+		})
+
+		it("refuses a caller without a valid session", async () => {
+			customerSessionService.resolve.mockResolvedValue(null)
+			const handler = (await controller.setLanguage("lapsed-token")) as unknown as Handler
+
+			await expect(handler({ input: { language: "ilo" } })).rejects.toThrow()
+			expect(customerSessionService.setLanguage).not.toHaveBeenCalled()
 		})
 	})
 
@@ -297,6 +351,22 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(state.headers["content-type"]).toBe("text/event-stream")
 		})
 
+		it("sends widget input and output through the test-registered channel adapter", async () => {
+			fetchMock.mockResolvedValue({
+				ok: true,
+				status: 200,
+				body: sseBody('event: final\ndata: {"answer":"ok"}\n\n'),
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "hello" }, "a-token", REQUEST, response as never)
+
+			expect(channelAdapter.receive).toHaveBeenCalledWith({ query: "hello" })
+			expect(channelAdapter.send).toHaveBeenCalledWith(
+				expect.objectContaining({ conversationId: "conversation-1" })
+			)
+		})
+
 		it("replaces the final frame with the titles and the stored ids", async () => {
 			const { response, state } = responseDouble()
 
@@ -333,7 +403,27 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
 			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
-			expect(body).toEqual({ query: "how much", persist: false })
+			expect(body).toEqual({
+				query: "how much",
+				persist: false,
+				language: "en",
+				queryLanguage: "en",
+				glossary: ["PHLPost"],
+			})
+		})
+
+		it("asks for the reply in the customer's language (CNV-4)", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				language: "ceb",
+				replyLanguage: "ceb",
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "pila" }, "a-token", REQUEST, response as never)
+
+			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
+			expect(body).toEqual(expect.objectContaining({ language: "ceb", queryLanguage: "ceb" }))
 		})
 
 		it("identifies the caller as a customer session, never a user", async () => {
@@ -493,6 +583,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
+				sessionLanguage: "en",
 				conversationId: "conversation-1",
 			})
 		})
@@ -557,7 +648,6 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				conversationId: "conversation-1",
 				classification: TRACKING_CLASSIFICATION,
 				correlationId: "req-1",
-				explanationLanguage: "en",
 			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
@@ -587,6 +677,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				screenedQuery: "how much is express mail to cebu for 2 kg",
 				category: "rates",
 				language: "en",
+				replyLanguage: "en" as const,
 				route: "rates" as const,
 			}
 			customerChatService.classify.mockResolvedValue(classification)
