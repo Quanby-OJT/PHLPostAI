@@ -382,6 +382,14 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
+			expect(customerChatService.completeTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
+					classification: RETRIEVAL_CLASSIFICATION,
+					requestStartedAt: expect.any(Number),
+				})
+			)
 			expect(customerChatService.completeTurn).toHaveBeenCalledWith({
 				conversationId: "conversation-1",
 				envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
@@ -638,6 +646,15 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			)
 
 			expect(fetchMock).not.toHaveBeenCalled()
+			expect(customerChatService.answerTracking).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					classification: TRACKING_CLASSIFICATION,
+					correlationId: "req-1",
+					explanationLanguage: "en",
+					requestStartedAt: expect.any(Number),
+				})
+			)
 			expect(customerChatService.answerTracking).toHaveBeenCalledWith({
 				conversationId: "conversation-1",
 				classification: TRACKING_CLASSIFICATION,

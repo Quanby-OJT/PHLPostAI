@@ -198,10 +198,18 @@ export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
 export {
 	InteractionEventKindSchema,
 	AnalyticsOverviewSchema,
+	DashboardTileSchema,
+	AnalyticsDashboardFiltersSchema,
+	AnalyticsDashboardSchema,
+	DashboardLayoutSchema,
 } from "./modules/v1/analytics/analytics.schema.js"
 export type {
 	InteractionEventKind,
 	AnalyticsOverview,
+	DashboardTile,
+	AnalyticsDashboardFilters,
+	AnalyticsDashboard,
+	DashboardLayout,
 } from "./modules/v1/analytics/analytics.schema.js"
 export {
 	CUSTOMER_CHANNEL_CODES,

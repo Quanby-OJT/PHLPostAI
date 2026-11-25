@@ -1,5 +1,12 @@
 import { defineRelations, sql } from "drizzle-orm"
-import { customType, index, primaryKey, unique, type AnyPgColumn } from "drizzle-orm/pg-core"
+import {
+	customType,
+	index,
+	primaryKey,
+	unique,
+	uniqueIndex,
+	type AnyPgColumn,
+} from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -178,10 +185,7 @@ export const rolePermissions = createTable(
 export const auditLog = createTable("audit_log", t => ({
 	id: t.bigserial("id", { mode: "number" }).primaryKey(),
 	actorId: t.text("actor_id"),
-	actorType: t
-		.text("actor_type")
-		.notNull()
-		.$type<"user" | "service" | "system">(),
+	actorType: t.text("actor_type").notNull().$type<"user" | "service" | "system">(),
 	action: t.text("action").notNull(),
 	resourceType: t.text("resource_type").notNull(),
 	resourceId: t.text("resource_id"),
@@ -328,11 +332,7 @@ export const chunks = createTable("chunks", t => ({
  */
 export const ingestionJobs = createTable("ingestion_jobs", t => ({
 	id: t.uuid("id").primaryKey().defaultRandom(),
-	kind: t
-		.text("kind")
-		.notNull()
-		.default("ingest")
-		.$type<"ingest" | "reindex">(),
+	kind: t.text("kind").notNull().default("ingest").$type<"ingest" | "reindex">(),
 	status: t
 		.text("status")
 		.notNull()
@@ -363,11 +363,7 @@ export const jobDocuments = createTable(
 			.uuid("document_id")
 			.notNull()
 			.references(() => documents.id, { onDelete: "cascade" }),
-		status: t
-			.text("status")
-			.notNull()
-			.default("pending")
-			.$type<"pending" | "indexed" | "failed">(),
+		status: t.text("status").notNull().default("pending").$type<"pending" | "indexed" | "failed">(),
 		chunkCount: t.integer("chunk_count"),
 		error: t.text("error"),
 		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -473,10 +469,7 @@ export const messages = createTable(
 			.uuid("conversation_id")
 			.notNull()
 			.references(() => conversations.id, { onDelete: "cascade" }),
-		role: t
-			.text("role")
-			.notNull()
-			.$type<"user" | "assistant">(),
+		role: t.text("role").notNull().$type<"user" | "assistant">(),
 		/**
 		 * Who produced the turn (DOMAIN-MODEL `messages.sender`, CNV-1). Set on
 		 * public customer turns; null on the template's staff rows, which carry
@@ -584,6 +577,16 @@ export const interactionEvents = createTable(
 		index("interaction_events_occurred_at_idx").on(t.occurredAt),
 		index("interaction_events_kind_occurred_at_idx").on(t.kind, t.occurredAt),
 	]
+)
+
+/** Saved dashboard tiles. A null user_id row is the workspace default. */
+export const dashboardLayouts = createTable(
+	"dashboard_layouts",
+	t => ({
+		userId: t.text("user_id").references(() => users.id, { onDelete: "cascade" }),
+		tiles: t.jsonb("tiles").$type<string[]>().notNull(),
+	}),
+	t => [uniqueIndex("dashboard_layouts_user_id_uq").on(t.userId)]
 )
 
 /**
@@ -707,7 +710,10 @@ export const goldenItems = createTable(
 		// chunks.content_hash values expected in retrieval results.
 		expectedChunkHashes: t.jsonb("expected_chunk_hashes").$type<string[]>().notNull(),
 		tags: t.jsonb("tags").$type<string[]>().notNull().default([]),
-		status: t.text("status", { enum: ["active", "retired"] }).notNull().default("active"),
+		status: t
+			.text("status", { enum: ["active", "retired"] })
+			.notNull()
+			.default("active"),
 		createdBy: t
 			.text("created_by")
 			.notNull()
@@ -881,11 +887,7 @@ export const knowledgeArticles = createTable(
 		currentVersionId: t
 			.uuid("current_version_id")
 			.references((): AnyPgColumn => knowledgeArticleVersions.id, { onDelete: "set null" }),
-		status: t
-			.text("status")
-			.notNull()
-			.default("active")
-			.$type<"active" | "deactivated">(),
+		status: t.text("status").notNull().default("active").$type<"active" | "deactivated">(),
 		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 	}),
@@ -1079,7 +1081,6 @@ export const relations = defineRelations(
 	})
 )
 
-
 export const inquiryCategories = createTable("inquiry_categories", t => ({
 	code: t.text("code").primaryKey(),
 	name: t.text("name").notNull(),
@@ -1119,6 +1120,8 @@ export const schema = Object.assign(
 		conversations,
 		messages,
 		escalations,
+		interactionEvents,
+		dashboardLayouts,
 		goldenItems,
 		evalRuns,
 		evalBaselines,

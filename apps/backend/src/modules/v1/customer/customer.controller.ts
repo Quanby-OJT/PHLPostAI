@@ -122,6 +122,7 @@ export class CustomerController {
 		@Headers("x-customer-session") sessionToken: string | undefined,
 		@Req() request: RequestWithId
 	) {
+		const startedAt = performance.now()
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
 			const adapter = this.channelAdapters.get(
@@ -139,7 +140,13 @@ export class CustomerController {
 			try {
 				classification = await this.classify(session, conversation.id, message.text, correlationId)
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
@@ -149,11 +156,12 @@ export class CustomerController {
 				try {
 					return adapter.send(
 						await this.answerTracking(
-							conversation.id,
-							classification,
-							correlationId,
-							settings.confidenceThreshold
-						)
+	            session,
+	            conversation.id,
+	            classification,
+	            correlationId,
+	            startedAt
+            )
 					)
 				} catch (error) {
 					return toORPCError(error)
@@ -185,7 +193,13 @@ export class CustomerController {
 					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
@@ -194,7 +208,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
-				confidenceThreshold: settings.confidenceThreshold,
+				requestStartedAt: startedAt,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
@@ -221,6 +235,7 @@ export class CustomerController {
 		@Req() request: RequestWithId,
 		@Res() response: Response
 	) {
+		const startedAt = performance.now()
 		const session = await this.requireSession(sessionToken)
 		const parsed = CustomerChatRequestSchema.safeParse(body)
 		if (!parsed.success) {
@@ -238,7 +253,13 @@ export class CustomerController {
 		try {
 			classification = await this.classify(session, conversation.id, message.text, correlationId)
 		} catch (error) {
-			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+			const refusal = await this.refuseIfScreened(
+				error,
+				session,
+				conversation.id,
+				correlationId,
+				startedAt
+			)
 			if (refusal) {
 				response.status(200).json(refusal)
 			} else {
@@ -254,10 +275,11 @@ export class CustomerController {
 				const turn =
 					classification.route === "tracking"
 						? await this.answerTracking(
+								session,
 								conversation.id,
 								classification,
 								correlationId,
-								assistantSettings.confidenceThreshold
+								startedAt
 							)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(adapter.send(turn))
@@ -313,6 +335,7 @@ export class CustomerController {
 				channelCode: conversation.channelCode ?? session.channelCode,
 				reason,
 				traceId: correlationId,
+				requestStartedAt: startedAt,
 			})
 			response.status(200).json({
 				...refusal,
@@ -352,7 +375,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
-				confidenceThreshold: assistantSettings.confidenceThreshold,
+				requestStartedAt: startedAt,
 			})
 			response.write(formatSseFrame("token", { delta: turn.answer }))
 			response.write(
@@ -419,16 +442,18 @@ export class CustomerController {
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
+		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string,
-		confidenceThreshold: number
+		requestStartedAt?: number
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerTracking({
 			conversationId,
 			classification,
 			correlationId,
-			confidenceThreshold,
+			requestStartedAt,
+			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
 	}
@@ -494,7 +519,8 @@ export class CustomerController {
 		error: unknown,
 		session: CustomerSessionRow,
 		conversationId: string,
-		traceId: string
+		traceId: string,
+		requestStartedAt?: number
 	) {
 		const status =
 			error && typeof error === "object" && "getStatus" in error
@@ -508,6 +534,7 @@ export class CustomerController {
 			channelCode: session.channelCode,
 			reason: error instanceof Error ? error.message : "screened",
 			traceId,
+			requestStartedAt,
 		})
 		return { ...refusal, conversationId } satisfies CustomerAnswer
 	}
