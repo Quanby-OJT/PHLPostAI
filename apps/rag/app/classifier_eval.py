@@ -6,7 +6,7 @@ reports accuracy overall and per category. Fails below the agreed floor.
 CLI (invoked by CI): `python -m app.classifier_eval [--floor 0.85] [--data PATH]`
   exit 0 — accuracy at or above the floor
   exit 1 — accuracy below the floor
-  exit 2 — cannot run (no OPENAI_API_KEY in the env or .env, or the set is too small)
+  exit 2 — cannot run (invalid settings, e.g. no OPENAI_API_KEY, or the set is too small)
 """
 
 import json
@@ -106,12 +106,17 @@ async def _main() -> int:
         ("DATABASE_URL", "postgresql://unused"),
         ("REDIS_URL", "redis://unused"),
         ("RAG_SERVICE_TOKEN_SECRET", "unused"),
+        ("TRACING_PROVIDER", "langfuse"),
+        ("LANGFUSE_PUBLIC_KEY", "unused"),
+        ("LANGFUSE_SECRET_KEY", "unused"),
     ):
         os.environ.setdefault(name, placeholder)
     try:
         settings = Settings()
-    except ValidationError:
-        print(json.dumps({"error": "OPENAI_API_KEY is not set"}))
+    except ValidationError as exc:
+        fields = [".".join(str(part) for part in e["loc"]) or "(settings)" for e in exc.errors()]
+        messages = [e["msg"] for e in exc.errors()]
+        print(json.dumps({"error": "invalid settings", "fields": fields, "messages": messages}))
         return 2
     client = OpenAIChatClient(settings)
 
