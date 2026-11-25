@@ -13,6 +13,7 @@ import {
 	setSessionLanguage,
 	startSession,
 	streamQuestion,
+	watchAgentConversation,
 } from "../api/assistant.client"
 import { AssistantChat } from "./assistant-chat"
 
@@ -24,6 +25,7 @@ vi.mock("../api/assistant.client", async importOriginal => {
 		startSession: vi.fn(),
 		streamQuestion: vi.fn(),
 		setSessionLanguage: vi.fn(),
+		watchAgentConversation: vi.fn(),
 	}
 })
 
@@ -50,6 +52,7 @@ const NEW_SESSION = {
 function seedChat(chat: {
 	accepted: boolean
 	conversationId?: string
+	handoffDone?: boolean
 	turns?: unknown[]
 	language?: string
 }) {
@@ -78,12 +81,56 @@ beforeEach(() => {
 	vi.mocked(getChannelStatus).mockReset().mockResolvedValue({ enabled: true, welcomeText: "" })
 	vi.mocked(startSession).mockReset().mockResolvedValue(NEW_SESSION)
 	vi.mocked(setSessionLanguage).mockReset().mockResolvedValue(undefined)
+	vi.mocked(watchAgentConversation).mockReset().mockResolvedValue(undefined)
 	vi.mocked(streamQuestion)
 		.mockReset()
 		.mockImplementation(async (_input, _token, handlers) => {
 			handlers.onToken("Express ")
 			handlers.onFinal(FINAL)
 		})
+})
+
+describe("AssistantChat live agent replies (ESC-2)", () => {
+	it("labels a live reply and keeps one attributed copy after reload and replay", async () => {
+		seedSession("customer-token")
+		seedChat({ accepted: true, conversationId: "conv-1", handoffDone: true })
+		vi.mocked(watchAgentConversation).mockImplementation(async (_id, _token, handlers, signal) => {
+			handlers.onStatus("agent_active")
+			handlers.onMessage({
+				id: "agent-message-1",
+				sender: "agent",
+				content: "I can check the shipment for you.",
+				turnIndex: 2,
+				createdAt: "2026-11-24T00:00:00.000Z",
+			})
+			await new Promise<void>(resolve =>
+				signal.addEventListener("abort", () => resolve(), { once: true })
+			)
+		})
+
+		const { unmount } = render(<AssistantChat />)
+		const label = await screen.findByText("PHLPost agent", { exact: true })
+		expect(label).toBeVisible()
+		expect(label).not.toHaveClass("sr-only")
+		expect(screen.getByRole("textbox", { name: "Your question" })).toBeEnabled()
+		expect(screen.getByRole("button", { name: "Check a suspicious message" })).toBeDisabled()
+		await waitFor(() => {
+			const stored = JSON.parse(window.sessionStorage.getItem(CHAT_STORAGE_KEY) ?? "{}")
+			expect(stored.turns).toEqual([
+				{
+					id: "agent-message-1",
+					sender: "agent",
+					content: "I can check the shipment for you.",
+				},
+			])
+		})
+
+		unmount()
+		render(<AssistantChat />)
+		await waitFor(() => expect(watchAgentConversation).toHaveBeenCalledTimes(2))
+		expect(screen.getByText("PHLPost agent", { exact: true })).not.toHaveClass("sr-only")
+		expect(screen.getAllByText("I can check the shipment for you.")).toHaveLength(1)
+	})
 })
 
 describe("AssistantChat (CHN-1)", () => {

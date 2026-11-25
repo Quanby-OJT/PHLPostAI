@@ -477,6 +477,7 @@ export const messages = createTable(
 		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`.
 		 */
 		sender: t.text("sender").$type<"customer" | "assistant" | "agent">(),
+		agentId: t.text("agent_id").references(() => users.id, { onDelete: "set null" }),
 		/**
 		 * What the assistant produced (DOMAIN-MODEL `messages.answer_kind`).
 		 * CNV-1 writes `answer` for a grounded reply, `uncertain` for the grounded
@@ -542,6 +543,7 @@ export const escalations = createTable(
 		assignedAgentId: t
 			.text("assigned_agent_id")
 			.references(() => users.id, { onDelete: "set null" }),
+		outcomeNote: t.text("outcome_note"),
 		contact: t.text("contact"),
 		claimedAt: t.timestamp("claimed_at", { withTimezone: true }),
 		resolvedAt: t.timestamp("resolved_at", { withTimezone: true }),

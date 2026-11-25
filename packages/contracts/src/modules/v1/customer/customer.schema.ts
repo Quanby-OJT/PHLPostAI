@@ -100,6 +100,14 @@ export const CustomerAnswerSchema = z.object({
 		.optional(),
 })
 
+export const AgentModeResultSchema = z.object({
+	agentMode: z.literal(true),
+	conversationId: z.string().uuid(),
+	messageId: z.string().uuid(),
+})
+
+export const CustomerChatResultSchema = z.union([CustomerAnswerSchema, AgentModeResultSchema])
+
 // ============================================================================
 // TYPES
 // ============================================================================

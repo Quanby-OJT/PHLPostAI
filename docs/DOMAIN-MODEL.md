@@ -140,7 +140,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `scam_patterns` | `title`, `signature` (jsonb), `first_seen`, `is_active` | Created from confirmed reports. |
 | `risk_indicators` | `code`, `name`, `weight`, `is_active` | Admin-editable. |
 | `official_contacts` | `kind` (`domain`/`sender`/`payment-channel`), `value`, `is_active` | The allowlist of genuine PHLPost domains, sender names, and payment channels. |
-| `escalations` | `conversation_id`, `reason`, `status`, `assigned_agent_id?`, `contact` (encrypted, optional), `claimed_at`, `resolved_at` | State machine 5.3. |
+| `escalations` | `conversation_id`, `reason`, `status`, `assigned_agent_id?`, `contact` (encrypted, optional), `claimed_at?`, `missed_at?`, `resolved_at?`, `outcome_note?` | State machine 5.3. ESC-2 stores the agent's resolution summary in `outcome_note`. |
 | `handoff_connectors`, `handoff_deliveries` | connector `code`, `kind`, `config`; delivery `escalation_id`, `status`, `attempts`, `external_ref?` | Outbox: `queued → delivered`, or `failed` after retries. |
 | `knowledge_gaps` | `label`, `category`, `language`, `question_count`, `examples_masked`, `status`, `draft_article_id?` | Rebuilt by the grouping job; `open → in_progress → resolved`. |
 | `feedback` | `conversation_id` (unique), `rating`, `comment_masked` | One per Conversation. |
@@ -154,6 +154,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 
 ### SCM-1 assessment conventions
 
+- The public assessment uses the anonymous customer session. During live handoff the widget accepts messages for the agent and an explicit scam paste requires a new chat. Flow D offers the published PHLPost reporting contact. Staff review and pattern matching are handled by SCM-3 and SCM-4.
 - `scam_submissions.conversation_id` references the owning Conversation. `scam_assessments.submission_id` is unique and references its Scam Submission. Store the turn, both records, and `scam_assessed` together. That event contains no submission text, links, or other free text.
 - `scam_submissions.extracted_urls` is a JSON array of safe link evidence. Keep the canonical origin for a configured official host and a redaction marker for every other URL. Discard link credentials, paths, query strings, and fragments. The optional `image_ref` and `matched_pattern_id` columns are reserved for SCM-5 and SCM-4.
 - Compare lowercase, IDNA-normalized hostnames with active `official_contacts` rows of kind `domain`. Authorize a subdomain by its own row. Public assessment uses the contact rows and the existing anonymous customer session. The initial entries use hosts PHLPost publishes on its own website.
@@ -167,7 +168,9 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 
 `kpi_definitions.method` records `eligibleCategories`, `includeAbandoned`, `duplicateWindowMinutes`, `duplicateRule` (`same_session_and_category`), `excludeTestSessions`, `excludeEscalated`, `excludeUncertainOrBlocked`, `failedInteractions`, `reportingPeriod`, and `periodTimezone`. The fixed rules are: escalated and uncertain/blocked conversations are never AI-resolved; failed interactions remain eligible but unresolved; periods are selected Asia/Manila calendar days. Each approved change creates the next version. The `deflection_kpi_conversations` SQL view assigns conversations to the definition effective when they started; it is the auditable source for KPI counts and drill-down.
 
-`conversation_started` · `conversation_context` · `message_received` · `answer_sent` · `answer_classified` · `answer_blocked` · `injection_refused` · `throttled` · `tracking_lookup` · `escalated` · `escalation_claimed` · `escalation_transferred` · `escalation_missed` · `escalation_resolved` · `feedback_given` · `sentiment_labelled` · `scam_assessed` · `scam_reported` · `conversation_closed`
+`conversation_started` · `message_received` · `answer_sent` · `answer_blocked` · `injection_refused` · `throttled` · `tracking_lookup` · `escalated` · `escalation_claimed` · `escalation_transferred` · `escalation_missed` · `escalation_resolved` · `feedback_given` · `sentiment_labelled` · `scam_assessed` · `scam_reported` · `conversation_closed`
+
+The ANL-3 implementation also records `conversation_context` and `answer_classified` for its existing deflection view. These two deployed kinds are outside the current Linear catalog. [Linear Domain Model](https://linear.app/quanby/document/domain-model-glossary-entities-state-machines-permission-keys-f47d0eb3f21a)
 
 ## 5. State machines
 

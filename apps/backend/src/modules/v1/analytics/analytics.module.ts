@@ -11,7 +11,12 @@ import { EventService } from "./event.service"
 @Module({
 	imports: [RbacModule],
 	controllers: [AnalyticsController],
-	providers: [EventService, AnalyticsOverviewService, DeflectionKpiService, AnalyticsDashboardService],
+	providers: [
+		EventService,
+		AnalyticsOverviewService,
+		DeflectionKpiService,
+		AnalyticsDashboardService,
+	],
 	exports: [EventService],
 })
 export class AnalyticsModule {}

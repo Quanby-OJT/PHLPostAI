@@ -2,6 +2,7 @@ import { UnauthorizedException } from "@nestjs/common"
 
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
+import { SESSION_THROTTLE_KEY } from "@/shared/decorators/session-throttle.decorator"
 
 import { ChannelAdapterRegistry, type ChannelAdapter } from "../channels/channel-adapter"
 import type { ChannelsService } from "./channels.service"
@@ -30,13 +31,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-v1: {
-  customer: {
-    session: { start: {}, setLanguage: {} },
-    conversation: { end: {} },
-    chat: { send: {} },
-  },
-},
+	v1: {
+		customer: {
+			session: { start: {}, setLanguage: {} },
+			conversation: { end: {} },
+			chat: { send: {} },
+		},
+	},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -46,9 +47,12 @@ jest.mock("@repo/contracts", () => ({
 	UNTRANSLATED_POSTAL_TERMS: ["PHLPost"],
 	CustomerChatRequestSchema: {
 		safeParse: (value: unknown) => {
-			const body = value as { query?: unknown; conversationId?: string } | null
+			const body = value as { query?: unknown; conversationId?: string; intent?: "scam" } | null
 			if (typeof body?.query === "string" && body.query.trim().length > 0) {
-				return { success: true, data: { query: body.query, conversationId: body.conversationId } }
+				return {
+					success: true,
+					data: { query: body.query, conversationId: body.conversationId, intent: body.intent },
+				}
 			}
 			return { success: false, error: { issues: [{ message: "query is required" }] } }
 		},
@@ -160,6 +164,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		findOwnedByCustomerSession: jest.Mock
 		endCustomerConversation: jest.Mock
 		recordUnansweredInquiry: jest.Mock
+		recordCustomerMessage: jest.Mock
 	}
 	let customerChatService: {
 		completeTurn: jest.Mock
@@ -168,7 +173,11 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		answerTracking: jest.Mock
 		answerRates: jest.Mock
 	}
-	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
+	let ragGatewayService: {
+		mintServiceToken: jest.Mock
+		submitChatQuery: jest.Mock
+		screenQuery: jest.Mock
+	}
 	let channelAdapter: TestChannelAdapter
 	let fetchMock: jest.Mock
 
@@ -186,6 +195,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			findOwnedByCustomerSession: jest.fn().mockResolvedValue(null),
 			endCustomerConversation: jest.fn(),
 			recordUnansweredInquiry: jest.fn(),
+			recordCustomerMessage: jest.fn().mockResolvedValue({ id: "message-3", turnIndex: 3 }),
 		}
 		customerChatService = {
 			completeTurn: jest.fn().mockResolvedValue({
@@ -225,6 +235,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		ragGatewayService = {
 			mintServiceToken: jest.fn().mockReturnValue("service.jwt.token"),
 			submitChatQuery: jest.fn(),
+			screenQuery: jest.fn().mockResolvedValue({ screenedQuery: "another question" }),
 		}
 		fetchMock = jest.fn()
 		global.fetch = fetchMock as unknown as typeof fetch
@@ -240,9 +251,10 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
 			} as never,
 			ragGatewayService as unknown as RagGatewayService,
+			{ publish: jest.fn(), stream: jest.fn() } as never,
 			channelAdapters,
 			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService,
-			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[7]
+			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[8]
 		)
 	})
 
@@ -257,8 +269,15 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
+			["customerEvents", CustomerController.prototype.customerEvents],
 		])("%s carries the PUBLIC metadata the guards read", (_name, handler) => {
 			expect(Reflect.getMetadata("PUBLIC", handler)).toBe(true)
+		})
+
+		it("rate limits the public customer event stream per session", () => {
+			expect(
+				Reflect.getMetadata(SESSION_THROTTLE_KEY, CustomerController.prototype.customerEvents)
+			).toBe(true)
 		})
 
 		it.each([
@@ -522,23 +541,51 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
 
-		it("stops AI turns after a human handoff has been requested", async () => {
+		it("records customer messages after handoff without asking the assistant", async () => {
 			conversationService.findOwnedByCustomerSession.mockResolvedValue({
 				id: "conversation-9",
 				channelCode: "web",
 				status: "escalation_requested",
 			})
-			const { response } = responseDouble()
+			const { response, state } = responseDouble()
 
-			await expect(
-				controller.streamMessage(
-					{ query: "another question", conversationId: "conversation-9" },
-					"a-token",
-					REQUEST,
-					response as never
-				)
-			).rejects.toThrow("A human agent has been requested")
+			await controller.streamMessage(
+				{ query: "another question", conversationId: "conversation-9" },
+				"a-token",
+				REQUEST,
+				response as never
+			)
+			expect(state.json).toMatchObject({ agentMode: true, conversationId: "conversation-9" })
+			expect(conversationService.recordCustomerMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-9",
+					maskedQuery: "another question",
+				})
+			)
 			expect(fetchMock).not.toHaveBeenCalled()
+		})
+
+		it("keeps explicit scam submissions out of a live agent transcript on both transports", async () => {
+			conversationService.findOwnedByCustomerSession.mockResolvedValue({
+				id: "conversation-9",
+				channelCode: "web",
+				status: "agent_active",
+			})
+			const input = {
+				query: "https://parcel-payment.example",
+				conversationId: "conversation-9",
+				intent: "scam",
+			}
+			const { response } = responseDouble()
+			await expect(
+				controller.streamMessage(input, "a-token", REQUEST, response as never)
+			).rejects.toMatchObject({ status: 409 })
+			const handler = (await controller.sendMessage("a-token", REQUEST)) as unknown as (args: {
+				input: typeof input
+			}) => Promise<unknown>
+			await expect(handler({ input })).rejects.toThrow("CONFLICT")
+			expect(ragGatewayService.screenQuery).not.toHaveBeenCalled()
+			expect(conversationService.recordCustomerMessage).not.toHaveBeenCalled()
 		})
 	})
 
