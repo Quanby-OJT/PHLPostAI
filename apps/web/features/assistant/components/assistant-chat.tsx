@@ -12,12 +12,17 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
+	endConversation,
+	getChannelStatus,
 	RateLimitedError,
 	requestHumanHandoff,
 	SESSION_STORAGE_KEY,
 	setSessionLanguage,
 	startSession,
 	streamQuestion,
+	watchAgentConversation,
+	type AgentMessageEvent,
+	type AssistantStreamHandlers,
 	type StoredSession,
 } from "../api/assistant.client"
 import {
@@ -38,7 +43,8 @@ function isCustomerLanguage(value: unknown): value is CustomerLanguage {
 }
 
 interface Turn {
-	sender: "customer" | "assistant"
+	id?: string
+	sender: "customer" | "assistant" | "agent"
 	content: string
 	sources?: CustomerAnswerSource[]
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
@@ -51,6 +57,8 @@ interface StoredChat {
 	conversationId?: string
 	turns: Turn[]
 	handoffDone?: boolean
+	agentJoined?: boolean
+	agentResolved?: boolean
 	language?: CustomerLanguage
 }
 
@@ -118,8 +126,14 @@ export function AssistantChat() {
 	const [error, setError] = useState<string | null>(null)
 	const [waitSeconds, setWaitSeconds] = useState(0)
 	const [handoffDone, setHandoffDone] = useState(false)
+	const [agentJoined, setAgentJoined] = useState(false)
+	const [agentResolved, setAgentResolved] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [ending, setEnding] = useState(false)
+	const [endNotice, setEndNotice] = useState<string | null>(null)
+	const [channelEnabled, setChannelEnabled] = useState(true)
+	const [welcomeText, setWelcomeText] = useState("")
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
@@ -128,21 +142,106 @@ export function AssistantChat() {
 	// Restore this tab's chat after mount (not during render, to avoid a hydration mismatch).
 	useEffect(() => {
 		const stored = readStoredChat()
+		const storedSession = readStoredSession()
+		if (storedSession?.welcomeText) setWelcomeText(storedSession.welcomeText)
 		if (stored) {
 			setAccepted(stored.accepted)
 			setConversationId(stored.conversationId)
 			setTurns(stored.turns.filter(turn => !turn.streaming))
 			setHandoffDone(stored.handoffDone ?? false)
+			setAgentJoined(stored.agentJoined ?? false)
+			setAgentResolved(stored.agentResolved ?? false)
 			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
 		setReady(true)
 	}, [])
 
+	useEffect(() => {
+		let alive = true
+		const refresh = async () => {
+			try {
+				const status = await getChannelStatus()
+				if (alive) {
+					setChannelEnabled(status.enabled)
+					setWelcomeText(status.welcomeText)
+				}
+			} catch (cause) {
+				if (alive && cause instanceof ApiError && cause.status === 503) setChannelEnabled(false)
+			}
+		}
+		void refresh()
+		const timer = window.setInterval(() => void refresh(), 30_000)
+		return () => {
+			alive = false
+			window.clearInterval(timer)
+		}
+	}, [])
+
 	// Save the chat whenever a turn settles.
 	useEffect(() => {
 		if (!ready || busy) return
-		storeChat({ accepted, conversationId, turns, handoffDone, language })
-	}, [accepted, busy, conversationId, handoffDone, language, ready, turns])
+		storeChat({
+			accepted,
+			conversationId,
+			turns,
+			handoffDone,
+			agentJoined,
+			agentResolved,
+			language,
+		})
+	}, [
+		accepted,
+		agentJoined,
+		agentResolved,
+		busy,
+		conversationId,
+		handoffDone,
+		language,
+		ready,
+		turns,
+	])
+
+	useEffect(() => {
+		if (!ready || !handoffDone || !conversationId) return
+		const session = readStoredSession()
+		if (!session) return
+		const abort = new AbortController()
+		let resolved = false
+		void (async () => {
+			while (!abort.signal.aborted && !resolved) {
+				try {
+					await watchAgentConversation(
+						conversationId,
+						session.sessionToken,
+						{
+							onMessage: message => {
+								setTurns(previous =>
+									previous.some(turn => turn.id === message.id)
+										? previous
+										: [...previous, { id: message.id, sender: "agent", content: message.content }]
+								)
+							},
+							onStatus: status => {
+								if (status === "agent_active") setAgentJoined(true)
+								if (status === "resolved_by_agent") {
+									resolved = true
+									setAgentJoined(true)
+									setAgentResolved(true)
+								}
+							},
+						},
+						abort.signal
+					)
+				} catch {
+					if (abort.signal.aborted) break
+				}
+				if (!resolved && !abort.signal.aborted) {
+					await new Promise(resolve => window.setTimeout(resolve, 1000))
+				}
+			}
+		})()
+		return () => abort.abort()
+	}, [conversationId, handoffDone, ready])
 
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -159,10 +258,11 @@ export function AssistantChat() {
 
 	// Keep keyboard focus in the box: after accepting, and after each answer.
 	useEffect(() => {
-		if (accepted && !busy && waitSeconds === 0) {
-			;(scamMode ? scamInputRef : inputRef).current?.focus()
+		if (accepted && !busy && waitSeconds === 0 && !agentResolved && channelEnabled) {
+			const composer = scamMode ? scamInputRef : inputRef
+			composer.current?.focus()
 		}
-	}, [accepted, busy, scamMode, waitSeconds])
+	}, [accepted, agentResolved, busy, channelEnabled, scamMode, waitSeconds])
 
 	/** The stored session, or a freshly opened one in the chosen language. */
 	const ensureSession = useCallback(
@@ -172,7 +272,12 @@ export function AssistantChat() {
 				if (stored) return stored.sessionToken
 			}
 			const session = await startSession(language)
-			storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt })
+			storeSession({
+				sessionToken: session.sessionToken,
+				idleExpiresAt: session.idleExpiresAt,
+				welcomeText: session.welcomeText,
+			})
+			if (session.welcomeText) setWelcomeText(session.welcomeText)
 			return session.sessionToken
 		},
 		[language]
@@ -224,10 +329,20 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone) return
+			if (
+				!accepted ||
+				!asked ||
+				busy ||
+				handoffBusy ||
+				waitSeconds > 0 ||
+				agentResolved ||
+				!channelEnabled
+			)
+				return
 
 			setQuestion("")
 			setError(null)
+			setEndNotice(null)
 			setBusy(true)
 			setTurns(previous => [
 				...previous,
@@ -236,7 +351,7 @@ export function AssistantChat() {
 			])
 			const input = { query: asked, ...(scamMode && { intent: "scam" as const }) }
 
-			const handlers = {
+			const handlers: AssistantStreamHandlers = {
 				onToken: (delta: string) =>
 					setTurns(previous => {
 						const next = [...previous]
@@ -245,6 +360,11 @@ export function AssistantChat() {
 						return next
 					}),
 				onFinal: appendFinal,
+				onAgentMode: result => {
+					setConversationId(result.conversationId)
+					setHandoffDone(true)
+					setTurns(previous => previous.filter(turn => !turn.streaming))
+				},
 			}
 
 			try {
@@ -286,11 +406,13 @@ export function AssistantChat() {
 		},
 		[
 			accepted,
+			agentResolved,
 			appendFinal,
 			busy,
+			channelEnabled,
 			conversationId,
 			ensureSession,
-			handoffDone,
+			handoffBusy,
 			language,
 			question,
 			scamMode,
@@ -301,12 +423,16 @@ export function AssistantChat() {
 	const requestAgent = useCallback(
 		async (event: React.FormEvent) => {
 			event.preventDefault()
-			if (!conversationId || handoffBusy || handoffDone) return
+			if (!conversationId || busy || handoffBusy || handoffDone) return
 			setHandoffBusy(true)
 			setError(null)
 			try {
 				const sessionToken = await ensureSession()
 				await requestHumanHandoff({ conversationId, reason: handoffReason, sessionToken })
+				if (scamMode) {
+					setQuestion("")
+					setScamMode(false)
+				}
 				setHandoffDone(true)
 			} catch (caught) {
 				setError(
@@ -316,8 +442,35 @@ export function AssistantChat() {
 				setHandoffBusy(false)
 			}
 		},
-		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
+		[
+			busy,
+			conversationId,
+			ensureSession,
+			handoffBusy,
+			handoffDone,
+			handoffReason,
+			language,
+			scamMode,
+		]
 	)
+
+	const endChat = useCallback(async () => {
+		if (!conversationId || busy || ending || handoffDone) return
+		setEnding(true)
+		setError(null)
+		try {
+			const sessionToken = await ensureSession()
+			await endConversation({ conversationId, sessionToken })
+			setConversationId(undefined)
+			setEndNotice("Chat ended. You can start a new chat any time.")
+		} catch (caught) {
+			setError(
+				caught instanceof ApiError ? caught.message : "We couldn't end this chat. Please try again."
+			)
+		} finally {
+			setEnding(false)
+		}
+	}, [busy, conversationId, ending, ensureSession, handoffDone])
 
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
 	useEffect(() => {
@@ -414,7 +567,7 @@ export function AssistantChat() {
 						className="flex-1 space-y-4 overflow-y-auto"
 					>
 						{turns.length === 0 ? (
-							<p className="mt-16 text-center text-sm">{copy.emptyPrompt}</p>
+							<p className="mt-16 text-center text-sm">{welcomeText || copy.emptyPrompt}</p>
 						) : (
 							turns.map((turn, index) => (
 								<div
@@ -428,8 +581,18 @@ export function AssistantChat() {
 												: "bg-muted border"
 										}`}
 									>
-										<span className="sr-only">
-											{turn.sender === "customer" ? copy.youSaid : copy.assistantSaid}
+										<span
+											className={
+												turn.sender === "agent"
+													? "text-muted-foreground text-xs font-medium"
+													: "sr-only"
+											}
+										>
+											{turn.sender === "customer"
+												? copy.youSaid
+												: turn.sender === "agent"
+													? copy.agentLabel
+													: copy.assistantSaid}
 										</span>
 										<p className="whitespace-pre-wrap">
 											{turn.content}
@@ -455,7 +618,11 @@ export function AssistantChat() {
 
 					{handoffDone ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
-							{copy.handoffQueued}
+							{agentResolved
+								? copy.handoffResolved
+								: agentJoined
+									? copy.handoffJoined
+									: copy.handoffQueued}
 						</p>
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
@@ -483,6 +650,25 @@ export function AssistantChat() {
 						</form>
 					) : null}
 
+					{conversationId && turns.length > 0 && !handoffDone ? (
+						<div className="flex justify-end">
+							<button
+								type="button"
+								onClick={endChat}
+								className="text-muted-foreground min-h-9 px-3 text-sm underline underline-offset-2 disabled:opacity-50"
+								disabled={ending || busy || handoffBusy}
+							>
+								{ending ? "Ending chat…" : "End chat"}
+							</button>
+						</div>
+					) : null}
+
+					{endNotice ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							{endNotice}
+						</p>
+					) : null}
+
 					{waitSeconds > 0 ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
 							{copy.tooQuick(waitSeconds)}
@@ -494,6 +680,11 @@ export function AssistantChat() {
 							{error}
 						</p>
 					) : null}
+					{!channelEnabled ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							The assistant is unavailable right now. Please try again later.
+						</p>
+					) : null}
 
 					<div className="space-y-2 border-t pt-2">
 						<button
@@ -503,7 +694,7 @@ export function AssistantChat() {
 								setQuestion("")
 								setScamMode(mode => !mode)
 							}}
-							disabled={busy || waitSeconds > 0 || handoffDone}
+							disabled={busy || handoffBusy || waitSeconds > 0 || handoffDone || !channelEnabled}
 							className="focus-visible:ring-ring aria-pressed:bg-secondary min-h-11 rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
 						>
 							{copy.scamEntry}
@@ -522,7 +713,9 @@ export function AssistantChat() {
 									maxLength={4000}
 									rows={3}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 resize-none rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-									disabled={busy || waitSeconds > 0 || handoffDone}
+									disabled={
+										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+									}
 								/>
 							) : (
 								<input
@@ -534,13 +727,22 @@ export function AssistantChat() {
 									autoComplete="off"
 									maxLength={1000}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-									disabled={busy || waitSeconds > 0 || handoffDone}
+									disabled={
+										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+									}
 								/>
 							)}
 							<button
 								type="submit"
 								className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
-								disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
+								disabled={
+									busy ||
+									handoffBusy ||
+									waitSeconds > 0 ||
+									agentResolved ||
+									!channelEnabled ||
+									question.trim() === ""
+								}
 							>
 								{busy ? copy.asking : scamMode ? copy.scamAsk : copy.ask}
 							</button>

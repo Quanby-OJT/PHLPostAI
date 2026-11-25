@@ -20,6 +20,7 @@ writes ONE RAG-action audit entry attributed to the service-JWT principal.
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -28,7 +29,12 @@ from typing import Annotated, Any, Literal, NoReturn
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.budget import current_context_budget, select_within_budget
+from app.budget import (
+    count_tokens,
+    current_context_budget,
+    limit_routine_answer,
+    select_within_budget,
+)
 from app.classification import DEFAULT_CATEGORIES, Category, classify_text
 from app.compression import Compressor, build_compressor, compress_with_fallback
 from app.config import Settings
@@ -108,6 +114,26 @@ _SYSTEM_PROMPT = (
 _CITATION_MARKER = re.compile(r"\[(\d+)\]")
 
 
+def top_retrieval_score(retrieved_chunks: list[dict[str, Any]]) -> float:
+    """CNV-3: the top reranked score when the reranker ran, else the best cosine
+    similarity, bounded to [0, 1]. Cohere relevance is already in [0, 1]; a local
+    cross-encoder logit outside that range goes through a sigmoid."""
+    reranked = [
+        float(chunk["rerankScore"])
+        for chunk in retrieved_chunks
+        if isinstance(chunk.get("rerankScore"), (int, float))
+    ]
+    if reranked:
+        top = max(reranked)
+        return top if 0.0 <= top <= 1.0 else 1.0 / (1.0 + math.exp(-top))
+    similarities = [
+        float(chunk["similarity"])
+        for chunk in retrieved_chunks
+        if isinstance(chunk.get("similarity"), (int, float))
+    ]
+    return max(0.0, min(1.0, max(similarities))) if similarities else 0.0
+
+
 def calculate_answer_confidence(
     retrieved_chunks: list[dict[str, Any]],
     *,
@@ -116,29 +142,43 @@ def calculate_answer_confidence(
     is_i_dont_know: bool,
     grounding: dict[str, Any] | None,
 ) -> float:
-    """Combine retrieval strength with the grounded-answer check.
-
-    Retrieval strength is the best retrieved cosine similarity, bounded to
-    [0, 1]. Citation validation is the baseline groundedness check; when the
-    optional CE-4 verifier explicitly rejects the final draft, confidence is
-    zero. The score is retrieval strength multiplied by that binary check.
-    """
-    similarities = [
-        float(chunk["similarity"])
-        for chunk in retrieved_chunks
-        if isinstance(chunk.get("similarity"), (int, float))
-    ]
-    if not similarities:
+    """CNV-3: Confidence = top retrieval score (see top_retrieval_score) x the
+    groundedness result. The CE-4 verifier verdict decides when present;
+    citation validation is the baseline otherwise. A degraded answer or an
+    "I don't know" is never grounded."""
+    retrieval_strength = top_retrieval_score(retrieved_chunks)
+    if retrieval_strength == 0.0:
         return 0.0
-    retrieval_strength = max(0.0, min(1.0, max(similarities)))
-    grounded = bool(citations) and not degraded and not is_i_dont_know
-    if (
-        grounding
-        and grounding.get("grounded") is False
-        and grounding.get("outcome") != "regenerated"
-    ):
-        grounded = False
+    explicit_groundedness = grounding.get("grounded") if grounding else None
+    grounded = (
+        explicit_groundedness
+        if isinstance(explicit_groundedness, bool)
+        else bool(citations)
+    )
+    grounded = grounded and not degraded and not is_i_dont_know
     return round(retrieval_strength * int(grounded), 4)
+
+
+def answer_output_tokens(
+    answer: str, token_usage: dict[str, int] | None, max_output_tokens: int | None
+) -> int:
+    """Prefer provider usage (the billed output count), with a text-count fallback."""
+    reported = token_usage.get("completionTokens") if token_usage else None
+    if isinstance(reported, (int, float)) and reported >= 0:
+        count = int(reported)
+    else:
+        count = count_tokens(answer)
+    return min(count, max_output_tokens) if max_output_tokens is not None else count
+
+
+def _cache_scope(
+    language: LanguageContext, filters: dict[str, Any] | None, max_output_tokens: int | None
+) -> dict[str, Any] | None:
+    """Cache entries are kept per reply language and per routine-answer limit (CNV-3)."""
+    scope = language.cache_scope(filters)
+    if max_output_tokens is None:
+        return scope
+    return {**(scope or {}), "maxOutputTokens": max_output_tokens}
 
 
 def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
@@ -153,6 +193,9 @@ def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "isIDontKnow",
             "degraded",
             "confidence",
+            "retrievalScore",
+            "groundednessResult",
+            "outputTokens",
         )
         if key in payload
     }
@@ -184,8 +227,15 @@ def _format_context(chunks: list[dict[str, Any]]) -> str:
 
 
 def _is_i_dont_know(answer: str) -> bool:
-    normalized = answer.strip().strip('"').rstrip(".!").lower()
-    return normalized in ("i don't know", "i dont know", "i do not know")
+    normalized = answer.strip().strip('"').rstrip(".!? ").lower()
+    return normalized in {
+        "i don't know",
+        "i dont know",
+        "i do not know",
+        "hindi ko alam",
+        "wala ko kahibalo",
+        "diak ammo",
+    }
 
 
 def _cited_positions(answer: str, chunk_count: int) -> list[int]:
@@ -345,6 +395,12 @@ class GenerationService:
             "isIDontKnow": bool(cached.get("isIDontKnow", False)),
             "degraded": bool(cached.get("degraded", False)),
             "confidence": confidence,
+            # CNV-3: the metrics recorded when the answer was generated.
+            **{
+                key: cached[key]
+                for key in ("retrievalScore", "groundednessResult", "outputTokens")
+                if key in cached
+            },
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -455,13 +511,20 @@ class GenerationService:
         ]
 
     async def _regenerate_strict(
-        self, client: Any, messages: list[dict[str, str]]
+        self,
+        client: Any,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
     ) -> tuple[str, dict[str, int] | None] | None:
         """CE-4: the ONE regeneration attempt; None on any failure (the
         caller ships the draft — Flow H fail-open)."""
         try:
             async with stage("model.regenerate", model=client.model) as record:
-                answer, usage = await client.complete(self._strict_messages(messages))
+                answer, usage = await client.complete(
+                    self._strict_messages(messages),
+                    **({"max_tokens": max_tokens} if max_tokens else {}),
+                )
                 record(tokenUsage=usage)
                 return answer, usage
         except Exception:
@@ -526,6 +589,11 @@ class GenerationService:
                 "id": chunk["id"],
                 "documentId": chunk["document_id"],
                 "similarity": chunk["similarity"],
+                **(
+                    {"rerankScore": chunk["rerank_score"]}
+                    if isinstance(chunk.get("rerank_score"), (int, float))
+                    else {}
+                ),
             }
             for chunk in chunks
         ]
@@ -613,6 +681,7 @@ class GenerationService:
         client: Any,
         messages: list[dict[str, str]],
         on_regenerating: Any = None,
+        max_output_tokens: int | None = None,
     ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
         """CE-4 (Flow H second half): groundedness verdict → ONE strict
         regeneration → re-verdict → honest "I don't know". The checker is an
@@ -632,7 +701,9 @@ class GenerationService:
         if on_regenerating is not None:
             await on_regenerating()
         marker["regenerated"] = True
-        regenerated = await self._regenerate_strict(client, messages)
+        regenerated = await self._regenerate_strict(
+            client, messages, max_tokens=max_output_tokens
+        )
         if regenerated is None:
             marker["outcome"] = "regenerate-failed-draft-kept"
             return answer_text, citations, marker
@@ -670,6 +741,7 @@ class GenerationService:
         filters: dict[str, Any] | None = None,
         persist: bool = True,
         language: LanguageContext = ENGLISH,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         started = time.perf_counter()
         trace_id = principal.trace_id or str(uuid.uuid4())
@@ -683,7 +755,7 @@ class GenerationService:
         if self._response_cache is not None:
             async with stage("cache.lookup") as record:
                 cached = await self._response_cache.lookup(
-                    query=query, filters=language.cache_scope(filters)
+                    query=query, filters=_cache_scope(language, filters, max_output_tokens)
                 )
                 record(
                     hit=cached is not None,
@@ -724,8 +796,9 @@ class GenerationService:
                 return _sharable_entry(payload)
 
             try:
+                scope = _cache_scope(language, filters, max_output_tokens)
                 entry, role = await flight.run(
-                    self._response_cache.flight_key(query, language.cache_scope(filters)), compute
+                    self._response_cache.flight_key(query, scope), compute
                 )
             except SingleFlightError:
                 logger.warning("single_flight.degraded_to_uncoalesced", exc_info=True)
@@ -752,6 +825,7 @@ class GenerationService:
             filters=filters,
             persist=persist,
             language=language,
+            max_output_tokens=max_output_tokens,
         )
 
     async def _single_flight(self) -> "SingleFlight | None":
@@ -776,6 +850,7 @@ class GenerationService:
         filters: dict[str, Any] | None,
         persist: bool = True,
         language: LanguageContext = ENGLISH,
+        max_output_tokens: int | None = None,
     ) -> dict[str, Any]:
         """The uncoalesced miss path: retrieve → budget → route → generate →
         validate → persist → audit → (CP-1 store). `persist=False` skips the
@@ -823,7 +898,8 @@ class GenerationService:
                             images=len(image_ids),
                         ) as record:
                             answer_text, token_usage = await self._vision_client.complete(
-                                vision_messages
+                                vision_messages,
+                                **({"max_tokens": max_output_tokens} if max_output_tokens else {}),
                             )
                             cost_usd = compute_cost_usd(
                                 self._settings,
@@ -845,7 +921,10 @@ class GenerationService:
                     async with stage(
                         "model.call", model=client.model, provider=client.provider
                     ) as record:
-                        answer_text, token_usage = await client.complete(prep["messages"])
+                        answer_text, token_usage = await client.complete(
+                            prep["messages"],
+                            **({"max_tokens": max_output_tokens} if max_output_tokens else {}),
+                        )
                         cost_usd = compute_cost_usd(
                             self._settings, model=client.model, token_usage=token_usage
                         )
@@ -899,6 +978,7 @@ class GenerationService:
                         used_chunks=used_chunks,
                         client=client,
                         messages=prep["messages"],
+                        max_output_tokens=max_output_tokens,
                     )
                     record(**{k_: grounding[k_] for k_ in ("grounded", "regenerated", "outcome")})
             except Exception:
@@ -906,6 +986,17 @@ class GenerationService:
                 # draft, never an error.
                 logger.warning("chat.grounding_gate_degraded", exc_info=True)
                 grounding = None
+
+        output_truncated = False
+        if max_output_tokens is not None:
+            answer_text, output_truncated = limit_routine_answer(
+                answer_text, max_output_tokens, language.reply
+            )
+        groundedness_result = grounding or {
+            "grounded": bool(citations) and not degraded and not _is_i_dont_know(answer_text),
+            "regenerated": False,
+            "outcome": "citation-validation",
+        }
 
         # Flow B step 7: persist the turn (NEW conversation per request, R1
         # single-turn) — user + assistant rows written atomically.
@@ -935,7 +1026,7 @@ class GenerationService:
             citations=citations,
             degraded=degraded,
             is_i_dont_know=is_i_dont_know,
-            grounding=grounding,
+            grounding=groundedness_result,
         )
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
 
@@ -960,6 +1051,8 @@ class GenerationService:
                 "degraded": degraded,
                 "costUsd": cost_usd,
                 "traceId": trace_id,
+                "retrievalScore": top_retrieval_score(retrieved_record),
+                "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
                 # CE-3: hop summary only when the loop ran (linear audit
                 # payloads keep their exact pre-CE-3 shape).
                 **(
@@ -1001,6 +1094,10 @@ class GenerationService:
             # retrieval evidence there for the authorized agent inbox.
             "retrievedChunks": retrieved_record,
             "confidence": confidence,
+            "retrievalScore": top_retrieval_score(prep["retrieved_record"]),
+            "groundednessResult": groundedness_result,
+            "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
+            "outputTruncated": output_truncated,
             # See _serve_cached: the screened (masked) question, for callers
             # that persist the turn themselves.
             "screenedQuery": query,
@@ -1019,7 +1116,9 @@ class GenerationService:
         # itself refuses I-don't-know/degraded payloads).
         if self._response_cache is not None:
             await self._response_cache.store(
-                query=query, filters=language.cache_scope(filters), payload=payload
+                query=query,
+                filters=_cache_scope(language, filters, max_output_tokens),
+                payload=payload,
             )
 
         # The traced return value lands on the rag.chat span — the one trace
@@ -1037,6 +1136,7 @@ class GenerationService:
         filters: dict[str, Any] | None = None,
         persist: bool = True,
         language: LanguageContext = ENGLISH,
+        max_output_tokens: int | None = None,
     ) -> Any:
         """SSE mode (GN-3): yields `token` events as the provider streams,
         then ONE `final` event carrying citations, usage, ids, TTFT and
@@ -1057,7 +1157,7 @@ class GenerationService:
         if self._response_cache is not None:
             async with stage("cache.lookup") as record:
                 cached = await self._response_cache.lookup(
-                    query=query, filters=language.cache_scope(filters)
+                    query=query, filters=_cache_scope(language, filters, max_output_tokens)
                 )
                 record(
                     hit=cached is not None,
@@ -1088,7 +1188,9 @@ class GenerationService:
         flight_owner: str | None = None
         flight_key = ""
         if flight is not None:
-            flight_key = self._response_cache.flight_key(query, language.cache_scope(filters))
+            flight_key = self._response_cache.flight_key(
+                query, _cache_scope(language, filters, max_output_tokens)
+            )
             flight_owner = uuid.uuid4().hex
             if not await flight.try_acquire(flight_key, flight_owner):
                 flight_owner = None
@@ -1180,7 +1282,8 @@ class GenerationService:
             # Alternate B1: grounded refusal — streamed as one token event so
             # clients render it like any other answer.
             answer_text = I_DONT_KNOW_ANSWER
-            yield _sse("token", {"delta": answer_text})
+            if max_output_tokens is None:
+                yield _sse("token", {"delta": answer_text})
         else:
             parts: list[str] = []
             try:
@@ -1195,7 +1298,12 @@ class GenerationService:
                     provider=getattr(stream_client, "provider", None),
                     stream=True,
                 ) as record:
-                    async with aclosing(stream_client.stream(stream_messages)) as stream:
+                    async with aclosing(
+                        stream_client.stream(
+                            stream_messages,
+                            **({"max_tokens": max_output_tokens} if max_output_tokens else {}),
+                        )
+                    ) as stream:
                         async for item in stream:
                             if isinstance(item, tuple):  # ("__usage__", usage) sentinel
                                 token_usage = item[1]
@@ -1210,7 +1318,8 @@ class GenerationService:
 
                                 CHAT_TTFT.observe(ttft_ms / 1000.0)
                             parts.append(item)
-                            yield _sse("token", {"delta": item})
+                            if max_output_tokens is None:
+                                yield _sse("token", {"delta": item})
                     record(
                         tokenUsage=token_usage,
                         costUsd=compute_cost_usd(
@@ -1272,6 +1381,7 @@ class GenerationService:
                     client=client,
                     messages=prep["messages"],
                     on_regenerating=on_regenerating,
+                    max_output_tokens=max_output_tokens,
                 )
             )
             emitted_regen = False
@@ -1298,6 +1408,18 @@ class GenerationService:
                 logger.warning("chat.grounding_gate_degraded", exc_info=True)
                 grounding = None
 
+        output_truncated = False
+        if max_output_tokens is not None:
+            answer_text, output_truncated = limit_routine_answer(
+                answer_text, max_output_tokens, language.reply
+            )
+            yield _sse("token", {"delta": answer_text})
+        groundedness_result = grounding or {
+            "grounded": bool(citations) and not degraded and not _is_i_dont_know(answer_text),
+            "regenerated": False,
+            "outcome": "citation-validation",
+        }
+
         message_id: str | None = None
         if persist:
             conversation_id, message_id = await self._repository.persist_turn(
@@ -1319,7 +1441,7 @@ class GenerationService:
             citations=citations,
             degraded=degraded,
             is_i_dont_know=is_i_dont_know,
-            grounding=grounding,
+            grounding=groundedness_result,
         )
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
 
@@ -1387,6 +1509,8 @@ class GenerationService:
                     if grounding
                     else {}
                 ),
+                "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
+                "outputTruncated": output_truncated,
                 # CE-8: vision usage only when image chunks were in play.
                 **({"vision": vision_marker} if vision_marker else {}),
             },
@@ -1407,6 +1531,10 @@ class GenerationService:
             # inbox confidence indicator without exposing it to the widget.
             "retrievedChunks": prep["retrieved_record"],
             "confidence": confidence,
+            "retrievalScore": top_retrieval_score(prep["retrieved_record"]),
+            "groundednessResult": groundedness_result,
+            "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
+            "outputTruncated": output_truncated,
             # See _serve_cached: the screened (masked) question, for callers
             # that persist the turn themselves.
             "screenedQuery": query,
@@ -1469,6 +1597,8 @@ class ChatRequest(BaseModel):
     # this service to answer WITHOUT persisting. Defaults to True, which keeps
     # the authenticated staff path exactly as it was.
     persist: bool = Field(default=True)
+    # CNV-3: per-request cap on eligible customer routine answers.
+    max_output_tokens: int | None = Field(default=None, alias="maxOutputTokens", ge=1, le=200)
     # CNV-4: the customer's reply language, the detected question language,
     # and the postal terms that stay untranslated (seeded in packages/contracts).
     language: Literal["en", "fil", "ceb", "ilo"] | None = Field(default=None)
@@ -1576,6 +1706,7 @@ async def chat(
             filters=payload.filters.to_query_filters() if payload.filters else None,
             persist=payload.persist,
             language=payload.language_context(),
+            max_output_tokens=payload.max_output_tokens,
         )
     except QueryBlockedError as exc:
         from fastapi import HTTPException
@@ -1647,6 +1778,7 @@ async def chat_stream(
             filters=payload.filters.to_query_filters() if payload.filters else None,
             persist=payload.persist,
             language=payload.language_context(),
+            max_output_tokens=payload.max_output_tokens,
         ),
         media_type="text/event-stream",
         headers={"cache-control": "no-cache", "x-accel-buffering": "no"},

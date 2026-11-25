@@ -7,6 +7,7 @@ import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 import { RatesModule } from "@/modules/v1/rates/rates.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
 
+import { ChannelAdapterRegistry, WebWidgetChannelAdapter } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ChannelsService } from "./channels.service"
 import { ConversationService } from "./conversation.service"
@@ -39,6 +40,14 @@ import { ScamAssessmentService } from "./scam-assessment.service"
 		ChannelsService,
 		AllowedOriginGuard,
 		ScamAssessmentService,
+		{
+			provide: ChannelAdapterRegistry,
+			useFactory: () => {
+				const registry = new ChannelAdapterRegistry()
+				registry.register(new WebWidgetChannelAdapter())
+				return registry
+			},
+		},
 	],
 
 	exports: [

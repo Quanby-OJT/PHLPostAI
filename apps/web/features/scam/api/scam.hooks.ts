@@ -23,6 +23,7 @@ const retry = (count: number, error: Error) =>
 async function request<T>(path: string, method = "GET", input?: unknown): Promise<T> {
 	const response = await fetch(`${base}/${path}`, {
 		method,
+		cache: "no-store",
 		credentials: "include",
 		...(input === undefined
 			? {}
@@ -48,6 +49,7 @@ export function useRiskIndicators() {
 		list: useQuery({
 			queryKey: indicatorsKey,
 			queryFn: () => request<RiskIndicator[]>("risk-indicators"),
+			staleTime: 0,
 			retry,
 		}),
 		create: useMutation({
@@ -69,6 +71,7 @@ export function useOfficialContacts() {
 		list: useQuery({
 			queryKey: contactsKey,
 			queryFn: () => request<OfficialContact[]>("official-contacts"),
+			staleTime: 0,
 			retry,
 		}),
 		create: useMutation({

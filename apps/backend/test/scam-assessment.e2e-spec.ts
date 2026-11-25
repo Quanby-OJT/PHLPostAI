@@ -1,11 +1,11 @@
-import { createServer } from "node:http"
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { Client } from "pg"
 
 import type { CustomerAnswer } from "@repo/contracts"
 
-const API = "http://localhost:3000/api/v1/customer"
-const ORIGIN = "http://localhost:3001"
-const QA_DB = "phlpost_scm1_qa_20261124"
+const API = process.env.SCM1_E2E_API_URL ?? "http://localhost:3000/api/v1/customer"
+const ORIGIN = process.env.SCM1_E2E_ORIGIN ?? "http://localhost:3001"
+const QA_DATABASES = ["phlpost_scm1_qa_20261124", "phlpost_scm2_upgrade_qa"]
 const ADVISORY = [
 	"AI-generated scam assessments shall be advisory",
 	"and shall not be represented as conclusive determinations of fraud.",
@@ -19,14 +19,15 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 	let database: Client
 	let englishToken: string | undefined
 	const prompts: string[] = []
-	const provider = createServer(async (request, response) => {
+	async function respond(request: IncomingMessage, response: ServerResponse) {
 		if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
 			response.writeHead(404).end()
 			return
 		}
-		const chunks: Buffer[] = []
-		for await (const chunk of request) chunks.push(Buffer.from(chunk))
-		prompts.push(Buffer.concat(chunks).toString())
+		request.setEncoding("utf8")
+		let body = ""
+		for await (const chunk of request) body += String(chunk)
+		prompts.push(body)
 		// Deliberately attempts to downgrade deterministic evidence.
 		const content = JSON.stringify({
 			riskLevel: "low",
@@ -37,23 +38,31 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 		response
 			.writeHead(200, { "content-type": "application/json" })
 			.end(JSON.stringify({ choices: [{ message: { content } }] }))
+	}
+	const provider = createServer((request, response) => {
+		void respond(request, response).catch(() => response.writeHead(500).end())
 	})
 
 	beforeAll(async () => {
 		const connectionString = process.env.DATABASE_URL
 		if (!connectionString) throw new Error("Set the dedicated SCM-1 test database URL")
 		const target = new URL(connectionString)
+		const databaseName = target.pathname.slice(1)
 		if (
 			target.hostname !== "127.0.0.1" ||
 			target.port !== "5433" ||
-			target.pathname !== "/" + QA_DB
+			!QA_DATABASES.includes(databaseName)
 		) {
 			throw new Error("SCM-1 tests require the isolated loopback QA database")
+		}
+		const loopback = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/
+		if (!loopback.test(new URL(API).origin) || !loopback.test(ORIGIN)) {
+			throw new Error("SCM-1 tests require local API and browser origins")
 		}
 		database = new Client({ connectionString })
 		await database.connect()
 		const result = await database.query("select current_database() as name")
-		expect(result.rows[0].name).toBe(QA_DB)
+		expect(result.rows[0].name).toBe(databaseName)
 		await new Promise<void>((resolve, reject) => {
 			provider.once("error", reject)
 			provider.listen(8310, "127.0.0.1", resolve)
@@ -192,6 +201,13 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 		expect(answer.answer).toContain("You can report the message to PHLPost Customer Service")
 		expect(answer.answer).toContain("Verify the message through the official PHLPost website")
 		expect(answer.answer).toContain(ADVISORY)
+		const closed = await post(
+			"/conversations/end",
+			{ conversationId: answer.conversationId },
+			await englishSession()
+		)
+		expect(closed.status).toBe(200)
+		await expect(closed.json()).resolves.toEqual({ resolvedByAi: false })
 	})
 
 	it("AC5 stores masked text and a related assessment and event for an anonymous customer", async () => {
@@ -216,6 +232,19 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 			[answer.conversationId]
 		)
 		expect(events.rows).toEqual([{ kind: "scam_assessed", category: "scam", payload: null }])
+		const analytics = await database.query(
+			`select kind, payload from interaction_events where conversation_id=$1
+			 and kind in ('message_received', 'answer_sent', 'answer_classified') order by kind`,
+			[answer.conversationId]
+		)
+		expect(analytics.rows).toEqual([
+			{ kind: "answer_classified", payload: expect.objectContaining({ answerKind: "tool" }) },
+			{
+				kind: "answer_sent",
+				payload: expect.objectContaining({ response_time_ms: expect.any(Number) }),
+			},
+			{ kind: "message_received", payload: expect.objectContaining({ failed: false }) },
+		])
 	})
 
 	it.each([

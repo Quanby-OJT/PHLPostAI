@@ -4,6 +4,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm"
 import { conversations, customerSessions, escalations, messages } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
+import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { db } from "@/common/database/database.client"
 import { ConversationService } from "@/modules/v1/customer/conversation.service"
 
@@ -11,8 +12,112 @@ import { ConversationService } from "@/modules/v1/customer/conversation.service"
 export class EscalationService {
 	constructor(
 		private readonly conversationService: ConversationService,
-		private readonly auditService: AuditService
+		private readonly auditService: AuditService,
+		private readonly conversationLiveService: ConversationLiveService
 	) {}
+
+	async claim(id: string, agentId: string) {
+		const result = await db.transaction(async tx => {
+			const [row] = await tx.select().from(escalations).where(eq(escalations.id, id)).for("update")
+			if (!row) throw new NotFoundException("Escalation not found")
+			if (row.status !== "queued")
+				throw new ConflictException("This escalation has already been claimed")
+			const [conversation] = await tx
+				.select({ status: conversations.status })
+				.from(conversations)
+				.where(eq(conversations.id, row.conversationId))
+				.for("update")
+			if (!conversation || conversation.status !== "escalation_requested") {
+				throw new ConflictException("This conversation is no longer waiting for an agent")
+			}
+			const now = new Date()
+			await tx
+				.update(escalations)
+				.set({ status: "claimed", assignedAgentId: agentId, claimedAt: now, updatedAt: now })
+				.where(eq(escalations.id, id))
+			await this.conversationService.activateAgent(tx, row.conversationId)
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.claimed",
+					resourceType: "escalation",
+					resourceId: id,
+					before: { status: "queued" },
+					after: { status: "claimed", assignedAgentId: agentId },
+				},
+				tx
+			)
+			return {
+				id,
+				conversationId: row.conversationId,
+				status: "claimed" as const,
+				assignedAgentId: agentId,
+			}
+		})
+		await this.conversationLiveService.publish(result.conversationId)
+		return result
+	}
+
+	async reply(id: string, agentId: string, content: string) {
+		const result = await db.transaction(async tx => {
+			const [row] = await tx.select().from(escalations).where(eq(escalations.id, id)).for("update")
+			if (!row) throw new NotFoundException("Escalation not found")
+			if (row.status !== "claimed" || row.assignedAgentId !== agentId) {
+				throw new ConflictException("This escalation is not assigned to you")
+			}
+			const message = await this.conversationService.postAgentMessage(tx, {
+				conversationId: row.conversationId,
+				agentId,
+				content,
+			})
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.agent_replied",
+					resourceType: "escalation",
+					resourceId: id,
+					after: { messageId: message.id },
+				},
+				tx
+			)
+			return { message, conversationId: row.conversationId }
+		})
+		await this.conversationLiveService.publish(result.conversationId)
+		return result.message
+	}
+
+	async resolve(id: string, agentId: string, outcomeNote: string) {
+		const result = await db.transaction(async tx => {
+			const [row] = await tx.select().from(escalations).where(eq(escalations.id, id)).for("update")
+			if (!row) throw new NotFoundException("Escalation not found")
+			if (row.status !== "claimed" || row.assignedAgentId !== agentId) {
+				throw new ConflictException("This escalation is not assigned to you")
+			}
+			const now = new Date()
+			await tx
+				.update(escalations)
+				.set({ status: "resolved", outcomeNote, resolvedAt: now, updatedAt: now })
+				.where(eq(escalations.id, id))
+			await this.conversationService.resolveByAgent(tx, row.conversationId)
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.resolved",
+					resourceType: "escalation",
+					resourceId: id,
+					before: { status: "claimed" },
+					after: { status: "resolved", outcomeNote },
+				},
+				tx
+			)
+			return { id, conversationId: row.conversationId, status: "resolved" as const, outcomeNote }
+		})
+		await this.conversationLiveService.publish(result.conversationId)
+		return result
+	}
 
 	/** Creates the queued escalation and conversation transition atomically. */
 	async request(input: { conversationId: string; customerSessionId: string; reason: string }) {
@@ -108,22 +213,28 @@ export class EscalationService {
 				language: customerSessions.language,
 				conversationCreatedAt: conversations.createdAt,
 				status: escalations.status,
+				assignedAgentId: escalations.assignedAgentId,
+				outcomeNote: escalations.outcomeNote,
 			})
 			.from(escalations)
 			.innerJoin(conversations, eq(conversations.id, escalations.conversationId))
 			.leftJoin(customerSessions, eq(customerSessions.id, conversations.customerSessionId))
-			.where(and(eq(escalations.id, id), eq(escalations.status, "queued")))
+			.where(eq(escalations.id, id))
 			.limit(1)
-		if (!row) throw new NotFoundException("Queued escalation not found")
+		if (!row) throw new NotFoundException("Escalation not found")
 
 		const rows = await db
 			.select({
 				id: messages.id,
 				sender: messages.sender,
+				agentId: messages.agentId,
 				role: messages.role,
 				content: messages.content,
 				citations: messages.citations,
 				confidence: messages.confidence,
+				retrievalScore: messages.retrievalScore,
+				groundednessResult: messages.groundednessResult,
+				outputTokens: messages.outputTokens,
 				inquiryCategory: messages.inquiryCategory,
 				turnIndex: messages.turnIndex,
 				createdAt: messages.createdAt,
@@ -151,15 +262,24 @@ export class EscalationService {
 			category,
 			language: row.language ?? "unknown",
 			createdAt: row.createdAt,
+			status: row.status,
+			assignedAgentId: row.assignedAgentId,
+			outcomeNote: row.outcomeNote,
 			waitingSeconds: Math.max(0, Math.floor((Date.now() - row.createdAt.getTime()) / 1000)),
 			conversationCreatedAt: row.conversationCreatedAt,
 			messages: rows.map(message => ({
 				id: message.id,
 				sender: message.sender ?? message.role,
+				agentId: message.agentId,
 				content: message.content,
 				citations: message.citations ?? [],
 				confidence: message.role === "assistant" ? message.confidence : null,
+				retrievalScore: message.role === "assistant" ? message.retrievalScore : null,
+				groundednessResult:
+					message.role === "assistant" ? message.groundednessResult : null,
+				outputTokens: message.role === "assistant" ? message.outputTokens : null,
 				createdAt: message.createdAt,
+				turnIndex: message.turnIndex,
 			})),
 		}
 	}

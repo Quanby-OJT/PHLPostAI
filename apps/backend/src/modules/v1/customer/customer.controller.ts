@@ -3,9 +3,12 @@ import {
 	Body,
 	ConflictException,
 	Controller,
+	Get,
 	Headers,
 	NotFoundException,
+	Param,
 	Post,
+	Query,
 	Req,
 	Res,
 	UnauthorizedException,
@@ -15,16 +18,21 @@ import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { AllowAnonymous } from "@thallesp/nestjs-better-auth"
 import type { Request, Response } from "express"
+import { z } from "zod"
 
 import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 
+import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
+import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
+import { ChannelAdapterRegistry } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
+import { ChannelsService, WEB_WIDGET_CHANNEL } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import {
 	CustomerChatService,
@@ -60,9 +68,23 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
+		private readonly assistantSettingsService: AssistantSettingsService,
 		private readonly ragGatewayService: RagGatewayService,
+		private readonly conversationLiveService: ConversationLiveService,
+		private readonly channelAdapters: ChannelAdapterRegistry,
+		private readonly channelsService: ChannelsService,
 		private readonly scamAssessmentService: ScamAssessmentService
 	) {}
+
+	@AllowAnonymous()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.channelStatus)
+	async channelStatus() {
+		return implement(v1.customer.channelStatus).handler(async () => ({
+			enabled: true,
+			welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
+		}))
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -80,7 +102,23 @@ export class CustomerController {
 				channelCode: row.channelCode as typeof input.channelCode,
 				language: row.language as typeof input.language,
 				idleExpiresAt: this.customerSessionService.idleExpiresAt(row.lastSeenAt).toISOString(),
+				welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
 			}
+		})
+	}
+
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.conversation.end)
+	async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			return this.conversationService.endCustomerConversation({
+				conversationId: input.conversationId,
+				customerSessionId: session.id,
+			})
 		})
 	}
 
@@ -106,42 +144,83 @@ export class CustomerController {
 		@Headers("x-customer-session") sessionToken: string | undefined,
 		@Req() request: RequestWithId
 	) {
+		const startedAt = performance.now()
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
+			const adapter = this.channelAdapters.get(
+				session.channelCode === "web" ? "web-widget" : session.channelCode
+			)
+			const message = adapter.receive(input)
 			const conversation = await this.resolveConversation(
 				session,
-				input.conversationId,
+				message.conversationId,
 				toORPCError
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
-
-			let classification: InquiryClassification
-			try {
-				classification = await this.classify(session, conversation.id, input, correlationId)
-			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
-				if (refusal) return refusal
-				return toORPCError(error)
-			}
-
-			if (classification.route !== "retrieval") {
+			if (
+				conversation.status === "escalation_requested" ||
+				conversation.status === "agent_active"
+			) {
 				try {
-					return await this.answerTool(
+					return await this.sendAgentMessage(
 						session,
 						conversation.id,
-						input.query,
-						classification,
-						correlationId
+						message.text,
+						correlationId,
+						input.intent
 					)
 				} catch (error) {
 					return toORPCError(error)
 				}
 			}
 
-			let envelope: RagAnswerEnvelope
+			let classification: InquiryClassification
 			try {
+				classification = await this.classify(
+					session,
+					conversation.id,
+					{ query: message.text, intent: input.intent },
+					correlationId
+				)
+			} catch (error) {
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
+				if (refusal) return refusal
+				return toORPCError(error)
+			}
+			if (classification.route !== "retrieval") {
+				try {
+					return adapter.send(
+						await this.answerTool(
+							session,
+							conversation.id,
+							message.text,
+							classification,
+							correlationId,
+							startedAt
+						)
+					)
+				} catch (error) {
+					await this.conversationService.recordUnansweredInquiry({
+						conversationId: conversation.id,
+						category: classification.category,
+					})
+					return toORPCError(error)
+				}
+			}
+
+			let envelope: RagAnswerEnvelope
+			let confidenceThreshold: number
+			try {
+				const settings = await this.assistantSettingsService.get()
+				confidenceThreshold = settings.confidenceThreshold
 				envelope = (await this.ragGatewayService.submitChatQuery({
-					query: input.query,
+					query: message.text,
 					userId: this.principalFor(session),
 					permissions: CUSTOMER_SERVICE_PERMISSIONS,
 					requestId: correlationId,
@@ -149,11 +228,22 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				return toORPCError(error)
 			}
 
@@ -161,8 +251,10 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold,
+				requestStartedAt: startedAt,
 			})
-			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
+			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
 	}
 
@@ -170,11 +262,9 @@ export class CustomerController {
 	 * SSE mode (AC1 asks for a streamed answer). A plain Nest route because
 	 * oRPC is JSON-only, same as the staff stream.
 	 *
-	 * `token` frames are forwarded verbatim as they arrive; the RAG service's
-	 * `final` frame is withheld and replaced with the public envelope, because
-	 * only this layer knows the conversation id, the stored message id, and the
-	 * article titles. The turn is persisted before that frame is written, so a
-	 * customer never sees an answer that was not recorded.
+	 * Hold draft tokens until the final confidence is known. Persist the selected
+	 * reply, then send its text and a final envelope with the conversation ID,
+	 * stored message ID, and article titles.
 	 */
 	@Post("v1/customer/chat/stream")
 	@AllowAnonymous()
@@ -187,20 +277,47 @@ export class CustomerController {
 		@Req() request: RequestWithId,
 		@Res() response: Response
 	) {
+		const startedAt = performance.now()
 		const session = await this.requireSession(sessionToken)
 		const parsed = CustomerChatRequestSchema.safeParse(body)
 		if (!parsed.success) {
 			throw new BadRequestException(parsed.error.issues[0]?.message ?? "Invalid question")
 		}
-		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
+		const adapter = this.channelAdapters.get(
+			session.channelCode === "web" ? "web-widget" : session.channelCode
+		)
+		const message = adapter.receive(parsed.data)
+		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
+		if (conversation.status === "escalation_requested" || conversation.status === "agent_active") {
+			const result = await this.sendAgentMessage(
+				session,
+				conversation.id,
+				message.text,
+				correlationId,
+				parsed.data.intent
+			)
+			response.status(200).json(result)
+			return
+		}
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(session, conversation.id, parsed.data, correlationId)
+			classification = await this.classify(
+				session,
+				conversation.id,
+				{ query: message.text, intent: parsed.data.intent },
+				correlationId
+			)
 		} catch (error) {
-			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+			const refusal = await this.refuseIfScreened(
+				error,
+				session,
+				conversation.id,
+				correlationId,
+				startedAt
+			)
 			if (refusal) {
 				response.status(200).json(refusal)
 			} else {
@@ -208,19 +325,23 @@ export class CustomerController {
 			}
 			return
 		}
-
 		// Tool results arrive as one completed turn after persistence.
 		if (classification.route !== "retrieval") {
 			try {
 				const turn = await this.answerTool(
 					session,
 					conversation.id,
-					parsed.data.query,
+					message.text,
 					classification,
-					correlationId
+					correlationId,
+					startedAt
 				)
-				response.status(200).json(turn)
+				response.status(200).json(adapter.send(turn))
 			} catch {
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
 			return
@@ -233,14 +354,16 @@ export class CustomerController {
 			traceId: correlationId,
 			actorType: "customer",
 		})
-
 		// Abort the upstream call (and the provider's own stream) when the
 		// browser goes away, so a closed tab stops costing tokens.
 		const abort = new AbortController()
 		response.on("close", () => abort.abort())
 
 		let upstream: globalThis.Response
+		let confidenceThreshold: number
 		try {
+			const assistantSettings = await this.assistantSettingsService.get()
+			confidenceThreshold = assistantSettings.confidenceThreshold
 			upstream = await fetch(`${env.RAG_SERVICE_URL}/internal/chat/stream`, {
 				method: "POST",
 				headers: {
@@ -249,13 +372,20 @@ export class CustomerController {
 					"x-request-id": correlationId,
 				},
 				body: JSON.stringify({
-					query: parsed.data.query,
+					query: message.text,
 					persist: false,
+					...(classification.eligible && {
+						maxOutputTokens: assistantSettings.maxOutputTokens,
+					}),
 					...ragLanguageFields(classification),
 				}),
 				signal: abort.signal,
 			})
 		} catch {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -270,6 +400,7 @@ export class CustomerController {
 				channelCode: conversation.channelCode ?? session.channelCode,
 				reason,
 				traceId: correlationId,
+				requestStartedAt: startedAt,
 			})
 			response.status(200).json({
 				...refusal,
@@ -279,6 +410,10 @@ export class CustomerController {
 		}
 
 		if (!upstream.ok || upstream.body === null) {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -292,13 +427,16 @@ export class CustomerController {
 		response.flushHeaders()
 
 		let envelope: RagAnswerEnvelope | null = null
+		let turnRecorded = false
 		try {
 			for await (const frame of readSseFrames(upstream.body)) {
 				if (frame.event === "final") {
 					envelope = frame.data ? (JSON.parse(frame.data) as RagAnswerEnvelope) : {}
 					continue
 				}
-				response.write(`${frame.raw}\n\n`)
+				// Hold draft deltas until confidence is known. A below-threshold
+				// answer must never leak before its safe uncertainty response.
+				if (frame.event !== "token") response.write(`${frame.raw}\n\n`)
 			}
 
 			if (envelope === null) throw new Error("RAG stream ended without a final frame")
@@ -307,16 +445,25 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold,
+				requestStartedAt: startedAt,
 			})
+			turnRecorded = true
+			response.write(formatSseFrame("token", { delta: turn.answer }))
 			response.write(
-				formatSseFrame("final", {
-					...turn,
-					conversationId: conversation.id,
-				} satisfies CustomerAnswer)
+				formatSseFrame(
+					"final",
+					adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
+				)
 			)
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly
 			// rather than leaving the page hanging on a half-written answer.
+			if (!turnRecorded)
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 			if (!abort.signal.aborted) {
 				response.write(
 					formatSseFrame("final", {
@@ -334,6 +481,36 @@ export class CustomerController {
 		} finally {
 			response.end()
 		}
+	}
+
+	@Get("v1/customer/conversations/:id/events")
+	@AllowAnonymous()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	async customerEvents(
+		@Param("id") id: string,
+		@Query("after") after: string | undefined,
+		@Headers("x-customer-session") sessionToken: string | undefined,
+		@Res() response: Response
+	) {
+		if (!z.string().uuid().safeParse(id).success)
+			throw new BadRequestException("Invalid conversation id")
+		const session = sessionToken ? await this.customerSessionService.resolve(sessionToken) : null
+		if (!session) throw new UnauthorizedException("Invalid or expired customer session")
+		const conversation = await this.conversationService.findOwnedByCustomerSession(id, session.id)
+		if (!conversation) throw new NotFoundException("Conversation not found")
+		if (
+			conversation.status !== "escalation_requested" &&
+			conversation.status !== "agent_active" &&
+			conversation.status !== "resolved_by_agent"
+		) {
+			throw new ConflictException("This conversation is not waiting for an agent")
+		}
+		const afterIndex = after === undefined ? -1 : Number(after)
+		await this.conversationLiveService.stream(id, response, {
+			afterTurnIndex: Number.isSafeInteger(afterIndex) && afterIndex >= -1 ? afterIndex : -1,
+			agentsOnly: true,
+		})
 	}
 
 	/** CNV-2: screen and classify the question (Flow A steps 3 to 5). */
@@ -358,7 +535,8 @@ export class CustomerController {
 		conversationId: string,
 		query: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		requestStartedAt: number
 	): Promise<CustomerAnswer> {
 		const context = {
 			conversationId,
@@ -372,6 +550,7 @@ export class CustomerController {
 				...context,
 				query,
 				sessionLanguage: session.language,
+				requestStartedAt,
 			})
 		}
 		const turn =
@@ -380,6 +559,9 @@ export class CustomerController {
 						conversationId,
 						classification,
 						correlationId,
+						requestStartedAt,
+						explanationLanguage: session.language,
+						confidenceThreshold: (await this.assistantSettingsService.get()).confidenceThreshold,
 					})
 				: await this.customerChatService.answerRates(context)
 		return { ...turn, conversationId }
@@ -426,7 +608,11 @@ export class CustomerController {
 			session.id
 		)
 		if (existing) {
-			if (existing.status !== "ai_active") {
+			if (
+				existing.status !== "ai_active" &&
+				existing.status !== "escalation_requested" &&
+				existing.status !== "agent_active"
+			) {
 				const error = new ConflictException(
 					"A human agent has been requested for this conversation"
 				)
@@ -441,12 +627,40 @@ export class CustomerController {
 		throw error
 	}
 
+	private async sendAgentMessage(
+		session: CustomerSessionRow,
+		conversationId: string,
+		query: string,
+		correlationId: string,
+		intent?: "scam"
+	) {
+		if (intent === "scam") {
+			throw new ConflictException("Start a new chat to check a suspicious message.")
+		}
+		const screened = await this.ragGatewayService.screenQuery({
+			query,
+			userId: this.principalFor(session),
+			permissions: CUSTOMER_SERVICE_PERMISSIONS,
+			requestId: correlationId,
+			traceId: correlationId,
+			actorType: "customer",
+		})
+		const saved = await this.conversationService.recordCustomerMessage({
+			conversationId,
+			customerSessionId: session.id,
+			maskedQuery: screened.screenedQuery,
+		})
+		await this.conversationLiveService.publish(conversationId)
+		return { agentMode: true as const, conversationId, messageId: saved.id }
+	}
+
 	/** Turn a screening 400 from the gateway into a recorded refusal (AC4). */
 	private async refuseIfScreened(
 		error: unknown,
 		session: CustomerSessionRow,
 		conversationId: string,
-		traceId: string
+		traceId: string,
+		requestStartedAt?: number
 	) {
 		const status =
 			error && typeof error === "object" && "getStatus" in error
@@ -460,6 +674,7 @@ export class CustomerController {
 			channelCode: session.channelCode,
 			reason: error instanceof Error ? error.message : "screened",
 			traceId,
+			requestStartedAt,
 		})
 		return { ...refusal, conversationId } satisfies CustomerAnswer
 	}

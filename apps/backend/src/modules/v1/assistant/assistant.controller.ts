@@ -8,10 +8,29 @@ import { RequirePermissions } from "@/shared/decorators/require-permissions.deco
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { AssistantService } from "./assistant.service"
+import { AssistantSettingsService } from "./assistant-settings.service"
 
 @Controller()
 export class AssistantController {
-	constructor(private readonly service: AssistantService) {}
+	constructor(
+		private readonly service: AssistantService,
+		private readonly settingsService: AssistantSettingsService
+	) {}
+
+	@RequirePermissions("settings.assistant.manage")
+	@Implement(v1.assistant.settings.get)
+	async getSettings() {
+		return implement(v1.assistant.settings.get).handler(async () => this.settingsService.get())
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("settings.assistant.manage")
+	@Implement(v1.assistant.settings.update)
+	async updateSettings(@Session() session: UserSession) {
+		return implement(v1.assistant.settings.update).handler(async ({ input }) =>
+			this.settingsService.update(input, { userId: session.user.id })
+		)
+	}
 
 	@RequirePermissions("settings.assistant.manage")
 	@Implement(v1.assistant.categories.list)

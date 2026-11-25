@@ -4,7 +4,8 @@ import { EscalationService } from "./escalation.service"
 
 const mockSelect = jest.fn()
 const mockInsert = jest.fn()
-const mockTx = { select: mockSelect, insert: mockInsert }
+const mockUpdate = jest.fn()
+const mockTx = { select: mockSelect, insert: mockInsert, update: mockUpdate }
 const mockTransaction = jest.fn((callback: (tx: typeof mockTx) => Promise<unknown>) =>
 	callback(mockTx)
 )
@@ -37,12 +38,31 @@ jest.mock("@/modules/v1/customer/conversation.service", () => ({
 
 describe("EscalationService", () => {
 	let service: EscalationService
-	let conversationService: { markEscalationRequested: jest.Mock }
+	let conversationService: {
+		markEscalationRequested: jest.Mock
+		activateAgent: jest.Mock
+		postAgentMessage: jest.Mock
+		resolveByAgent: jest.Mock
+	}
+	let auditService: { writeAudit: jest.Mock }
+	let liveService: { publish: jest.Mock }
 
 	beforeEach(() => {
 		jest.clearAllMocks()
-		conversationService = { markEscalationRequested: jest.fn().mockResolvedValue(undefined) }
-		service = new EscalationService(conversationService as never, {} as never)
+		conversationService = {
+			markEscalationRequested: jest.fn().mockResolvedValue(undefined),
+			activateAgent: jest.fn().mockResolvedValue(undefined),
+			postAgentMessage: jest.fn().mockResolvedValue({ id: "message-1", turnIndex: 2 }),
+			resolveByAgent: jest.fn().mockResolvedValue(undefined),
+		}
+		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
+		liveService = { publish: jest.fn().mockResolvedValue(undefined) }
+		service = new EscalationService(
+			conversationService as never,
+			auditService as never,
+			liveService as never
+		)
+		mockUpdate.mockReturnValue({ set: () => ({ where: async () => [] }) })
 		mockInsert.mockReturnValue({
 			values: jest.fn().mockReturnValue({
 				returning: jest
@@ -50,6 +70,110 @@ describe("EscalationService", () => {
 					.mockResolvedValue([{ id: "escalation-1", createdAt: new Date("2026-11-19T00:00:00Z") }]),
 			}),
 		})
+	})
+
+	it("claims once under row locks and activates the conversation", async () => {
+		mockSelect
+			.mockReturnValueOnce({
+				from: () => ({
+					where: () => ({
+						for: async () => [
+							{ id: "escalation-1", conversationId: "conversation-1", status: "queued" },
+						],
+					}),
+				}),
+			})
+			.mockReturnValueOnce({
+				from: () => ({ where: () => ({ for: async () => [{ status: "escalation_requested" }] }) }),
+			})
+
+		const result = await service.claim("escalation-1", "agent-1")
+
+		expect(result).toMatchObject({ status: "claimed", assignedAgentId: "agent-1" })
+		expect(conversationService.activateAgent).toHaveBeenCalledWith(mockTx, "conversation-1")
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "escalations.claimed", actorId: "agent-1" }),
+			mockTx
+		)
+		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
+	})
+
+	it("rejects a second claim without changing state", async () => {
+		mockSelect.mockReturnValueOnce({
+			from: () => ({
+				where: () => ({
+					for: async () => [
+						{ id: "escalation-1", conversationId: "conversation-1", status: "claimed" },
+					],
+				}),
+			}),
+		})
+
+		await expect(service.claim("escalation-1", "agent-2")).rejects.toBeInstanceOf(ConflictException)
+		expect(mockUpdate).not.toHaveBeenCalled()
+		expect(auditService.writeAudit).not.toHaveBeenCalled()
+		expect(liveService.publish).not.toHaveBeenCalled()
+	})
+
+	it("stores replies through ConversationService and publishes them", async () => {
+		mockSelect.mockReturnValueOnce({
+			from: () => ({
+				where: () => ({
+					for: async () => [
+						{
+							id: "escalation-1",
+							conversationId: "conversation-1",
+							status: "claimed",
+							assignedAgentId: "agent-1",
+						},
+					],
+				}),
+			}),
+		})
+
+		const result = await service.reply("escalation-1", "agent-1", "How can I help?")
+
+		expect(result).toMatchObject({ id: "message-1" })
+		expect(conversationService.postAgentMessage).toHaveBeenCalledWith(mockTx, {
+			conversationId: "conversation-1",
+			agentId: "agent-1",
+			content: "How can I help?",
+		})
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({ action: "escalations.agent_replied", actorId: "agent-1" }),
+			mockTx
+		)
+		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
+	})
+
+	it("resolves the escalation with an outcome note", async () => {
+		mockSelect.mockReturnValueOnce({
+			from: () => ({
+				where: () => ({
+					for: async () => [
+						{
+							id: "escalation-1",
+							conversationId: "conversation-1",
+							status: "claimed",
+							assignedAgentId: "agent-1",
+						},
+					],
+				}),
+			}),
+		})
+
+		const result = await service.resolve(
+			"escalation-1",
+			"agent-1",
+			"Customer received the tracking details"
+		)
+
+		expect(result).toMatchObject({
+			status: "resolved",
+			outcomeNote: "Customer received the tracking details",
+		})
+		expect(conversationService.resolveByAgent).toHaveBeenCalledWith(mockTx, "conversation-1")
+		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
 	})
 
 	it("creates a queued escalation and transitions the owned conversation in one transaction", async () => {

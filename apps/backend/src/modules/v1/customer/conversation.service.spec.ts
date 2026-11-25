@@ -41,7 +41,10 @@ function chainedInsert(table?: { name?: string }) {
 			inserted.push({ table: table?.name ?? "messages", values })
 			return {
 				returning: async () => [
-					{ id: table?.name === "conversations" ? "conversation-1" : `message-${insertCounter}` },
+					{
+						id: table?.name === "conversations" ? "conversation-1" : `message-${insertCounter}`,
+						createdAt: new Date("2026-11-23T00:00:00.000Z"),
+					},
 				],
 			}
 		},
@@ -240,6 +243,35 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 				customerMessageId: "message-1",
 				assistantMessageId: "message-2",
 			})
+			expect(
+				eventService.record.mock.calls.filter(([event]) => event.kind === "message_received")
+			).toHaveLength(1)
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "answer_classified",
+					category: "other",
+					language: "en",
+					channelCode: "web-widget",
+					payload: {
+						answerKind: "answer",
+						eligible: false,
+						turnIndex: 0,
+					},
+				},
+				tx
+			)
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "message_received",
+					category: "other",
+					language: "en",
+					channelCode: "web-widget",
+					payload: { eligible: false, failed: false, turnIndex: 0 },
+				},
+				tx
+			)
 			expect(eventService.record).toHaveBeenCalledWith(
 				{
 					conversationId: "conversation-1",
@@ -247,6 +279,11 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 					category: "other",
 					language: "en",
 					channelCode: "web-widget",
+					payload: {
+						answerKind: "answer",
+						eligible: false,
+						turnIndex: 0,
+					},
 				},
 				tx
 			)
@@ -278,6 +315,60 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 
 			expect(inserted[0]?.values.turnIndex).toBe(4)
 			expect(inserted[1]?.values.turnIndex).toBe(5)
+		})
+
+		it("stores customer messages during handoff without creating an assistant turn", async () => {
+			lockedConversationStatus = "agent_active"
+
+			const result = await service.recordCustomerMessage({
+				conversationId: "conversation-1",
+				customerSessionId: "session-1",
+				maskedQuery: "Where is [TRACKING_NUMBER]?",
+			})
+
+			expect(result).toMatchObject({ id: "message-1", turnIndex: 0 })
+			expect(inserted).toEqual([
+				{
+					table: "messages",
+					values: expect.objectContaining({
+						role: "user",
+						sender: "customer",
+						content: "Where is [TRACKING_NUMBER]?",
+						turnIndex: 0,
+					}),
+				},
+			])
+		})
+
+		it("stores human replies with sender agent and the assigned agent id", async () => {
+			lockedConversationStatus = "agent_active"
+
+			const result = await service.postAgentMessage(tx as never, {
+				conversationId: "conversation-1",
+				agentId: "agent-1",
+				content: "Your parcel is on the way.",
+			})
+
+			expect(result).toMatchObject({ sender: "agent", content: "Your parcel is on the way." })
+			expect(inserted[0]?.values).toMatchObject({
+				role: "assistant",
+				sender: "agent",
+				agentId: "agent-1",
+				content: "Your parcel is on the way.",
+			})
+		})
+
+		it("rejects a human reply after the conversation is no longer agent-active", async () => {
+			lockedConversationStatus = "resolved_by_agent"
+
+			await expect(
+				service.postAgentMessage(tx as never, {
+					conversationId: "conversation-1",
+					agentId: "agent-1",
+					content: "Late reply",
+				})
+			).rejects.toThrow("This conversation is not active with an agent")
+			expect(inserted).toHaveLength(0)
 		})
 
 		it("records a refusal as its own answer kind", async () => {
