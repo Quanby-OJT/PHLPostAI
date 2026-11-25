@@ -3,6 +3,7 @@ import {
 	Body,
 	ConflictException,
 	Controller,
+	Get,
 	Headers,
 	NotFoundException,
 	Post,
@@ -24,7 +25,9 @@ import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
+import { ChannelAdapterRegistry } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
+import { ChannelsService, WEB_WIDGET_CHANNEL } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import {
 	CustomerChatService,
@@ -59,8 +62,20 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
-		private readonly ragGatewayService: RagGatewayService
+		private readonly ragGatewayService: RagGatewayService,
+		private readonly channelAdapters: ChannelAdapterRegistry,
+		private readonly channelsService: ChannelsService
 	) {}
+
+	@AllowAnonymous()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.channelStatus)
+	async channelStatus() {
+		return implement(v1.customer.channelStatus).handler(async () => ({
+			enabled: true,
+			welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
+		}))
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -78,6 +93,7 @@ export class CustomerController {
 				channelCode: row.channelCode as typeof input.channelCode,
 				language: row.language as typeof input.language,
 				idleExpiresAt: this.customerSessionService.idleExpiresAt(row.lastSeenAt).toISOString(),
+				welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
 			}
 		})
 	}
@@ -106,16 +122,20 @@ export class CustomerController {
 	) {
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
+			const adapter = this.channelAdapters.get(
+				session.channelCode === "web" ? "web-widget" : session.channelCode
+			)
+			const message = adapter.receive(input)
 			const conversation = await this.resolveConversation(
 				session,
-				input.conversationId,
+				message.conversationId,
 				toORPCError
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, conversation.id, input.query, correlationId)
+				classification = await this.classify(session, conversation.id, message.text, correlationId)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 				if (refusal) return refusal
@@ -124,7 +144,9 @@ export class CustomerController {
 
 			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(conversation.id, classification, correlationId)
+					return adapter.send(
+						await this.answerTracking(conversation.id, classification, correlationId)
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -132,7 +154,9 @@ export class CustomerController {
 
 			if (classification.route === "rates") {
 				try {
-					return await this.answerRates(session, conversation.id, classification, correlationId)
+					return adapter.send(
+						await this.answerRates(session, conversation.id, classification, correlationId)
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -141,7 +165,7 @@ export class CustomerController {
 			let envelope: RagAnswerEnvelope
 			try {
 				envelope = (await this.ragGatewayService.submitChatQuery({
-					query: input.query,
+					query: message.text,
 					userId: this.principalFor(session),
 					permissions: CUSTOMER_SERVICE_PERMISSIONS,
 					requestId: correlationId,
@@ -162,7 +186,7 @@ export class CustomerController {
 				envelope,
 				classification,
 			})
-			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
+			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
 	}
 
@@ -192,18 +216,17 @@ export class CustomerController {
 		if (!parsed.success) {
 			throw new BadRequestException(parsed.error.issues[0]?.message ?? "Invalid question")
 		}
-		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
+		const adapter = this.channelAdapters.get(
+			session.channelCode === "web" ? "web-widget" : session.channelCode
+		)
+		const message = adapter.receive(parsed.data)
+		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(
-				session,
-				conversation.id,
-				parsed.data.query,
-				correlationId
-			)
+			classification = await this.classify(session, conversation.id, message.text, correlationId)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 			if (refusal) {
@@ -221,7 +244,7 @@ export class CustomerController {
 					classification.route === "tracking"
 						? await this.answerTracking(conversation.id, classification, correlationId)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
-				response.status(200).json(turn)
+				response.status(200).json(adapter.send(turn))
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
@@ -251,7 +274,7 @@ export class CustomerController {
 					"x-request-id": correlationId,
 				},
 				body: JSON.stringify({
-					query: parsed.data.query,
+					query: message.text,
 					persist: false,
 					...ragLanguageFields(classification),
 				}),
@@ -311,10 +334,10 @@ export class CustomerController {
 				classification,
 			})
 			response.write(
-				formatSseFrame("final", {
-					...turn,
-					conversationId: conversation.id,
-				} satisfies CustomerAnswer)
+				formatSseFrame(
+					"final",
+					adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
+				)
 			)
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly

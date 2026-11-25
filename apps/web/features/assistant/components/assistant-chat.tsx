@@ -12,6 +12,7 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
+	getChannelStatus,
 	RateLimitedError,
 	requestHumanHandoff,
 	SESSION_STORAGE_KEY,
@@ -119,6 +120,8 @@ export function AssistantChat() {
 	const [handoffDone, setHandoffDone] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [channelEnabled, setChannelEnabled] = useState(true)
+	const [welcomeText, setWelcomeText] = useState("")
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
@@ -126,6 +129,8 @@ export function AssistantChat() {
 	// Restore this tab's chat after mount (not during render, to avoid a hydration mismatch).
 	useEffect(() => {
 		const stored = readStoredChat()
+		const storedSession = readStoredSession()
+		if (storedSession?.welcomeText) setWelcomeText(storedSession.welcomeText)
 		if (stored) {
 			setAccepted(stored.accepted)
 			setConversationId(stored.conversationId)
@@ -134,6 +139,27 @@ export function AssistantChat() {
 			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
 		setReady(true)
+	}, [])
+
+	useEffect(() => {
+		let alive = true
+		const refresh = async () => {
+			try {
+				const status = await getChannelStatus()
+				if (alive) {
+					setChannelEnabled(status.enabled)
+					setWelcomeText(status.welcomeText)
+				}
+			} catch (cause) {
+				if (alive && cause instanceof ApiError && cause.status === 503) setChannelEnabled(false)
+			}
+		}
+		void refresh()
+		const timer = window.setInterval(() => void refresh(), 30_000)
+		return () => {
+			alive = false
+			window.clearInterval(timer)
+		}
 	}, [])
 
 	// Save the chat whenever a turn settles.
@@ -168,7 +194,12 @@ export function AssistantChat() {
 				if (stored) return stored.sessionToken
 			}
 			const session = await startSession(language)
-			storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt })
+			storeSession({
+				sessionToken: session.sessionToken,
+				idleExpiresAt: session.idleExpiresAt,
+				welcomeText: session.welcomeText,
+			})
+			if (session.welcomeText) setWelcomeText(session.welcomeText)
 			return session.sessionToken
 		},
 		[language]
@@ -210,7 +241,7 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone) return
+			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone || !channelEnabled) return
 
 			setQuestion("")
 			setError(null)
@@ -398,7 +429,7 @@ export function AssistantChat() {
 						className="flex-1 space-y-4 overflow-y-auto"
 					>
 						{turns.length === 0 ? (
-							<p className="mt-16 text-center text-sm">{copy.emptyPrompt}</p>
+							<p className="mt-16 text-center text-sm">{welcomeText || copy.emptyPrompt}</p>
 						) : (
 							turns.map((turn, index) => (
 								<div
@@ -478,6 +509,11 @@ export function AssistantChat() {
 							{error}
 						</p>
 					) : null}
+					{!channelEnabled ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							The assistant is unavailable right now. Please try again later.
+						</p>
+					) : null}
 
 					<form onSubmit={ask} className="flex gap-2 border-t pt-3">
 						<label className="sr-only" htmlFor="assistant-question">
@@ -492,12 +528,14 @@ export function AssistantChat() {
 							autoComplete="off"
 							maxLength={1000}
 							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-							disabled={busy || waitSeconds > 0 || handoffDone}
+							disabled={busy || waitSeconds > 0 || handoffDone || !channelEnabled}
 						/>
 						<button
 							type="submit"
 							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
-							disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
+							disabled={
+								busy || waitSeconds > 0 || handoffDone || !channelEnabled || question.trim() === ""
+							}
 						>
 							{busy ? copy.asking : copy.ask}
 						</button>
