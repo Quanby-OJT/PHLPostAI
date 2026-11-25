@@ -38,6 +38,12 @@ export const CustomerSessionSchema = z.object({
 	language: CustomerLanguageSchema,
 	/** When the session lapses if the customer stops sending messages. */
 	idleExpiresAt: z.string(),
+	welcomeText: z.string().optional(),
+})
+
+export const CustomerChannelStatusSchema = z.object({
+	enabled: z.boolean(),
+	welcomeText: z.string(),
 })
 
 /** CNV-4: the language picked from the widget menu; later replies use it. */
@@ -98,3 +104,4 @@ export type SetCustomerLanguageRequest = z.infer<typeof SetCustomerLanguageReque
 export type CustomerSessionLanguage = z.infer<typeof CustomerSessionLanguageSchema>
 export type CustomerAnswerSource = z.infer<typeof CustomerAnswerSourceSchema>
 export type CustomerAnswer = z.infer<typeof CustomerAnswerSchema>
+export type CustomerChannelStatus = z.infer<typeof CustomerChannelStatusSchema>

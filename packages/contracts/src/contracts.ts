@@ -187,6 +187,13 @@ export * from "./modules/v1/knowledge/knowledge.schema.js"
 export { customerContract } from "./modules/v1/customer/customer.contract.js"
 export { trackingContract } from "./modules/v1/tracking/tracking.contract.js"
 export * from "./modules/v1/tracking/tracking.schema.js"
+export { channelsContract } from "./modules/v1/channels/channels.contract.js"
+export {
+	ChannelSchema,
+	ChannelConfigSchema,
+	UpdateChannelSchema,
+} from "./modules/v1/channels/channels.schema.js"
+export type { Channel, UpdateChannel } from "./modules/v1/channels/channels.schema.js"
 export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
 export {
 	InteractionEventKindSchema,
@@ -211,6 +218,7 @@ export {
 	CustomerAnswerSchema,
 	AgentModeResultSchema,
 	CustomerChatResultSchema,
+	CustomerChannelStatusSchema,
 } from "./modules/v1/customer/customer.schema.js"
 export type {
 	CustomerChannelCode,
@@ -223,6 +231,7 @@ export type {
 	CustomerSessionLanguage,
 	CustomerAnswerSource,
 	CustomerAnswer,
+	CustomerChannelStatus,
 } from "./modules/v1/customer/customer.schema.js"
 
 export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"

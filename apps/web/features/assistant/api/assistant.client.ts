@@ -19,6 +19,13 @@ const DEFAULT_RETRY_AFTER_SECONDS = 60
 export interface StoredSession {
 	sessionToken: string
 	idleExpiresAt: string
+	welcomeText?: string
+}
+
+export async function getChannelStatus(): Promise<{ enabled: boolean; welcomeText: string }> {
+	const response = await fetch(`${API_BASE}/customer/channel-status`, { cache: "no-store" })
+	if (!response.ok) throw await parseError(response)
+	return (await response.json()) as { enabled: boolean; welcomeText: string }
 }
 
 /** 429 from the per-session or per-IP limiter (CHN-1). */
@@ -112,7 +119,10 @@ export interface AgentMessageEvent {
 export async function watchAgentConversation(
 	conversationId: string,
 	sessionToken: string,
-	handlers: { onMessage: (message: AgentMessageEvent) => void; onStatus: (status: string) => void },
+	handlers: {
+		onMessage: (message: AgentMessageEvent) => void
+		onStatus: (status: string) => void
+	},
 	signal: AbortSignal
 ): Promise<void> {
 	const response = await fetch(`${API_BASE}/customer/conversations/${conversationId}/events`, {

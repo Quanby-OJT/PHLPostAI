@@ -1,6 +1,7 @@
 import { oc } from "@orpc/contract"
 
 import {
+	CustomerChannelStatusSchema,
 	CustomerChatRequestSchema,
 	CustomerChatResultSchema,
 	CustomerSessionLanguageSchema,
@@ -21,6 +22,14 @@ import {
  * and the corpus upload: oRPC is JSON-only (Tech Plan §5, D3).
  */
 export const customerContract = {
+	channelStatus: oc
+		.route({
+			method: "GET",
+			path: "/customer/channel-status",
+			summary: "Check widget availability",
+			tags: ["Customer"],
+		})
+		.output(CustomerChannelStatusSchema),
 	session: {
 		start: oc
 			.route({
