@@ -40,10 +40,10 @@ class ChatModelClient(Protocol):
     provider: str
 
     async def complete(
-        self, messages: list[dict[str, str]]
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
     ) -> tuple[str, dict[str, int] | None]: ...
 
-    def stream(self, messages: list[dict[str, str]]) -> Any: ...
+    def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any: ...
 
 
 class OpenAIChatClient:
@@ -65,13 +65,16 @@ class OpenAIChatClient:
             self._client = AsyncOpenAI(api_key=self._settings.openai_api_key.get_secret_value())
         return self._client
 
-    async def complete(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, int] | None]:
+    async def complete(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> tuple[str, dict[str, int] | None]:
         """One non-streamed chat completion under the hard timeout; returns
         (answer text, token usage) and validates the output is non-empty."""
         response = await with_hard_timeout(
             self._openai().chat.completions.create(
                 model=self.model,
                 messages=messages,  # type: ignore[arg-type]
+                **({"max_tokens": max_tokens} if max_tokens is not None else {}),
                 stream=False,
             ),
             seconds=self._settings.external_call_timeout_seconds,
@@ -92,13 +95,14 @@ class OpenAIChatClient:
         )
         return content, token_usage
 
-    async def stream(self, messages: list[dict[str, str]]) -> Any:
+    async def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any:
         """Streamed completion (GN-3): yields text deltas, then a final
         ("__usage__", token_usage) sentinel tuple."""
         stream = await with_hard_timeout(
             self._openai().chat.completions.create(
                 model=self.model,
                 messages=messages,  # type: ignore[arg-type]
+                **({"max_tokens": max_tokens} if max_tokens is not None else {}),
                 stream=True,
                 stream_options={"include_usage": True},
             ),
@@ -174,11 +178,13 @@ class AnthropicChatClient:
             "totalTokens": usage.input_tokens + usage.output_tokens,
         }
 
-    async def complete(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, int] | None]:
+    async def complete(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> tuple[str, dict[str, int] | None]:
         system, chat = self._split_messages(messages)
         request_kwargs: _AnthropicRequestKwargs = {
             "model": self.model,
-            "max_tokens": self._settings.generation_max_tokens,
+            "max_tokens": max_tokens or self._settings.generation_max_tokens,
             "messages": chat,
         }
         if system:
@@ -195,14 +201,14 @@ class AnthropicChatClient:
             raise RuntimeError(f"Anthropic returned an empty completion (model={self.model})")
         return content, self._usage(getattr(response, "usage", None))
 
-    async def stream(self, messages: list[dict[str, str]]) -> Any:
+    async def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any:
         """Streamed completion: same delta + ("__usage__", usage) contract.
         Opening the stream runs under the hard timeout (GN-5 timeout audit);
         the stream itself is unbounded by design (long answers)."""
         system, chat = self._split_messages(messages)
         request_kwargs: _AnthropicRequestKwargs = {
             "model": self.model,
-            "max_tokens": self._settings.generation_max_tokens,
+            "max_tokens": max_tokens or self._settings.generation_max_tokens,
             "messages": chat,
         }
         if system:

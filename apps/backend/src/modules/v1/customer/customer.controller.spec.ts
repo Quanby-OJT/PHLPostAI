@@ -31,7 +31,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { customer: { session: { start: {}, setLanguage: {} }, chat: { send: {} } } },
+	v1: {
+		customer: {
+			session: { start: {}, setLanguage: {} },
+			conversation: { end: {} },
+			chat: { send: {} },
+		},
+	},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -128,6 +134,7 @@ class TestChannelAdapter implements ChannelAdapter {
 const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "retrieval" as const,
@@ -135,6 +142,7 @@ const RETRIEVAL_CLASSIFICATION = {
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "tracking" as const,
@@ -151,6 +159,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
+		endCustomerConversation: jest.Mock
+		recordUnansweredInquiry: jest.Mock
 		recordCustomerMessage: jest.Mock
 	}
 	let customerChatService: {
@@ -180,6 +190,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				.fn()
 				.mockResolvedValue({ id: "conversation-1", channelCode: "web" }),
 			findOwnedByCustomerSession: jest.fn().mockResolvedValue(null),
+			endCustomerConversation: jest.fn(),
+			recordUnansweredInquiry: jest.fn(),
 			recordCustomerMessage: jest.fn().mockResolvedValue({ id: "message-3", turnIndex: 3 }),
 		}
 		customerChatService = {
@@ -232,6 +244,9 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
+			{
+				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
+			} as never,
 			ragGatewayService as unknown as RagGatewayService,
 			{ publish: jest.fn(), stream: jest.fn() } as never,
 			channelAdapters,
@@ -345,15 +360,12 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 		})
 
-		it("forwards the token frames verbatim", async () => {
+		it("withholds draft tokens until confidence is known, then sends the finalized answer", async () => {
 			const { response, state } = responseDouble()
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
-			expect(state.written.slice(0, 2)).toEqual([
-				'event: token\ndata: {"delta":"165 "}\n\n',
-				'event: token\ndata: {"delta":"pesos."}\n\n',
-			])
+			expect(state.written[0]).toBe('event: token\ndata: {"delta":"165 pesos."}\n\n')
 			expect(state.headers["content-type"]).toBe("text/event-stream")
 		})
 
@@ -396,11 +408,14 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
-			expect(customerChatService.completeTurn).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
-				classification: RETRIEVAL_CLASSIFICATION,
-			})
+			expect(customerChatService.completeTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
+					classification: RETRIEVAL_CLASSIFICATION,
+					requestStartedAt: expect.any(Number),
+				})
+			)
 		})
 
 		it("asks the RAG service not to persist the turn itself", async () => {
@@ -412,6 +427,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(body).toEqual({
 				query: "how much",
 				persist: false,
+				maxOutputTokens: 200,
 				language: "en",
 				queryLanguage: "en",
 				glossary: ["PHLPost"],
@@ -655,11 +671,15 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			)
 
 			expect(fetchMock).not.toHaveBeenCalled()
-			expect(customerChatService.answerTracking).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				classification: TRACKING_CLASSIFICATION,
-				correlationId: "req-1",
-			})
+			expect(customerChatService.answerTracking).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					classification: TRACKING_CLASSIFICATION,
+					correlationId: "req-1",
+					explanationLanguage: "en",
+					requestStartedAt: expect.any(Number),
+				})
+			)
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
@@ -711,6 +731,41 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
+		})
+	})
+
+	describe("CNV-3: the JSON route caps routine answers too", () => {
+		type Handler = (args: { input: { query: string } }) => Promise<unknown>
+
+		beforeEach(() => {
+			ragGatewayService.submitChatQuery.mockResolvedValue({
+				answer: "165 pesos.",
+				screenedQuery: "how much",
+			})
+		})
+
+		it("sends the limit for an eligible category", async () => {
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ maxOutputTokens: 200 })
+			)
+		})
+
+		it("leaves the limit off for a category that is not eligible", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				eligible: false,
+			})
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery.mock.calls[0]?.[0]).not.toHaveProperty(
+				"maxOutputTokens"
 			)
 		})
 	})

@@ -1,5 +1,12 @@
 import { defineRelations, sql } from "drizzle-orm"
-import { customType, index, primaryKey, unique, type AnyPgColumn } from "drizzle-orm/pg-core"
+import {
+	customType,
+	index,
+	primaryKey,
+	unique,
+	uniqueIndex,
+	type AnyPgColumn,
+} from "drizzle-orm/pg-core"
 
 import { createTable } from "./utils/table.js"
 
@@ -483,6 +490,9 @@ export const messages = createTable(
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
 		confidence: t.real("confidence"),
+		retrievalScore: t.real("retrieval_score"),
+		groundednessResult: t.jsonb("groundedness_result").$type<Record<string, unknown> | null>(),
+		outputTokens: t.integer("output_tokens"),
 		retrievedChunks: t.jsonb("retrieved_chunks").$type<unknown>(),
 		// GN-2: the chunks actually USED in the prompt (rank-then-select under
 		// the hard token budget) — recorded separately from retrievedChunks so
@@ -569,6 +579,39 @@ export const interactionEvents = createTable(
 		index("interaction_events_occurred_at_idx").on(t.occurredAt),
 		index("interaction_events_kind_occurred_at_idx").on(t.kind, t.occurredAt),
 	]
+)
+
+/** Approved, immutable-by-version method for the deflection KPI (ANL-3). */
+export const kpiDefinitions = createTable(
+	"kpi_definitions",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		code: t.text("code").notNull(),
+		version: t.integer("version").notNull(),
+		method: t.jsonb("method").$type<Record<string, unknown>>().notNull(),
+		baseline: t.jsonb("baseline").$type<{ eligible: number; resolved: number } | null>(),
+		target: t.real("target").notNull().default(0.7),
+		approvedBy: t
+			.text("approved_by")
+			.notNull()
+			.references(() => users.id),
+		effectiveFrom: t.timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		unique("kpi_definitions_code_version_unique").on(t.code, t.version),
+		index("kpi_definitions_effective_from_idx").on(t.code, t.effectiveFrom),
+	]
+)
+
+/** Saved dashboard tiles. A null user_id row is the workspace default. */
+export const dashboardLayouts = createTable(
+	"dashboard_layouts",
+	t => ({
+		userId: t.text("user_id").references(() => users.id, { onDelete: "cascade" }),
+		tiles: t.jsonb("tiles").$type<string[]>().notNull(),
+	}),
+	t => [uniqueIndex("dashboard_layouts_user_id_uq").on(t.userId)]
 )
 
 /**
@@ -1063,7 +1106,6 @@ export const relations = defineRelations(
 	})
 )
 
-
 export const inquiryCategories = createTable("inquiry_categories", t => ({
 	code: t.text("code").primaryKey(),
 	name: t.text("name").notNull(),
@@ -1071,6 +1113,13 @@ export const inquiryCategories = createTable("inquiry_categories", t => ({
 	isActive: t.boolean("is_active").notNull().default(true),
 	createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}))
+
+/** Admin-managed assistant controls (CNV-3). Values are JSON to keep settings extensible. */
+export const assistantSettings = createTable("assistant_settings", t => ({
+	key: t.text("key").primaryKey(),
+	value: t.jsonb("value").notNull().$type<unknown>(),
+	updatedBy: t.text("updated_by").notNull(),
 }))
 
 // ============================================================================
@@ -1096,6 +1145,8 @@ export const schema = Object.assign(
 		conversations,
 		messages,
 		escalations,
+		interactionEvents,
+		dashboardLayouts,
 		goldenItems,
 		evalRuns,
 		evalBaselines,
@@ -1112,6 +1163,8 @@ export const schema = Object.assign(
 		trackingLookups,
 		statusExplanations,
 		inquiryCategories,
+		kpiDefinitions,
+		assistantSettings,
 		rateBatches,
 		rateEntries,
 	},

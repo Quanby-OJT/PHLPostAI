@@ -26,6 +26,7 @@ import { ConversationLiveService } from "@/common/conversation-live/conversation
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
+import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
@@ -66,6 +67,7 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
+		private readonly assistantSettingsService: AssistantSettingsService,
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly conversationLiveService: ConversationLiveService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
@@ -107,14 +109,30 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
-	@Implement(v1.customer.session.setLanguage)
-	async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
-		return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
-			const session = await this.requireSession(sessionToken, toORPCError)
-			await this.customerSessionService.setLanguage(session.id, input.language)
-			return { language: input.language }
-		})
-	}
+@Implement(v1.customer.conversation.end)
+async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+  return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+    const session = await this.requireSession(sessionToken, toORPCError)
+    return this.conversationService.endCustomerConversation({
+      conversationId: input.conversationId,
+      customerSessionId: session.id,
+    })
+  })
+}
+
+@AllowAnonymous()
+@StrictThrottle()
+@SessionThrottle()
+@UseGuards(AllowedOriginGuard)
+@Implement(v1.customer.session.setLanguage)
+async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+  return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+    const session = await this.requireSession(sessionToken, toORPCError)
+    await this.customerSessionService.setLanguage(session.id, input.language)
+    return { language: input.language }
+  })
+}
+
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -125,6 +143,7 @@ export class CustomerController {
 		@Headers("x-customer-session") sessionToken: string | undefined,
 		@Req() request: RequestWithId
 	) {
+		const startedAt = performance.now()
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
 			const adapter = this.channelAdapters.get(
@@ -155,17 +174,34 @@ export class CustomerController {
 			try {
 				classification = await this.classify(session, conversation.id, message.text, correlationId)
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
+			const settings = await this.assistantSettingsService.get()
 
 			if (classification.route === "tracking") {
 				try {
 					return adapter.send(
-						await this.answerTracking(conversation.id, classification, correlationId)
+						await this.answerTracking(
+	            session,
+	            conversation.id,
+	            classification,
+	            correlationId,
+	            startedAt
+            )
 					)
 				} catch (error) {
+					await this.conversationService.recordUnansweredInquiry({
+						conversationId: conversation.id,
+						category: classification.category,
+					})
 					return toORPCError(error)
 				}
 			}
@@ -176,6 +212,10 @@ export class CustomerController {
 						await this.answerRates(session, conversation.id, classification, correlationId)
 					)
 				} catch (error) {
+					await this.conversationService.recordUnansweredInquiry({
+						conversationId: conversation.id,
+						category: classification.category,
+					})
 					return toORPCError(error)
 				}
 			}
@@ -191,11 +231,22 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
-				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+				const refusal = await this.refuseIfScreened(
+					error,
+					session,
+					conversation.id,
+					correlationId,
+					startedAt
+				)
 				if (refusal) return refusal
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				return toORPCError(error)
 			}
 
@@ -203,6 +254,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				requestStartedAt: startedAt,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
@@ -229,6 +281,7 @@ export class CustomerController {
 		@Req() request: RequestWithId,
 		@Res() response: Response
 	) {
+		const startedAt = performance.now()
 		const session = await this.requireSession(sessionToken)
 		const parsed = CustomerChatRequestSchema.safeParse(body)
 		if (!parsed.success) {
@@ -259,7 +312,13 @@ export class CustomerController {
 		try {
 			classification = await this.classify(session, conversation.id, message.text, correlationId)
 		} catch (error) {
-			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
+			const refusal = await this.refuseIfScreened(
+				error,
+				session,
+				conversation.id,
+				correlationId,
+				startedAt
+			)
 			if (refusal) {
 				response.status(200).json(refusal)
 			} else {
@@ -267,16 +326,27 @@ export class CustomerController {
 			}
 			return
 		}
+		const assistantSettings = await this.assistantSettingsService.get()
 
 		// Tool turns (tracking, rates) are answered by their tool, not streamed.
 		if (classification.route === "tracking" || classification.route === "rates") {
 			try {
 				const turn =
 					classification.route === "tracking"
-						? await this.answerTracking(conversation.id, classification, correlationId)
+						? await this.answerTracking(
+								session,
+								conversation.id,
+								classification,
+								correlationId,
+								startedAt
+							)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(adapter.send(turn))
 			} catch {
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
 			return
@@ -289,7 +359,6 @@ export class CustomerController {
 			traceId: correlationId,
 			actorType: "customer",
 		})
-
 		// Abort the upstream call (and the provider's own stream) when the
 		// browser goes away, so a closed tab stops costing tokens.
 		const abort = new AbortController()
@@ -307,11 +376,18 @@ export class CustomerController {
 				body: JSON.stringify({
 					query: message.text,
 					persist: false,
+					...(classification.eligible && {
+						maxOutputTokens: assistantSettings.maxOutputTokens,
+					}),
 					...ragLanguageFields(classification),
 				}),
 				signal: abort.signal,
 			})
 		} catch {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -326,6 +402,7 @@ export class CustomerController {
 				channelCode: conversation.channelCode ?? session.channelCode,
 				reason,
 				traceId: correlationId,
+				requestStartedAt: startedAt,
 			})
 			response.status(200).json({
 				...refusal,
@@ -335,6 +412,10 @@ export class CustomerController {
 		}
 
 		if (!upstream.ok || upstream.body === null) {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -348,13 +429,16 @@ export class CustomerController {
 		response.flushHeaders()
 
 		let envelope: RagAnswerEnvelope | null = null
+		let turnRecorded = false
 		try {
 			for await (const frame of readSseFrames(upstream.body)) {
 				if (frame.event === "final") {
 					envelope = frame.data ? (JSON.parse(frame.data) as RagAnswerEnvelope) : {}
 					continue
 				}
-				response.write(`${frame.raw}\n\n`)
+				// Hold draft deltas until confidence is known. A below-threshold
+				// answer must never leak before its safe uncertainty response.
+				if (frame.event !== "token") response.write(`${frame.raw}\n\n`)
 			}
 
 			if (envelope === null) throw new Error("RAG stream ended without a final frame")
@@ -363,7 +447,10 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				requestStartedAt: startedAt,
 			})
+			turnRecorded = true
+			response.write(formatSseFrame("token", { delta: turn.answer }))
 			response.write(
 				formatSseFrame(
 					"final",
@@ -373,6 +460,11 @@ export class CustomerController {
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly
 			// rather than leaving the page hanging on a half-written answer.
+			if (!turnRecorded)
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 			if (!abort.signal.aborted) {
 				response.write(
 					formatSseFrame("final", {
@@ -458,14 +550,18 @@ export class CustomerController {
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
+		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		requestStartedAt?: number
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerTracking({
 			conversationId,
 			classification,
 			correlationId,
+			requestStartedAt,
+			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
 	}
@@ -547,7 +643,8 @@ export class CustomerController {
 		error: unknown,
 		session: CustomerSessionRow,
 		conversationId: string,
-		traceId: string
+		traceId: string,
+		requestStartedAt?: number
 	) {
 		const status =
 			error && typeof error === "object" && "getStatus" in error
@@ -561,6 +658,7 @@ export class CustomerController {
 			channelCode: session.channelCode,
 			reason: error instanceof Error ? error.message : "screened",
 			traceId,
+			requestStartedAt,
 		})
 		return { ...refusal, conversationId } satisfies CustomerAnswer
 	}

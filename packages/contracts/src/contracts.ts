@@ -198,10 +198,36 @@ export { analyticsContract } from "./modules/v1/analytics/analytics.contract.js"
 export {
 	InteractionEventKindSchema,
 	AnalyticsOverviewSchema,
+	DeflectionMethodSchema,
+	KpiBaselineSchema,
+	KpiDefinitionSchema,
+	KpiDefinitionListSchema,
+	SaveKpiDefinitionRequestSchema,
+	DeflectionReportRequestSchema,
+	DeflectionReportSchema,
+	DeflectionDrilldownRowSchema,
+	DeflectionDrilldownSchema,
+	DashboardTileSchema,
+	AnalyticsDashboardFiltersSchema,
+	AnalyticsDashboardSchema,
+	DashboardLayoutSchema,
 } from "./modules/v1/analytics/analytics.schema.js"
 export type {
 	InteractionEventKind,
 	AnalyticsOverview,
+	DeflectionMethod,
+	KpiBaseline,
+	KpiDefinition,
+	KpiDefinitionList,
+	SaveKpiDefinitionRequest,
+	DeflectionReportRequest,
+	DeflectionReport,
+	DeflectionDrilldownRow,
+	DeflectionDrilldown,
+	DashboardTile,
+	AnalyticsDashboardFilters,
+	AnalyticsDashboard,
+	DashboardLayout,
 } from "./modules/v1/analytics/analytics.schema.js"
 export {
 	CUSTOMER_CHANNEL_CODES,
@@ -210,6 +236,8 @@ export {
 	CustomerLanguageSchema,
 	CustomerAnswerKindSchema,
 	StartCustomerSessionRequestSchema,
+	EndCustomerConversationRequestSchema,
+	EndCustomerConversationResponseSchema,
 	CustomerSessionSchema,
 	CustomerChatRequestSchema,
 	SetCustomerLanguageRequestSchema,
@@ -225,6 +253,8 @@ export type {
 	CustomerLanguage,
 	CustomerAnswerKind,
 	StartCustomerSessionRequest,
+	EndCustomerConversationRequest,
+	EndCustomerConversationResponse,
 	CustomerSession,
 	CustomerChatRequest,
 	SetCustomerLanguageRequest,
@@ -237,12 +267,16 @@ export type {
 export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
 export {
 	CreateInquiryCategoryRequestSchema,
+	AssistantSettingsSchema,
 	InquiryCategorySchema,
+	UpdateAssistantSettingsRequestSchema,
 	UpdateInquiryCategoryRequestSchema,
 } from "./modules/v1/assistant/assistant.schema.js"
 export type {
 	CreateInquiryCategoryRequest,
+	AssistantSettings,
 	InquiryCategory,
+	UpdateAssistantSettingsRequest,
 	UpdateInquiryCategoryRequest,
 } from "./modules/v1/assistant/assistant.schema.js"
 

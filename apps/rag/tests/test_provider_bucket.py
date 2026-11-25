@@ -162,6 +162,33 @@ async def test_stream_wrapper_takes_one_token_per_stream(settings):
     assert redis.counters["bucket:metrics:acquired:openai"] == 1
 
 
+async def test_throttled_wrapper_forwards_output_token_limit(settings):
+    class TokenLimitChat(FakeChat):
+        def __init__(self):
+            super().__init__()
+            self.complete_limit = None
+            self.stream_limit = None
+
+        async def complete(self, messages, *, max_tokens=None):
+            self.complete_limit = max_tokens
+            return "answer", None
+
+        async def stream(self, messages, *, max_tokens=None):
+            self.stream_limit = max_tokens
+            yield "tok"
+
+    bucket, _ = make_bucket(settings())
+    inner = TokenLimitChat()
+    client = ThrottledChatClient(inner, bucket)
+
+    await client.complete([], max_tokens=40)
+    deltas = [item async for item in client.stream([], max_tokens=40)]
+
+    assert inner.complete_limit == 40
+    assert inner.stream_limit == 40
+    assert deltas == ["tok"]
+
+
 async def test_embedding_batches_draw_from_the_same_budget(settings):
     config = settings(
         PROVIDER_RPM_OPENAI="6",

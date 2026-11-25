@@ -12,6 +12,7 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
+	endConversation,
 	getChannelStatus,
 	RateLimitedError,
 	requestHumanHandoff,
@@ -128,6 +129,8 @@ export function AssistantChat() {
 	const [agentResolved, setAgentResolved] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [ending, setEnding] = useState(false)
+	const [endNotice, setEndNotice] = useState<string | null>(null)
 	const [channelEnabled, setChannelEnabled] = useState(true)
 	const [welcomeText, setWelcomeText] = useState("")
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
@@ -315,6 +318,7 @@ export function AssistantChat() {
 
 			setQuestion("")
 			setError(null)
+			setEndNotice(null)
 			setBusy(true)
 			setTurns(previous => [
 				...previous,
@@ -410,6 +414,24 @@ export function AssistantChat() {
 		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
 	)
 
+	const endChat = useCallback(async () => {
+		if (!conversationId || busy || ending || handoffDone) return
+		setEnding(true)
+		setError(null)
+		try {
+			const sessionToken = await ensureSession()
+			await endConversation({ conversationId, sessionToken })
+			setConversationId(undefined)
+			setEndNotice("Chat ended. You can start a new chat any time.")
+		} catch (caught) {
+			setError(
+				caught instanceof ApiError ? caught.message : "We couldn't end this chat. Please try again."
+			)
+		} finally {
+			setEnding(false)
+		}
+	}, [busy, conversationId, ending, ensureSession, handoffDone])
+
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
 	useEffect(() => {
 		if (window.parent === window) return
@@ -490,7 +512,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
 					>
 						{copy.accept}
 					</button>
@@ -588,6 +610,25 @@ export function AssistantChat() {
 						</form>
 					) : null}
 
+					{conversationId && turns.length > 0 && !handoffDone ? (
+						<div className="flex justify-end">
+							<button
+								type="button"
+								onClick={endChat}
+								className="text-muted-foreground min-h-9 px-3 text-sm underline underline-offset-2 disabled:opacity-50"
+								disabled={ending || busy || handoffBusy}
+							>
+								{ending ? "Ending chat…" : "End chat"}
+							</button>
+						</div>
+					) : null}
+
+					{endNotice ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							{endNotice}
+						</p>
+					) : null}
+
 					{waitSeconds > 0 ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
 							{copy.tooQuick(waitSeconds)}
@@ -617,12 +658,12 @@ export function AssistantChat() {
 							placeholder={copy.questionPlaceholder}
 							autoComplete="off"
 							maxLength={1000}
-							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:ring-2 focus-visible:outline-none sm:text-sm"
+							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
 							disabled={busy || waitSeconds > 0 || agentResolved || !channelEnabled}
 						/>
 						<button
 							type="submit"
-							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-50"
+							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
 							disabled={
 								busy ||
 								waitSeconds > 0 ||

@@ -63,6 +63,7 @@ export type CustomerTurn = Omit<CustomerAnswer, "conversationId">
 export interface InquiryClassification {
 	screenedQuery: string
 	category: string
+	eligible?: boolean
 	language: string | null
 	/** CNV-4: the language the reply is written in. */
 	replyLanguage: CustomerLanguage
@@ -81,6 +82,9 @@ export interface RagAnswerEnvelope {
 	retrievedChunks?: unknown
 	usedChunks?: unknown
 	confidence?: unknown
+	retrievalScore?: unknown
+	groundednessResult?: unknown
+	outputTokens?: unknown
 	traceId?: unknown
 	/**
 	 * The screened (sanitized + PII-masked) question, as produced by the RAG
@@ -152,18 +156,22 @@ export class CustomerChatService {
 			? await this.rateFollowUp(input.conversationId, category, active)
 			: null
 		if (followUp) {
+			const eligible = categories.find(item => item.code === "rates")?.isEligible ?? false
 			return {
 				screenedQuery: result.screenedQuery,
 				category: "rates",
+				eligible,
 				language: result.language,
 				replyLanguage,
 				route: "rates",
 				context: followUp,
 			}
 		}
+		const eligible = categories.find(item => item.code === category)?.isEligible ?? false
 		return {
 			screenedQuery: result.screenedQuery,
 			category,
+			eligible,
 			language: result.language,
 			replyLanguage,
 			route: routeForCategory(category),
@@ -206,7 +214,13 @@ export class CustomerChatService {
 			permissions: input.permissions,
 			correlationId: input.correlationId,
 		})
-		const reply = withLanguageNotice(result.reply, classification.language)
+		// CNV-3: the approved rate table is certain, including "no published rate" (KB-2 AC3).
+		const confidence = 1
+		const reply = withLanguageNotice(
+			result.reply,
+			classification.language,
+			classification.replyLanguage
+		)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
@@ -215,6 +229,7 @@ export class CustomerChatService {
 			language: classification.language ?? undefined,
 			answer: reply,
 			answerKind: "tool",
+			confidence,
 			traceId: input.correlationId,
 			category: "rates",
 		})
@@ -246,6 +261,10 @@ export class CustomerChatService {
 		conversationId: string
 		classification: InquiryClassification
 		correlationId: string
+		/** The language of the Status Explanation (TRK-2). */
+		explanationLanguage?: string
+		requestStartedAt?: number
+		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { classification } = input
 		const result = await this.trackingService.answer(
@@ -253,7 +272,13 @@ export class CustomerChatService {
 			classification.replyLanguage
 		)
 		const { storedQuery, lookup } = result
-		const reply = withLanguageNotice(result.reply, classification.language)
+		const confidence = result.lookup?.outcome === "unavailable" ? 0 : 1
+		const belowThreshold = confidence < (input.confidenceThreshold ?? 0.7)
+		const reply = withLanguageNotice(
+			belowThreshold ? this.lowConfidenceReply(classification, []) : result.reply,
+			classification.language,
+			classification.replyLanguage
+		)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
@@ -261,8 +286,10 @@ export class CustomerChatService {
 			inquiryCategory: classification.category,
 			language: classification.language ?? undefined,
 			answer: reply,
-			answerKind: "tool",
+			answerKind: belowThreshold ? "uncertain" : "tool",
+			confidence,
 			category: "tracking",
+			requestStartedAt: input.requestStartedAt,
 			additionalEventKinds: lookup ? ["tracking_lookup"] : [],
 			traceId: input.correlationId,
 			onRecorded: lookup
@@ -279,8 +306,8 @@ export class CustomerChatService {
 			messageId: assistantMessageId,
 			sources: [],
 			citations: [],
-			answerKind: "tool",
-			isIDontKnow: false,
+			answerKind: belowThreshold ? "uncertain" : "tool",
+			isIDontKnow: belowThreshold,
 		}
 	}
 
@@ -330,17 +357,63 @@ export class CustomerChatService {
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
 		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		requestStartedAt?: number
+		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope, classification } = input
-		const answerKind = input.answerKind ?? this.answerKindFor(envelope)
-		const answer =
-			input.answerOverride ?? this.localizedAnswer(envelope, answerKind, classification)
+		let answerKind = input.answerKind ?? this.answerKindFor(envelope)
 		// The RAG service owns the citation shape (ChatCitationSchema); it crosses
 		// the internal boundary unvalidated, as it does on the staff path.
 		const citations = (
 			answerKind === "refusal" || !Array.isArray(envelope.citations) ? [] : envelope.citations
 		) as CustomerAnswer["citations"]
 		const sources = answerKind === "refusal" ? [] : await this.resolveSources(citations)
+		const confidence =
+			typeof envelope.confidence === "number" && Number.isFinite(envelope.confidence)
+				? Math.max(0, Math.min(1, envelope.confidence))
+				: null
+		const chunks = Array.isArray(envelope.retrievedChunks) ? envelope.retrievedChunks : []
+		const retrievalScore =
+			typeof envelope.retrievalScore === "number" && Number.isFinite(envelope.retrievalScore)
+				? Math.max(0, Math.min(1, envelope.retrievalScore))
+				: Math.max(
+						0,
+						...chunks.map(chunk => {
+							const score =
+								chunk && typeof chunk === "object"
+									? (chunk as { similarity?: unknown }).similarity
+									: undefined
+							return typeof score === "number" && Number.isFinite(score) ? score : 0
+						})
+					)
+		const groundednessResult =
+			envelope.groundednessResult && typeof envelope.groundednessResult === "object"
+				? (envelope.groundednessResult as Record<string, unknown>)
+				: {
+						grounded: citations.length > 0 && envelope.isIDontKnow !== true,
+						regenerated: false,
+						outcome: "citation-validation",
+					}
+		const threshold = input.confidenceThreshold ?? 0.7
+		const belowThreshold =
+			input.answerOverride === undefined &&
+			answerKind !== "refusal" &&
+			answerKind !== "tool" &&
+			(confidence === null || confidence < threshold)
+		if (belowThreshold) answerKind = "uncertain"
+		const found = belowThreshold
+			? sources.length > 0
+				? sources
+				: await this.resolveSources(envelope.retrievedChunks)
+			: []
+		const answer = input.answerOverride
+			?? (belowThreshold
+				? withLanguageNotice(
+						this.lowConfidenceReply(classification, found.map(source => source.title)),
+						classification?.language ?? null,
+						classification?.replyLanguage ?? "en"
+					)
+				: this.localizedAnswer(envelope, answerKind, classification))
 
 		const maskedQuery = asString(envelope.screenedQuery)
 		if (maskedQuery === null) {
@@ -356,16 +429,23 @@ export class CustomerChatService {
 			language: input.classification?.language ?? undefined,
 			answer,
 			answerKind,
-			confidence:
-				typeof envelope.confidence === "number" && Number.isFinite(envelope.confidence)
-					? Math.max(0, Math.min(1, envelope.confidence))
-					: null,
+			confidence,
+			retrievalScore,
+			groundednessResult,
+			outputTokens:
+				typeof envelope.outputTokens === "number" && Number.isFinite(envelope.outputTokens)
+					? Math.max(0, Math.trunc(envelope.outputTokens))
+					: typeof envelope.tokenUsage === "object" && envelope.tokenUsage !== null &&
+						  typeof (envelope.tokenUsage as { completionTokens?: unknown }).completionTokens === "number"
+						? Math.max(0, Math.trunc((envelope.tokenUsage as { completionTokens: number }).completionTokens))
+						: null,
 			citations,
 			retrievedChunks: envelope.retrievedChunks ?? null,
 			usedChunks: envelope.usedChunks ?? null,
 			tokenUsage: envelope.tokenUsage ?? null,
 			traceId: asString(envelope.traceId),
 			modelUsed: asString(envelope.model),
+			requestStartedAt: input.requestStartedAt,
 		})
 
 		return {
@@ -374,8 +454,29 @@ export class CustomerChatService {
 			sources,
 			citations,
 			answerKind,
-			isIDontKnow: envelope.isIDontKnow === true,
+			isIDontKnow: belowThreshold || envelope.isIDontKnow === true,
 		}
+	}
+
+	private lowConfidenceReply(
+		classification: Pick<InquiryClassification, "replyLanguage"> | undefined,
+		sourceTitles: string[]
+	): string {
+		const language = classification?.replyLanguage ?? "en"
+		const titles = [...new Set(sourceTitles)].slice(0, 3)
+		const found: Record<typeof language, (items: string[]) => string> = {
+			en: items => items.length ? `I found information in: ${items.join(", ")}.` : "I could not find enough reliable information.",
+			fil: items => items.length ? `May nakita akong impormasyon sa: ${items.join(", ")}.` : "Wala akong sapat na mapagkakatiwalaang impormasyon.",
+			ceb: items => items.length ? `Nakakita ko og impormasyon sa: ${items.join(", ")}.` : "Wala koy igo nga kasaligan nga impormasyon.",
+			ilo: items => items.length ? `Nakitaak ti impormasion iti: ${items.join(", ")}.` : "Awan ti umdas a mapagtalkan nga impormasion.",
+		}
+		const offer: Record<typeof language, string> = {
+			en: "I'm not sure enough to answer. You can ask to speak with a person below.",
+			fil: "Hindi ako sapat na sigurado para sumagot. Maaari kang humiling na makipag-usap sa isang tao sa ibaba.",
+			ceb: "Dili ko igo kasaligon aron motubag. Mahimo kang mohangyo nga makigsulti sa usa ka tawo sa ubos.",
+			ilo: "Saanak a sigurado a sumungbat. Mabalinmo nga kiddawen ti panagsarita iti maysa a tao iti baba.",
+		}
+		return `${offer[language]} ${found[language](titles)}`
 	}
 
 	/** CNV-4: "I don't know" in the reply language, plus the supported-languages notice. */
@@ -388,7 +489,11 @@ export class CustomerChatService {
 			answerKind === "uncertain" && envelope.isIDontKnow === true && classification
 				? I_DONT_KNOW_REPLIES[classification.replyLanguage]
 				: (asString(envelope.answer) ?? "")
-		return withLanguageNotice(answer, classification?.language ?? null)
+		return withLanguageNotice(
+			answer,
+			classification?.language ?? null,
+			classification?.replyLanguage ?? "en"
+		)
 	}
 
 	/**
@@ -403,6 +508,7 @@ export class CustomerChatService {
 		channelCode: string
 		reason: string
 		traceId: string
+		requestStartedAt?: number
 	}): Promise<CustomerTurn> {
 		await this.auditService.writeAudit({
 			actorId: `customer-session:${input.customerSessionId}`,
@@ -426,6 +532,7 @@ export class CustomerChatService {
 			envelope: { screenedQuery: "", traceId: input.traceId },
 			answerKind: "refusal",
 			answerOverride: CUSTOMER_REFUSAL_ANSWER,
+			requestStartedAt: input.requestStartedAt,
 		})
 	}
 }

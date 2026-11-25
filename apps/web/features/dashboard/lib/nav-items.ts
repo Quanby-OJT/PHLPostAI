@@ -81,6 +81,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "escalations.queue.view",
 	},
 	{
+		label: "Deflection KPI",
+		href: "/analytics/deflection",
+		icon: ChartLineData01Icon,
+		section: "Analytics",
+		requiredPermission: "analytics.dashboard.view",
+	},
+	{
 		label: "User Management",
 		href: "/user-management",
 		icon: UserMultipleIcon,
@@ -104,6 +111,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		icon: ChartLineData01Icon,
 		section: "Administration",
 		requiredPermission: "reports.reports.view",
+	},
+	{
+		label: "Assistant Settings",
+		href: "/assistant-settings",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.assistant.manage",
 	},
 	{
 		// CNV-2: inquiry category classification & self-service eligibility.
