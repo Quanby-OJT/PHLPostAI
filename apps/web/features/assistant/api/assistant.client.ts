@@ -79,6 +79,22 @@ export async function requestHumanHandoff(input: {
 	return (await response.json()) as { id: string; status: "queued"; createdAt: string }
 }
 
+export async function endConversation(input: {
+	conversationId: string
+	sessionToken: string
+}): Promise<{ resolvedByAi: boolean }> {
+	const response = await fetch(`${API_BASE}/customer/conversations/end`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: input.sessionToken,
+		},
+		body: JSON.stringify({ conversationId: input.conversationId }),
+	})
+	if (!response.ok) throw await parseError(response)
+	return (await response.json()) as { resolvedByAi: boolean }
+}
+
 export interface AssistantStreamHandlers {
 	onToken: (delta: string) => void
 	onFinal: (final: CustomerAnswer) => void

@@ -1,8 +1,15 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
+import { createHash } from "node:crypto"
 import { and, desc, eq, sql } from "drizzle-orm"
 
 import type { CustomerAnswerKind } from "@repo/contracts"
-import { conversations, customerSessions, inquiryCategories, messages } from "@repo/db/schema"
+import {
+	conversations,
+	customerSessions,
+	escalations,
+	inquiryCategories,
+	messages,
+} from "@repo/db/schema"
 
 import { db, type DbTransaction } from "@/common/database/database.client"
 import { EventService } from "@/modules/v1/analytics/event.service"
@@ -121,7 +128,157 @@ export class ConversationService {
 				},
 				tx
 			)
+			await this.eventService.record(
+				{
+					conversationId: row.id,
+					kind: "conversation_context",
+					category: "other",
+					language: input.language,
+					channelCode: input.channelCode,
+					payload: {
+						// Stable pseudonymous key for duplicate detection; it is not an auth credential.
+						sessionFingerprint: createHash("md5").update(input.customerSessionId).digest("hex"),
+						testSession: input.channelCode === "test",
+					},
+				},
+				tx
+			)
 			return row
+		})
+	}
+
+	/**
+	 * End a customer conversation. A final grounded/tool answer to an eligible
+	 * inquiry is resolved by AI; uncertain, blocked, and unanswered chats close
+	 * as abandoned and remain unresolved in the KPI denominator when a response
+	 * was given. ConversationService remains the only status writer.
+	 */
+	async endCustomerConversation(input: {
+		conversationId: string
+		customerSessionId: string
+	}): Promise<{ resolvedByAi: boolean }> {
+		return db.transaction(async tx => {
+			const [conversation] = await tx
+				.select({
+					status: conversations.status,
+					channelCode: conversations.channelCode,
+					language: customerSessions.language,
+				})
+				.from(conversations)
+				.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+				.where(
+					and(
+						eq(conversations.id, input.conversationId),
+						eq(conversations.customerSessionId, input.customerSessionId)
+					)
+				)
+				.for("update")
+				.limit(1)
+			if (!conversation) throw new NotFoundException("Conversation not found")
+			if (conversation.status === "resolved_by_ai") return { resolvedByAi: true }
+			if (conversation.status !== "ai_active") return { resolvedByAi: false }
+
+			const [lastEligibleInquiry] = await tx
+				.select({ turnIndex: messages.turnIndex, category: messages.inquiryCategory })
+				.from(messages)
+				.where(
+					and(
+						eq(messages.conversationId, input.conversationId),
+						eq(messages.role, "user"),
+						eq(messages.isEligible, true)
+					)
+				)
+				.orderBy(desc(messages.turnIndex))
+				.limit(1)
+			const [lastCustomerTurn] = await tx
+				.select({ turnIndex: messages.turnIndex, category: messages.inquiryCategory })
+				.from(messages)
+				.where(and(eq(messages.conversationId, input.conversationId), eq(messages.role, "user")))
+				.orderBy(desc(messages.turnIndex))
+				.limit(1)
+			const [answer] =
+				lastEligibleInquiry && lastEligibleInquiry.turnIndex === lastCustomerTurn?.turnIndex
+					? await tx
+							.select({ answerKind: messages.answerKind })
+							.from(messages)
+							.where(
+								and(
+									eq(messages.conversationId, input.conversationId),
+									eq(messages.role, "assistant"),
+									eq(messages.turnIndex, lastEligibleInquiry.turnIndex + 1)
+								)
+							)
+							.limit(1)
+					: []
+			const [escalation] = await tx
+				.select({ id: escalations.id })
+				.from(escalations)
+				.where(eq(escalations.conversationId, input.conversationId))
+				.limit(1)
+			if (escalation) return { resolvedByAi: false }
+			const resolvedByAi = answer?.answerKind === "answer" || answer?.answerKind === "tool"
+			const status = resolvedByAi ? "resolved_by_ai" : "abandoned"
+			await tx
+				.update(conversations)
+				.set({ status })
+				.where(eq(conversations.id, input.conversationId))
+			await this.eventService.record(
+				{
+					conversationId: input.conversationId,
+					kind: "conversation_closed",
+					category: lastCustomerTurn?.category ?? lastEligibleInquiry?.category ?? "other",
+					language: conversation.language,
+					channelCode: conversation.channelCode ?? "web",
+					payload: {
+						outcome: resolvedByAi ? "resolved_by_ai" : "unresolved",
+						lastEligibleTurn: lastEligibleInquiry?.turnIndex ?? null,
+					},
+				},
+				tx
+			)
+			return { resolvedByAi }
+		})
+	}
+
+	/** Record a failed classified inquiry without storing its text. */
+	async recordUnansweredInquiry(input: {
+		conversationId: string
+		category: string
+	}): Promise<void> {
+		const [context] = await db
+			.select({
+				channelCode: conversations.channelCode,
+				language: customerSessions.language,
+			})
+			.from(conversations)
+			.innerJoin(customerSessions, eq(conversations.customerSessionId, customerSessions.id))
+			.where(eq(conversations.id, input.conversationId))
+			.limit(1)
+		if (!context?.channelCode || !context.language) return
+		const [category] = await db
+			.select({
+				code: inquiryCategories.code,
+				isEligible: inquiryCategories.isEligible,
+				isActive: inquiryCategories.isActive,
+			})
+			.from(inquiryCategories)
+			.where(eq(inquiryCategories.code, input.category))
+			.limit(1)
+		const [turn] = await db
+			.select({ nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1` })
+			.from(messages)
+			.where(eq(messages.conversationId, input.conversationId))
+		await this.eventService.record({
+			conversationId: input.conversationId,
+			kind: "message_received",
+			category: category?.isActive ? category.code : "other",
+			language: context.language,
+			channelCode: context.channelCode,
+			payload: {
+				eligible: category?.isActive ? category.isEligible : false,
+				failed: true,
+				turnIndex: turn?.nextTurn ?? 0,
+			},
 		})
 	}
 
@@ -285,10 +442,41 @@ export class ConversationService {
 			await this.eventService.record(
 				{
 					conversationId: input.conversationId,
+					kind: "message_received",
+					category: resolvedCategory,
+					language,
+					channelCode,
+					payload: { eligible: eligibleSnapshot, failed: false, turnIndex: nextTurn },
+				},
+				tx
+			)
+			await this.eventService.record(
+				{
+					conversationId: input.conversationId,
 					kind: "answer_sent",
 					category,
 					language,
 					channelCode,
+					payload: {
+						answerKind: input.answerKind,
+						eligible: eligibleSnapshot,
+						turnIndex: nextTurn,
+					},
+				},
+				tx
+			)
+			await this.eventService.record(
+				{
+					conversationId: input.conversationId,
+					kind: "answer_classified",
+					category: resolvedCategory,
+					language,
+					channelCode,
+					payload: {
+						answerKind: input.answerKind,
+						eligible: eligibleSnapshot,
+						turnIndex: nextTurn,
+					},
 				},
 				tx
 			)

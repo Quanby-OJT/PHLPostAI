@@ -179,6 +179,7 @@ describe("navItems", () => {
 			"Status explanations",
 			"Chat",
 			"Agent inbox",
+			"Deflection KPI",
 			"User Management",
 			"Evaluation",
 			"Reports",

@@ -28,7 +28,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { customer: { session: { start: {} }, chat: { send: {} } } },
+	v1: {
+		customer: {
+			session: { start: {} },
+			conversation: { end: {} },
+			chat: { send: {} },
+		},
+	},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -124,6 +130,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
+		endCustomerConversation: jest.Mock
+		recordUnansweredInquiry: jest.Mock
 	}
 	let customerChatService: {
 		completeTurn: jest.Mock
@@ -146,6 +154,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				.fn()
 				.mockResolvedValue({ id: "conversation-1", channelCode: "web" }),
 			findOwnedByCustomerSession: jest.fn().mockResolvedValue(null),
+			endCustomerConversation: jest.fn(),
+			recordUnansweredInquiry: jest.fn(),
 		}
 		customerChatService = {
 			completeTurn: jest.fn().mockResolvedValue({

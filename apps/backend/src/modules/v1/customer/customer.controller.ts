@@ -85,6 +85,21 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.conversation.end)
+	async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			return this.conversationService.endCustomerConversation({
+				conversationId: input.conversationId,
+				customerSessionId: session.id,
+			})
+		})
+	}
+
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
 	@Implement(v1.customer.chat.send)
 	async sendMessage(
 		@Headers("x-customer-session") sessionToken: string | undefined,
@@ -112,6 +127,10 @@ export class CustomerController {
 				try {
 					return await this.answerTracking(session, conversation.id, classification, correlationId)
 				} catch (error) {
+					await this.conversationService.recordUnansweredInquiry({
+						conversationId: conversation.id,
+						category: classification.category,
+					})
 					return toORPCError(error)
 				}
 			}
@@ -120,6 +139,10 @@ export class CustomerController {
 				try {
 					return await this.answerRates(session, conversation.id, classification, correlationId)
 				} catch (error) {
+					await this.conversationService.recordUnansweredInquiry({
+						conversationId: conversation.id,
+						category: classification.category,
+					})
 					return toORPCError(error)
 				}
 			}
@@ -139,6 +162,10 @@ export class CustomerController {
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 				if (refusal) return refusal
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				return toORPCError(error)
 			}
 
@@ -208,6 +235,10 @@ export class CustomerController {
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(turn)
 			} catch {
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
 			return
@@ -239,6 +270,10 @@ export class CustomerController {
 				signal: abort.signal,
 			})
 		} catch {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -262,6 +297,10 @@ export class CustomerController {
 		}
 
 		if (!upstream.ok || upstream.body === null) {
+			await this.conversationService.recordUnansweredInquiry({
+				conversationId: conversation.id,
+				category: classification.category,
+			})
 			response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			return
 		}
@@ -275,6 +314,7 @@ export class CustomerController {
 		response.flushHeaders()
 
 		let envelope: RagAnswerEnvelope | null = null
+		let turnRecorded = false
 		try {
 			for await (const frame of readSseFrames(upstream.body)) {
 				if (frame.event === "final") {
@@ -291,6 +331,7 @@ export class CustomerController {
 				envelope,
 				classification,
 			})
+			turnRecorded = true
 			response.write(
 				formatSseFrame("final", {
 					...turn,
@@ -300,6 +341,11 @@ export class CustomerController {
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly
 			// rather than leaving the page hanging on a half-written answer.
+			if (!turnRecorded)
+				await this.conversationService.recordUnansweredInquiry({
+					conversationId: conversation.id,
+					category: classification.category,
+				})
 			if (!abort.signal.aborted) {
 				response.write(
 					formatSseFrame("final", {

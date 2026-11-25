@@ -4,6 +4,8 @@ import {
 	CustomerAnswerSchema,
 	CustomerChatRequestSchema,
 	CustomerSessionSchema,
+	EndCustomerConversationRequestSchema,
+	EndCustomerConversationResponseSchema,
 	StartCustomerSessionRequestSchema,
 } from "./customer.schema.js"
 
@@ -44,5 +46,18 @@ export const customerContract = {
 			})
 			.input(CustomerChatRequestSchema)
 			.output(CustomerAnswerSchema),
+	},
+	conversation: {
+		end: oc
+			.route({
+				method: "POST",
+				path: "/customer/conversations/end",
+				summary: "End a customer conversation",
+				description:
+					"Closes a conversation owned by the Customer Session. Only a final grounded answer can be counted as resolved by AI.",
+				tags: ["Customer"],
+			})
+			.input(EndCustomerConversationRequestSchema)
+			.output(EndCustomerConversationResponseSchema),
 	},
 }

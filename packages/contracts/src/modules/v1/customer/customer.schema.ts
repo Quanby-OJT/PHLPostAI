@@ -46,6 +46,14 @@ export const CustomerChatRequestSchema = z.object({
 	conversationId: z.string().uuid().optional(),
 })
 
+export const EndCustomerConversationRequestSchema = z.object({
+	conversationId: z.string().uuid(),
+})
+
+export const EndCustomerConversationResponseSchema = z.object({
+	resolvedByAi: z.boolean(),
+})
+
 /**
  * One approved Knowledge Article an answer drew on (CNV-1 AC1: the customer
  * sees article TITLES, not internal document ids).
@@ -77,5 +85,7 @@ export type CustomerAnswerKind = z.infer<typeof CustomerAnswerKindSchema>
 export type StartCustomerSessionRequest = z.infer<typeof StartCustomerSessionRequestSchema>
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>
 export type CustomerChatRequest = z.infer<typeof CustomerChatRequestSchema>
+export type EndCustomerConversationRequest = z.infer<typeof EndCustomerConversationRequestSchema>
+export type EndCustomerConversationResponse = z.infer<typeof EndCustomerConversationResponseSchema>
 export type CustomerAnswerSource = z.infer<typeof CustomerAnswerSourceSchema>
 export type CustomerAnswer = z.infer<typeof CustomerAnswerSchema>
