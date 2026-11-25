@@ -101,16 +101,19 @@ export class EscalationService {
 				.set({ status: "resolved", outcomeNote, resolvedAt: now, updatedAt: now })
 				.where(eq(escalations.id, id))
 			await this.conversationService.resolveByAgent(tx, row.conversationId)
+			await this.auditService.writeAudit(
+				{
+					actorId: agentId,
+					actorType: "user",
+					action: "escalations.resolved",
+					resourceType: "escalation",
+					resourceId: id,
+					before: { status: "claimed" },
+					after: { status: "resolved", outcomeNote },
+				},
+				tx
+			)
 			return { id, conversationId: row.conversationId, status: "resolved" as const, outcomeNote }
-		})
-		await this.auditService.writeAudit({
-			actorId: agentId,
-			actorType: "user",
-			action: "escalations.resolved",
-			resourceType: "escalation",
-			resourceId: id,
-			before: { status: "claimed" },
-			after: { status: "resolved", outcomeNote },
 		})
 		await this.conversationLiveService.publish(result.conversationId)
 		return result
