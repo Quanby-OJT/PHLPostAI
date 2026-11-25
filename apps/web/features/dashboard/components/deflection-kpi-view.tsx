@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type FormEvent } from "react"
+import { useState, type FormEvent } from "react"
 
 import { Button } from "@/core/components/ui/button"
 import {
@@ -30,44 +30,51 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 	const definitions = useKpiDefinitionsQuery()
 	const report = useDeflectionReportQuery(from, to, version)
 	const save = useSaveKpiDefinitionMutation()
-	const [categories, setCategories] = useState(DEFAULT_CATEGORIES)
-	const [includeAbandoned, setIncludeAbandoned] = useState(false)
-	const [excludeTestSessions, setExcludeTestSessions] = useState(true)
-	const [duplicateWindowMinutes, setDuplicateWindowMinutes] = useState("0")
-	const [baselineEligible, setBaselineEligible] = useState("")
-	const [baselineResolved, setBaselineResolved] = useState("")
-	const [target, setTarget] = useState("70")
 	const [effectiveFrom, setEffectiveFrom] = useState(getManilaDateTimeInput())
 	const [showDrilldown, setShowDrilldown] = useState(false)
 	const drilldown = useDeflectionDrilldownQuery(from, to, version, showDrilldown)
 
-	useEffect(() => {
-		const definition = report.data?.definition
-		if (!definition) return
-		setCategories(definition.method.eligibleCategories.join(", "))
-		setIncludeAbandoned(definition.method.includeAbandoned)
-		setExcludeTestSessions(definition.method.excludeTestSessions)
-		setDuplicateWindowMinutes(String(definition.method.duplicateWindowMinutes))
-		setBaselineEligible(definition.baseline ? String(definition.baseline.eligible) : "")
-		setBaselineResolved(definition.baseline ? String(definition.baseline.resolved) : "")
-		setTarget(String(Math.round(definition.target * 100)))
-	}, [report.data?.definition.version])
+	const definition = report.data?.definition
+	const definitionVersion = definition?.version ?? null
+	const [draft, setDraft] = useState<{
+		definitionVersion: number | null
+		categories: string
+		includeAbandoned: boolean
+		excludeTestSessions: boolean
+		duplicateWindowMinutes: string
+		baselineEligible: string
+		baselineResolved: string
+		target: string
+	} | null>(null)
+	const formValues =
+		draft?.definitionVersion === definitionVersion
+			? draft
+			: {
+					definitionVersion,
+					categories: definition?.method.eligibleCategories.join(", ") ?? DEFAULT_CATEGORIES,
+					includeAbandoned: definition?.method.includeAbandoned ?? false,
+					excludeTestSessions: definition?.method.excludeTestSessions ?? true,
+					duplicateWindowMinutes: String(definition?.method.duplicateWindowMinutes ?? 0),
+					baselineEligible: definition?.baseline ? String(definition.baseline.eligible) : "",
+					baselineResolved: definition?.baseline ? String(definition.baseline.resolved) : "",
+					target: String(Math.round((definition?.target ?? 0.7) * 100)),
+				}
 
 	const onSave = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault()
-		const eligible = baselineEligible.trim() ? Number(baselineEligible) : null
-		const resolved = baselineResolved.trim() ? Number(baselineResolved) : null
+		const eligible = formValues.baselineEligible.trim() ? Number(formValues.baselineEligible) : null
+		const resolved = formValues.baselineResolved.trim() ? Number(formValues.baselineResolved) : null
 		if ((eligible === null) !== (resolved === null)) return
 		save.mutate({
 			method: {
-				eligibleCategories: categories
+				eligibleCategories: formValues.categories
 					.split(",")
 					.map(value => value.trim())
 					.filter(Boolean),
-				includeAbandoned,
-				duplicateWindowMinutes: Number(duplicateWindowMinutes),
+				includeAbandoned: formValues.includeAbandoned,
+				duplicateWindowMinutes: Number(formValues.duplicateWindowMinutes),
 				duplicateRule: "same_session_and_category",
-				excludeTestSessions,
+				excludeTestSessions: formValues.excludeTestSessions,
 				excludeEscalated: true,
 				excludeUncertainOrBlocked: true,
 				failedInteractions: "included_unresolved",
@@ -75,7 +82,7 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 				periodTimezone: "Asia/Manila",
 			},
 			baseline: eligible === null || resolved === null ? null : { eligible, resolved },
-			target: Number(target) / 100,
+			target: Number(formValues.target) / 100,
 			effectiveFrom: new Date(`${effectiveFrom}:00+08:00`).toISOString(),
 		})
 	}
@@ -226,24 +233,28 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 							<label className="grid gap-1 text-sm md:col-span-2">
 								Eligible inquiry categories{" "}
 								<Input
-									value={categories}
-									onChange={event => setCategories(event.target.value)}
+									value={formValues.categories}
+									onChange={event => setDraft({ ...formValues, categories: event.target.value })}
 									required
 								/>
 							</label>
 							<label className="flex items-center gap-2 text-sm">
 								<input
 									type="checkbox"
-									checked={includeAbandoned}
-									onChange={event => setIncludeAbandoned(event.target.checked)}
+									checked={formValues.includeAbandoned}
+									onChange={event =>
+										setDraft({ ...formValues, includeAbandoned: event.target.checked })
+									}
 								/>{" "}
 								Include abandoned sessions in the denominator
 							</label>
 							<label className="flex items-center gap-2 text-sm">
 								<input
 									type="checkbox"
-									checked={excludeTestSessions}
-									onChange={event => setExcludeTestSessions(event.target.checked)}
+									checked={formValues.excludeTestSessions}
+									onChange={event =>
+										setDraft({ ...formValues, excludeTestSessions: event.target.checked })
+									}
 								/>{" "}
 								Exclude marked test sessions
 							</label>
@@ -253,8 +264,10 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 									type="number"
 									min="0"
 									max="10080"
-									value={duplicateWindowMinutes}
-									onChange={event => setDuplicateWindowMinutes(event.target.value)}
+									value={formValues.duplicateWindowMinutes}
+									onChange={event =>
+										setDraft({ ...formValues, duplicateWindowMinutes: event.target.value })
+									}
 								/>
 							</label>
 							<label className="grid gap-1 text-sm">
@@ -263,8 +276,8 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 									type="number"
 									min="0"
 									max="100"
-									value={target}
-									onChange={event => setTarget(event.target.value)}
+									value={formValues.target}
+									onChange={event => setDraft({ ...formValues, target: event.target.value })}
 								/>
 							</label>
 							<label className="grid gap-1 text-sm">
@@ -281,8 +294,10 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 								<Input
 									type="number"
 									min="0"
-									value={baselineEligible}
-									onChange={event => setBaselineEligible(event.target.value)}
+									value={formValues.baselineEligible}
+									onChange={event =>
+										setDraft({ ...formValues, baselineEligible: event.target.value })
+									}
 								/>
 							</label>
 							<label className="grid gap-1 text-sm">
@@ -290,8 +305,10 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 								<Input
 									type="number"
 									min="0"
-									value={baselineResolved}
-									onChange={event => setBaselineResolved(event.target.value)}
+									value={formValues.baselineResolved}
+									onChange={event =>
+										setDraft({ ...formValues, baselineResolved: event.target.value })
+									}
 								/>
 							</label>
 							<div className="md:col-span-2">
@@ -299,8 +316,8 @@ export function DeflectionKpiView({ readOnly = false }: { readOnly?: boolean }) 
 									type="submit"
 									disabled={
 										save.isPending ||
-										!categories.trim() ||
-										(baselineEligible === "") !== (baselineResolved === "")
+										!formValues.categories.trim() ||
+										(formValues.baselineEligible === "") !== (formValues.baselineResolved === "")
 									}
 								>
 									{save.isPending ? "Approving…" : "Approve new version"}

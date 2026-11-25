@@ -21,7 +21,7 @@ export function DeflectionDashboardTile() {
 				<CardTitle className="text-2xl tabular-nums">
 					{report.isLoading
 						? "…"
-						: report.data?.rate == null
+						: report.data?.rate === null || report.data?.rate === undefined
 							? "—"
 							: `${(report.data.rate * 100).toFixed(1)}%`}
 				</CardTitle>
