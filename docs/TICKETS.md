@@ -1,6 +1,6 @@
 # PHLPost AI Customer Support — Tickets
 
-Development-ready vertical slices for the PHLPost AI-Backed Customer Support Solution. Built from the PHLPost Technical Specifications (source pages 90–127, "TS"), `PRD.md`, and `DOMAIN-MODEL.md`. Section references (§) are to the TS.
+Development-ready vertical slices for the PHLPost AI-Backed Customer Support Solution. Built from the PHLPost Technical Specifications (source pages 90–127, "TS") as amended by Bid Bulletin Addendum No. 2026-17 of 2026-11-06, `PRD.md`, and `DOMAIN-MODEL.md`. Section references (§) are to the TS.
 
 - 44 tickets in 10 epics. Software development only: managed cloud hosting, backups and recovery, uptime, penetration testing, the service desk, training, and documentation are DevOps, QA, and service work outside this set (see `PRD.md`, Scope). Each ticket is one thin slice through database, API, and UI, sized for one to two days, one branch, and one small pull request.
 - Stack: Quanby `RAG_AI` template — Next.js 16, NestJS, Python FastAPI RAG service, Drizzle and PostgreSQL with pgvector, Redis, Better Auth, Zod contracts.
@@ -898,7 +898,7 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 - Staff review (SCM-3)
 - Screenshots (SCM-5)
 
-**Technical notes:** Flow D — Scam assessment, steps 1 to 6. The submission is passed to the model inside a delimited data block with an instruction that its content is not to be obeyed. URL handling is parse-only: no fetch, no redirect resolution, no preview. Every reply carries the fixed advisory line required by TS §3.1. Public behaviour: no permission key.
+**Technical notes:** Flow D — Scam assessment, steps 1 to 6. The submission is passed to the model inside a delimited data block with an instruction that its content is not to be obeyed. URL handling is parse-only: no fetch, no redirect resolution, no preview. Every reply carries the fixed advisory line required by TS §3.1. Public behaviour: no permission key. Schema: use the table, column, setting-key, and event-kind names exactly as listed in `DOMAIN-MODEL.md` for `scam_submissions`, `scam_assessments`. If this ticket needs a name that is not listed there, add it to `DOMAIN-MODEL.md` in the same pull request first.
 
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 

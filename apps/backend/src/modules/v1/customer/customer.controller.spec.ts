@@ -47,9 +47,12 @@ jest.mock("@repo/contracts", () => ({
 	UNTRANSLATED_POSTAL_TERMS: ["PHLPost"],
 	CustomerChatRequestSchema: {
 		safeParse: (value: unknown) => {
-			const body = value as { query?: unknown; conversationId?: string } | null
+			const body = value as { query?: unknown; conversationId?: string; intent?: "scam" } | null
 			if (typeof body?.query === "string" && body.query.trim().length > 0) {
-				return { success: true, data: { query: body.query, conversationId: body.conversationId } }
+				return {
+					success: true,
+					data: { query: body.query, conversationId: body.conversationId, intent: body.intent },
+				}
 			}
 			return { success: false, error: { issues: [{ message: "query is required" }] } }
 		},
@@ -250,7 +253,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			ragGatewayService as unknown as RagGatewayService,
 			{ publish: jest.fn(), stream: jest.fn() } as never,
 			channelAdapters,
-			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService
+			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService,
+			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[8]
 		)
 	})
 
@@ -307,7 +311,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 	describe("AC5: an anonymous caller without a valid session token gets 401", () => {
 		it("refuses a request with no session header", async () => {
-			const { response, state } = responseDouble()
+			const { response } = responseDouble()
 
 			await expect(
 				controller.streamMessage({ query: "hello" }, undefined, REQUEST, response as never)
@@ -317,7 +321,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 		it("refuses an unknown token", async () => {
 			customerSessionService.resolve.mockResolvedValue(null)
-			const { response, state } = responseDouble()
+			const { response } = responseDouble()
 
 			await expect(
 				controller.streamMessage({ query: "hello" }, "not-a-real-token", REQUEST, response as never)
@@ -414,6 +418,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 					envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
 					classification: RETRIEVAL_CLASSIFICATION,
 					requestStartedAt: expect.any(Number),
+					confidenceThreshold: 0.7,
 				})
 			)
 		})
@@ -559,6 +564,29 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			)
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
+
+		it("keeps explicit scam submissions out of a live agent transcript on both transports", async () => {
+			conversationService.findOwnedByCustomerSession.mockResolvedValue({
+				id: "conversation-9",
+				channelCode: "web",
+				status: "agent_active",
+			})
+			const input = {
+				query: "https://parcel-payment.example",
+				conversationId: "conversation-9",
+				intent: "scam",
+			}
+			const { response } = responseDouble()
+			await expect(
+				controller.streamMessage(input, "a-token", REQUEST, response as never)
+			).rejects.toMatchObject({ status: 409 })
+			const handler = (await controller.sendMessage("a-token", REQUEST)) as unknown as (args: {
+				input: typeof input
+			}) => Promise<unknown>
+			await expect(handler({ input })).rejects.toThrow("CONFLICT")
+			expect(ragGatewayService.screenQuery).not.toHaveBeenCalled()
+			expect(conversationService.recordCustomerMessage).not.toHaveBeenCalled()
+		})
 	})
 
 	describe("when the assistant is unavailable", () => {
@@ -678,6 +706,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 					correlationId: "req-1",
 					explanationLanguage: "en",
 					requestStartedAt: expect.any(Number),
+					confidenceThreshold: 0.7,
 				})
 			)
 			expect(state.statusCode).toBe(200)

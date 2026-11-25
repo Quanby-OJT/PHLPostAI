@@ -243,6 +243,9 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 				customerMessageId: "message-1",
 				assistantMessageId: "message-2",
 			})
+			expect(
+				eventService.record.mock.calls.filter(([event]) => event.kind === "message_received")
+			).toHaveLength(1)
 			expect(eventService.record).toHaveBeenCalledWith(
 				{
 					conversationId: "conversation-1",
@@ -255,6 +258,17 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 						eligible: false,
 						turnIndex: 0,
 					},
+				},
+				tx
+			)
+			expect(eventService.record).toHaveBeenCalledWith(
+				{
+					conversationId: "conversation-1",
+					kind: "message_received",
+					category: "other",
+					language: "en",
+					channelCode: "web-widget",
+					payload: { eligible: false, failed: false, turnIndex: 0 },
 				},
 				tx
 			)

@@ -91,7 +91,6 @@ export class ConversationLiveService {
 		let previousStatus: string | null = null
 		let alive = true
 		let flushing = false
-		let unsubscribe: (() => Promise<void>) | undefined
 		const flush = async () => {
 			if (!alive || flushing) return
 			flushing = true
@@ -129,14 +128,20 @@ export class ConversationLiveService {
 		const heartbeat = setInterval(() => {
 			if (alive) response.write(": keepalive\n\n")
 		}, 15_000)
-		response.on("close", () => {
-			alive = false
-			clearInterval(poll)
-			clearInterval(heartbeat)
-			void unsubscribe?.()
+		const closed = new Promise<void>(resolve => {
+			response.once("close", () => {
+				alive = false
+				clearInterval(poll)
+				clearInterval(heartbeat)
+				resolve()
+			})
 		})
-		unsubscribe = await this.subscribe(conversationId, notify)
-		await flush()
-		if (alive) await new Promise<void>(resolve => response.once("close", resolve))
+		const unsubscribe = await this.subscribe(conversationId, notify)
+		try {
+			await flush()
+			await closed
+		} finally {
+			await unsubscribe()
+		}
 	}
 }

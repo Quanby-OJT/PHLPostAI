@@ -39,7 +39,7 @@ export interface RecordTurnInput {
 	category?: string
 	responseTimeMs?: number
 	requestStartedAt?: number
-	additionalEventKinds?: "tracking_lookup"[]
+	additionalEventKinds?: ("tracking_lookup" | "scam_assessed")[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
 		tx: DbTransaction,

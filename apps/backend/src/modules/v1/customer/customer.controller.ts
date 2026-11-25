@@ -25,8 +25,8 @@ import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
-import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
+import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
@@ -41,6 +41,7 @@ import {
 } from "./customer-chat.service"
 import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
+import { ScamAssessmentService } from "./scam-assessment.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
 /** Permissions the public turn's service JWT carries into the RAG service. */
@@ -71,7 +72,8 @@ export class CustomerController {
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly conversationLiveService: ConversationLiveService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
-		private readonly channelsService: ChannelsService
+		private readonly channelsService: ChannelsService,
+		private readonly scamAssessmentService: ScamAssessmentService
 	) {}
 
 	@AllowAnonymous()
@@ -109,30 +111,29 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
-@Implement(v1.customer.conversation.end)
-async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
-  return implement(v1.customer.conversation.end).handler(async ({ input }) => {
-    const session = await this.requireSession(sessionToken, toORPCError)
-    return this.conversationService.endCustomerConversation({
-      conversationId: input.conversationId,
-      customerSessionId: session.id,
-    })
-  })
-}
+	@Implement(v1.customer.conversation.end)
+	async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			return this.conversationService.endCustomerConversation({
+				conversationId: input.conversationId,
+				customerSessionId: session.id,
+			})
+		})
+	}
 
-@AllowAnonymous()
-@StrictThrottle()
-@SessionThrottle()
-@UseGuards(AllowedOriginGuard)
-@Implement(v1.customer.session.setLanguage)
-async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
-  return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
-    const session = await this.requireSession(sessionToken, toORPCError)
-    await this.customerSessionService.setLanguage(session.id, input.language)
-    return { language: input.language }
-  })
-}
-
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.session.setLanguage)
+	async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			await this.customerSessionService.setLanguage(session.id, input.language)
+			return { language: input.language }
+		})
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -160,19 +161,27 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				conversation.status === "escalation_requested" ||
 				conversation.status === "agent_active"
 			) {
-				const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
-				const saved = await this.conversationService.recordCustomerMessage({
-					conversationId: conversation.id,
-					customerSessionId: session.id,
-					maskedQuery,
-				})
-				await this.conversationLiveService.publish(conversation.id)
-				return { agentMode: true as const, conversationId: conversation.id, messageId: saved.id }
+				try {
+					return await this.sendAgentMessage(
+						session,
+						conversation.id,
+						message.text,
+						correlationId,
+						input.intent
+					)
+				} catch (error) {
+					return toORPCError(error)
+				}
 			}
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, conversation.id, message.text, correlationId)
+				classification = await this.classify(
+					session,
+					conversation.id,
+					{ query: message.text, intent: input.intent },
+					correlationId
+				)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(
 					error,
@@ -184,32 +193,17 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
-			const settings = await this.assistantSettingsService.get()
-
-			if (classification.route === "tracking") {
+			if (classification.route !== "retrieval") {
 				try {
 					return adapter.send(
-						await this.answerTracking(
-	            session,
-	            conversation.id,
-	            classification,
-	            correlationId,
-	            startedAt
-            )
-					)
-				} catch (error) {
-					await this.conversationService.recordUnansweredInquiry({
-						conversationId: conversation.id,
-						category: classification.category,
-					})
-					return toORPCError(error)
-				}
-			}
-
-			if (classification.route === "rates") {
-				try {
-					return adapter.send(
-						await this.answerRates(session, conversation.id, classification, correlationId)
+						await this.answerTool(
+							session,
+							conversation.id,
+							message.text,
+							classification,
+							correlationId,
+							startedAt
+						)
 					)
 				} catch (error) {
 					await this.conversationService.recordUnansweredInquiry({
@@ -221,7 +215,10 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			}
 
 			let envelope: RagAnswerEnvelope
+			let confidenceThreshold: number
 			try {
+				const settings = await this.assistantSettingsService.get()
+				confidenceThreshold = settings.confidenceThreshold
 				envelope = (await this.ragGatewayService.submitChatQuery({
 					query: message.text,
 					userId: this.principalFor(session),
@@ -254,6 +251,7 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold,
 				requestStartedAt: startedAt,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
@@ -264,11 +262,9 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 	 * SSE mode (AC1 asks for a streamed answer). A plain Nest route because
 	 * oRPC is JSON-only, same as the staff stream.
 	 *
-	 * `token` frames are forwarded verbatim as they arrive; the RAG service's
-	 * `final` frame is withheld and replaced with the public envelope, because
-	 * only this layer knows the conversation id, the stored message id, and the
-	 * article titles. The turn is persisted before that frame is written, so a
-	 * customer never sees an answer that was not recorded.
+	 * Hold draft tokens until the final confidence is known. Persist the selected
+	 * reply, then send its text and a final envelope with the conversation ID,
+	 * stored message ID, and article titles.
 	 */
 	@Post("v1/customer/chat/stream")
 	@AllowAnonymous()
@@ -294,23 +290,26 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 		if (conversation.status === "escalation_requested" || conversation.status === "agent_active") {
-			const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
-			const saved = await this.conversationService.recordCustomerMessage({
-				conversationId: conversation.id,
-				customerSessionId: session.id,
-				maskedQuery,
-			})
-			await this.conversationLiveService.publish(conversation.id)
-			response
-				.status(200)
-				.json({ agentMode: true, conversationId: conversation.id, messageId: saved.id })
+			const result = await this.sendAgentMessage(
+				session,
+				conversation.id,
+				message.text,
+				correlationId,
+				parsed.data.intent
+			)
+			response.status(200).json(result)
 			return
 		}
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(session, conversation.id, message.text, correlationId)
+			classification = await this.classify(
+				session,
+				conversation.id,
+				{ query: message.text, intent: parsed.data.intent },
+				correlationId
+			)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(
 				error,
@@ -326,21 +325,17 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			}
 			return
 		}
-		const assistantSettings = await this.assistantSettingsService.get()
-
-		// Tool turns (tracking, rates) are answered by their tool, not streamed.
-		if (classification.route === "tracking" || classification.route === "rates") {
+		// Tool results arrive as one completed turn after persistence.
+		if (classification.route !== "retrieval") {
 			try {
-				const turn =
-					classification.route === "tracking"
-						? await this.answerTracking(
-								session,
-								conversation.id,
-								classification,
-								correlationId,
-								startedAt
-							)
-						: await this.answerRates(session, conversation.id, classification, correlationId)
+				const turn = await this.answerTool(
+					session,
+					conversation.id,
+					message.text,
+					classification,
+					correlationId,
+					startedAt
+				)
 				response.status(200).json(adapter.send(turn))
 			} catch {
 				await this.conversationService.recordUnansweredInquiry({
@@ -365,7 +360,10 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		response.on("close", () => abort.abort())
 
 		let upstream: globalThis.Response
+		let confidenceThreshold: number
 		try {
+			const assistantSettings = await this.assistantSettingsService.get()
+			confidenceThreshold = assistantSettings.confidenceThreshold
 			upstream = await fetch(`${env.RAG_SERVICE_URL}/internal/chat/stream`, {
 				method: "POST",
 				headers: {
@@ -447,6 +445,7 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold,
 				requestStartedAt: startedAt,
 			})
 			turnRecorded = true
@@ -518,11 +517,11 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 	private classify(
 		session: CustomerSessionRow,
 		conversationId: string,
-		query: string,
+		input: { query: string; intent?: "scam" },
 		correlationId: string
 	): Promise<InquiryClassification> {
 		return this.customerChatService.classify({
-			query,
+			...input,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
@@ -531,38 +530,40 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		})
 	}
 
-	/** KB-2: answer from the rate table through the lookup tool. Already screened. */
-	private async answerRates(
+	private async answerTool(
 		session: CustomerSessionRow,
 		conversationId: string,
+		query: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		requestStartedAt: number
 	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerRates({
+		const context = {
 			conversationId,
 			classification,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
-		})
-		return { ...turn, conversationId }
-	}
-
-	/** TRK-1: answer from the tracking connector. The question is already screened. */
-	private async answerTracking(
-		session: CustomerSessionRow,
-		conversationId: string,
-		classification: InquiryClassification,
-		correlationId: string,
-		requestStartedAt?: number
-	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerTracking({
-			conversationId,
-			classification,
-			correlationId,
-			requestStartedAt,
-			explanationLanguage: session.language,
-		})
+		}
+		if (classification.route === "scam") {
+			return this.scamAssessmentService.answer({
+				...context,
+				query,
+				sessionLanguage: session.language,
+				requestStartedAt,
+			})
+		}
+		const turn =
+			classification.route === "tracking"
+				? await this.customerChatService.answerTracking({
+						conversationId,
+						classification,
+						correlationId,
+						requestStartedAt,
+						explanationLanguage: session.language,
+						confidenceThreshold: (await this.assistantSettingsService.get()).confidenceThreshold,
+					})
+				: await this.customerChatService.answerRates(context)
 		return { ...turn, conversationId }
 	}
 
@@ -626,7 +627,16 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		throw error
 	}
 
-	private async screenForAgent(query: string, session: CustomerSessionRow, correlationId: string) {
+	private async sendAgentMessage(
+		session: CustomerSessionRow,
+		conversationId: string,
+		query: string,
+		correlationId: string,
+		intent?: "scam"
+	) {
+		if (intent === "scam") {
+			throw new ConflictException("Start a new chat to check a suspicious message.")
+		}
 		const screened = await this.ragGatewayService.screenQuery({
 			query,
 			userId: this.principalFor(session),
@@ -635,7 +645,13 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			traceId: correlationId,
 			actorType: "customer",
 		})
-		return screened.screenedQuery
+		const saved = await this.conversationService.recordCustomerMessage({
+			conversationId,
+			customerSessionId: session.id,
+			maskedQuery: screened.screenedQuery,
+		})
+		await this.conversationLiveService.publish(conversationId)
+		return { agentMode: true as const, conversationId, messageId: saved.id }
 	}
 
 	/** Turn a screening 400 from the gateway into a recorded refusal (AC4). */

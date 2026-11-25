@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 import type { AnalyticsDashboardFilters, DashboardTile } from "@repo/contracts"
 
@@ -146,18 +146,13 @@ function ChartTile({ title, children }: { title: string; children: ReactNode }) 
 export function ManagementDashboard({ access }: { access: AccessProfile }) {
 	const canView = canAccess(access, { requiredPermission: "analytics.dashboard.view" })
 	const [filters, setFilters] = useState<AnalyticsDashboardFilters>(initialFilters)
-	const [tiles, setTiles] = useState<DashboardTile[]>(DEFAULT_TILES)
-	const [layoutLoaded, setLayoutLoaded] = useState(false)
+	const [editedTiles, setEditedTiles] = useState<DashboardTile[]>()
 	const dashboard = useAnalyticsDashboardQuery(filters, canView)
 	const savedLayout = useDashboardLayoutQuery(canView)
 	const saveLayout = useSaveDashboardLayoutMutation()
 
-	useEffect(() => {
-		if (savedLayout.data && !layoutLoaded) {
-			setTiles(savedLayout.data.tiles)
-			setLayoutLoaded(true)
-		}
-	}, [layoutLoaded, savedLayout.data])
+	const savedTiles = savedLayout.data?.tiles ?? DEFAULT_TILES
+	const tiles = editedTiles ?? savedTiles
 
 	if (!canView) return null
 
@@ -165,7 +160,8 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 		setFilters(current => ({ ...current, [key]: value || undefined }))
 	}
 	const moveTile = (index: number, direction: -1 | 1) => {
-		setTiles(current => {
+		setEditedTiles(previous => {
+			const current = previous ?? savedTiles
 			const target = index + direction
 			if (target < 0 || target >= current.length) return current
 			const reordered = [...current]
@@ -174,7 +170,8 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 		})
 	}
 	const toggleTile = (tile: DashboardTile, visible: boolean) => {
-		setTiles(current => {
+		setEditedTiles(previous => {
+			const current = previous ?? savedTiles
 			if (visible) return [...current, tile]
 			return current.filter(value => value !== tile)
 		})
@@ -435,7 +432,7 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 								<div>
 									<p className="text-muted-foreground text-xs">Median</p>
 									<p className="text-2xl font-semibold tabular-nums">
-										{data?.medianResponseTimeMs == null
+										{typeof data?.medianResponseTimeMs !== "number"
 											? "—"
 											: `${(data.medianResponseTimeMs / 1000).toFixed(1)} s`}
 									</p>
@@ -443,7 +440,7 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 								<div>
 									<p className="text-muted-foreground text-xs">95th percentile</p>
 									<p className="text-2xl font-semibold tabular-nums">
-										{data?.p95ResponseTimeMs == null
+										{typeof data?.p95ResponseTimeMs !== "number"
 											? "—"
 											: `${(data.p95ResponseTimeMs / 1000).toFixed(1)} s`}
 									</p>

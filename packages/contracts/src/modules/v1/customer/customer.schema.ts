@@ -57,6 +57,7 @@ export const CustomerSessionLanguageSchema = z.object({
 
 export const CustomerChatRequestSchema = z.object({
 	query: z.string().trim().min(1).max(4000),
+	intent: z.literal("scam").optional(),
 	/** Continue a conversation opened by the SAME session; omitted -> new. */
 	conversationId: z.string().uuid().optional(),
 })
@@ -78,6 +79,8 @@ export const CustomerAnswerSourceSchema = z.object({
 	title: z.string(),
 })
 
+const ScamRiskLevelSchema = z.enum(["low", "medium", "high", "uncertain"])
+
 export const CustomerAnswerSchema = z.object({
 	answer: z.string(),
 	conversationId: z.string().uuid(),
@@ -88,6 +91,13 @@ export const CustomerAnswerSchema = z.object({
 	answerKind: CustomerAnswerKindSchema,
 	/** True for the grounded "I don't have that information" (AC2). */
 	isIDontKnow: z.boolean(),
+	scamAssessment: z
+		.object({
+			riskLevel: ScamRiskLevelSchema,
+			indicators: z.array(z.string()),
+			confidence: z.number().min(0).max(1),
+		})
+		.optional(),
 })
 
 export const AgentModeResultSchema = z.object({
