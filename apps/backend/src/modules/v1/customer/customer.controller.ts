@@ -22,6 +22,7 @@ import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
+import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
@@ -62,6 +63,7 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
+		private readonly assistantSettingsService: AssistantSettingsService,
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
 		private readonly channelsService: ChannelsService
@@ -141,11 +143,17 @@ export class CustomerController {
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
+			const settings = await this.assistantSettingsService.get()
 
 			if (classification.route === "tracking") {
 				try {
 					return adapter.send(
-						await this.answerTracking(conversation.id, classification, correlationId)
+						await this.answerTracking(
+							conversation.id,
+							classification,
+							correlationId,
+							settings.confidenceThreshold
+						)
 					)
 				} catch (error) {
 					return toORPCError(error)
@@ -173,6 +181,7 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
@@ -185,6 +194,7 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold: settings.confidenceThreshold,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
@@ -236,13 +246,19 @@ export class CustomerController {
 			}
 			return
 		}
+		const assistantSettings = await this.assistantSettingsService.get()
 
 		// Tool turns (tracking, rates) are answered by their tool, not streamed.
 		if (classification.route === "tracking" || classification.route === "rates") {
 			try {
 				const turn =
 					classification.route === "tracking"
-						? await this.answerTracking(conversation.id, classification, correlationId)
+						? await this.answerTracking(
+								conversation.id,
+								classification,
+								correlationId,
+								assistantSettings.confidenceThreshold
+							)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(adapter.send(turn))
 			} catch {
@@ -258,7 +274,6 @@ export class CustomerController {
 			traceId: correlationId,
 			actorType: "customer",
 		})
-
 		// Abort the upstream call (and the provider's own stream) when the
 		// browser goes away, so a closed tab stops costing tokens.
 		const abort = new AbortController()
@@ -276,6 +291,9 @@ export class CustomerController {
 				body: JSON.stringify({
 					query: message.text,
 					persist: false,
+					...(classification.eligible && {
+						maxOutputTokens: assistantSettings.maxOutputTokens,
+					}),
 					...ragLanguageFields(classification),
 				}),
 				signal: abort.signal,
@@ -323,7 +341,9 @@ export class CustomerController {
 					envelope = frame.data ? (JSON.parse(frame.data) as RagAnswerEnvelope) : {}
 					continue
 				}
-				response.write(`${frame.raw}\n\n`)
+				// Hold draft deltas until confidence is known. A below-threshold
+				// answer must never leak before its safe uncertainty response.
+				if (frame.event !== "token") response.write(`${frame.raw}\n\n`)
 			}
 
 			if (envelope === null) throw new Error("RAG stream ended without a final frame")
@@ -332,7 +352,9 @@ export class CustomerController {
 				conversationId: conversation.id,
 				envelope,
 				classification,
+				confidenceThreshold: assistantSettings.confidenceThreshold,
 			})
+			response.write(formatSseFrame("token", { delta: turn.answer }))
 			response.write(
 				formatSseFrame(
 					"final",
@@ -399,12 +421,14 @@ export class CustomerController {
 	private async answerTracking(
 		conversationId: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		confidenceThreshold: number
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerTracking({
 			conversationId,
 			classification,
 			correlationId,
+			confidenceThreshold,
 		})
 		return { ...turn, conversationId }
 	}

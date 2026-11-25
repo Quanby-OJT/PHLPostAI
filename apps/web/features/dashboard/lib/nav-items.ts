@@ -106,6 +106,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "reports.reports.view",
 	},
 	{
+		label: "Assistant Settings",
+		href: "/assistant-settings",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.assistant.manage",
+	},
+	{
 		// CNV-2: inquiry category classification & self-service eligibility.
 		label: "Inquiry Categories",
 		href: "/inquiry-categories",

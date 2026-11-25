@@ -244,6 +244,9 @@ class ResponseCache:
                     "isIDontKnow",
                     "degraded",
                     "confidence",
+                    "retrievalScore",
+                    "groundednessResult",
+                    "outputTokens",
                 )
                 if key in payload
             }

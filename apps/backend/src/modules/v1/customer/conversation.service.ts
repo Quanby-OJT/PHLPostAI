@@ -20,6 +20,9 @@ export interface RecordTurnInput {
 	answer: string
 	answerKind: CustomerAnswerKind
 	confidence?: number | null
+	retrievalScore?: number | null
+	groundednessResult?: Record<string, unknown> | null
+	outputTokens?: number | null
 	citations?: unknown
 	retrievedChunks?: unknown
 	usedChunks?: unknown
@@ -264,6 +267,9 @@ export class ConversationService {
 					sender: "assistant",
 					answerKind: input.answerKind,
 					confidence: input.confidence ?? null,
+					retrievalScore: input.retrievalScore ?? null,
+					groundednessResult: input.groundednessResult ?? null,
+					outputTokens: input.outputTokens ?? null,
 					content: input.answer,
 					citations: input.citations ?? null,
 					retrievedChunks: input.retrievedChunks ?? null,

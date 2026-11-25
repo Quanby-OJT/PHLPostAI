@@ -23,6 +23,9 @@ export interface EscalationMessage {
 	content: string
 	citations: Array<{ source?: string | null; page?: number | null; section?: string | null }>
 	confidence: number | null
+	retrievalScore: number | null
+	groundednessResult: Record<string, unknown> | null
+	outputTokens: number | null
 	createdAt: string
 }
 

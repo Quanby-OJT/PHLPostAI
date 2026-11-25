@@ -41,7 +41,9 @@ describe("AssistantService (CNV-2 categories)", () => {
 	beforeEach(() => {
 		repository = {
 			listCategories: jest.fn().mockResolvedValue([RATES]),
-			listActiveCategories: jest.fn().mockResolvedValue([{ code: "rates", name: "Rates" }]),
+			listActiveCategories: jest
+				.fn()
+				.mockResolvedValue([{ code: "rates", name: "Rates", isEligible: true }]),
 			findCategoryByCode: jest.fn().mockResolvedValue(RATES),
 			createCategory: jest.fn(),
 			updateCategory: jest.fn().mockResolvedValue({ ...RATES, isEligible: false }),
@@ -131,7 +133,7 @@ describe("AssistantService (CNV-2 categories)", () => {
 
 	it("lists the active categories for the classifier", async () => {
 		await expect(service.listActiveCategories()).resolves.toEqual([
-			{ code: "rates", name: "Rates" },
+			{ code: "rates", name: "Rates", isEligible: true },
 		])
 	})
 })

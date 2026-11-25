@@ -6,8 +6,14 @@ import {
 
 export const UNSUPPORTED_LANGUAGE = "unsupported"
 
-export const SUPPORTED_LANGUAGES_NOTICE =
-	"I can reply in English, Filipino, Cebuano and Ilocano. Please write in one of these languages if you can."
+const SUPPORTED_LANGUAGES_NOTICES: Record<CustomerLanguage, string> = {
+	en: "I can reply in English, Filipino, Cebuano and Ilocano. Please write in one of these languages if you can.",
+	fil: "Maaari akong sumagot sa English, Filipino, Cebuano, at Ilocano. Kung maaari, sumulat gamit ang isa sa mga wikang ito.",
+	ceb: "Makahatag ko og tubag sa English, Filipino, Cebuano, ug Ilocano. Palihog pagsulat gamit ang usa niini kung mahimo.",
+	ilo: "Mabalin nga sumungbatak iti English, Filipino, Cebuano ken Ilocano. Pangngaasi nga agsurat iti maysa kadagitoy no mabalin.",
+}
+
+export const SUPPORTED_LANGUAGES_NOTICE = SUPPORTED_LANGUAGES_NOTICES.en
 
 export const I_DONT_KNOW_REPLIES: Record<CustomerLanguage, string> = {
 	en: "I don't know.",
@@ -34,8 +40,14 @@ export function replyLanguageFor(
 	return isCustomerLanguage(sessionLanguage) ? sessionLanguage : "en"
 }
 
-export function withLanguageNotice(answer: string, detected: string | null): string {
-	return detected === UNSUPPORTED_LANGUAGE ? `${answer}\n\n${SUPPORTED_LANGUAGES_NOTICE}` : answer
+export function withLanguageNotice(
+	answer: string,
+	detected: string | null,
+	replyLanguage: CustomerLanguage = "en"
+): string {
+	return detected === UNSUPPORTED_LANGUAGE
+		? `${answer}\n\n${SUPPORTED_LANGUAGES_NOTICES[replyLanguage]}`
+		: answer
 }
 
 /** What the RAG service needs to translate the question and write the reply. */
