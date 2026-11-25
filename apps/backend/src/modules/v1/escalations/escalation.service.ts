@@ -124,6 +124,9 @@ export class EscalationService {
 				content: messages.content,
 				citations: messages.citations,
 				confidence: messages.confidence,
+				retrievalScore: messages.retrievalScore,
+				groundednessResult: messages.groundednessResult,
+				outputTokens: messages.outputTokens,
 				inquiryCategory: messages.inquiryCategory,
 				turnIndex: messages.turnIndex,
 				createdAt: messages.createdAt,
@@ -159,6 +162,10 @@ export class EscalationService {
 				content: message.content,
 				citations: message.citations ?? [],
 				confidence: message.role === "assistant" ? message.confidence : null,
+				retrievalScore: message.role === "assistant" ? message.retrievalScore : null,
+				groundednessResult:
+					message.role === "assistant" ? message.groundednessResult : null,
+				outputTokens: message.role === "assistant" ? message.outputTokens : null,
 				createdAt: message.createdAt,
 			})),
 		}

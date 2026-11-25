@@ -24,7 +24,9 @@ from app.generation import (
     calculate_answer_confidence,
     get_chat_client,
     get_conversations_repository,
+    _is_i_dont_know,
 )
+from app.budget import limit_routine_answer
 from app.main import create_app
 from app.retrieval import get_retrieval_service
 from app.security import ServicePrincipal
@@ -43,6 +45,14 @@ PRINCIPAL = ServicePrincipal(
 DOC_ID = str(uuid.uuid4())
 OTHER_DOC_ID = str(uuid.uuid4())
 SOURCES = {DOC_ID: "upload://handbook.pdf", OTHER_DOC_ID: "upload://policy.pdf"}
+
+
+@pytest.mark.parametrize(
+    "answer",
+    ["I don't know.", "I do not know!", "Hindi ko alam.", "Wala ko kahibalo.", "Diak ammo."],
+)
+def test_uncertainty_fallback_is_recognized_in_supported_languages(answer):
+    assert _is_i_dont_know(answer)
 
 
 def test_answer_confidence_combines_retrieval_and_grounding():
@@ -65,6 +75,25 @@ def test_answer_confidence_combines_retrieval_and_grounding():
     ) == 0.0
 
 
+def test_explicit_groundedness_controls_confidence_without_citation_dependency():
+    chunks = [{"similarity": 0.82}]
+
+    assert calculate_answer_confidence(
+        chunks,
+        citations=[],
+        degraded=False,
+        is_i_dont_know=False,
+        grounding={"grounded": True, "outcome": "draft"},
+    ) == 0.82
+    assert calculate_answer_confidence(
+        chunks,
+        citations=[{"chunkId": "chunk-1"}],
+        degraded=False,
+        is_i_dont_know=False,
+        grounding={"grounded": False, "outcome": "regenerated"},
+    ) == 0.0
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -82,6 +111,82 @@ def test_answer_confidence_is_zero_without_a_grounded_answer(overrides):
     }
     options.update(overrides)
     assert calculate_answer_confidence([{"similarity": 0.75}], **options) == 0.0
+
+
+def test_routine_answer_limit_keeps_a_complete_sentence_and_offers_more(monkeypatch):
+    import app.budget as budget
+
+    class WordEncoder:
+        def encode(self, text):
+            return text.split()
+
+        def decode(self, tokens):
+            return " ".join(tokens)
+
+    monkeypatch.setattr(budget, "_encoder", WordEncoder())
+    answer, truncated = limit_routine_answer(
+        "First sentence is complete. Second sentence has a lot of additional words and detail. Third sentence also has extra words.",
+        14,
+        "en",
+    )
+
+    assert truncated is True
+    assert answer.startswith("First sentence is complete.")
+    assert answer.endswith("More details are available if you need them.")
+    assert budget.count_tokens(answer) <= 14
+
+
+def test_routine_answer_limit_replaces_provider_cutoff_with_complete_notice(monkeypatch):
+    import app.budget as budget
+
+    class WordEncoder:
+        def encode(self, text):
+            return text.split()
+
+        def decode(self, tokens):
+            return " ".join(tokens)
+
+    monkeypatch.setattr(budget, "_encoder", WordEncoder())
+    answer, truncated = limit_routine_answer("This generated answer stops mid sentence", 14, "en")
+
+    assert truncated is True
+    assert answer == "The answer was shortened. I can give more details if needed."
+    assert budget.count_tokens(answer) <= 14
+
+
+def test_routine_answer_limit_recognizes_citation_suffix_after_sentence(monkeypatch):
+    import app.budget as budget
+
+    class WordEncoder:
+        def encode(self, text):
+            return text.split()
+
+        def decode(self, tokens):
+            return " ".join(tokens)
+
+    monkeypatch.setattr(budget, "_encoder", WordEncoder())
+    answer, truncated = limit_routine_answer("A complete answer. [1][2]", 14, "en")
+
+    assert truncated is False
+    assert answer == "A complete answer. [1][2]"
+
+
+def test_routine_answer_limit_uses_localized_notice_for_cutoff(monkeypatch):
+    import app.budget as budget
+
+    class WordEncoder:
+        def encode(self, text):
+            return text.split()
+
+        def decode(self, tokens):
+            return " ".join(tokens)
+
+    monkeypatch.setattr(budget, "_encoder", WordEncoder())
+    answer, truncated = limit_routine_answer("Naputol ang sagot dito", 40, "fil")
+
+    assert truncated is True
+    assert answer == "Naputol ang sagot. Maaari akong magbigay ng dagdag na detalye kung kailangan."
+    assert budget.count_tokens(answer) <= 40
 
 
 def make_chunk(

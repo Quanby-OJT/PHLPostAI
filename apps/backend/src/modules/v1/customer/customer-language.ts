@@ -6,8 +6,14 @@ import {
 
 export const UNSUPPORTED_LANGUAGE = "unsupported"
 
-export const SUPPORTED_LANGUAGES_NOTICE =
-	"I can reply in English, Filipino, Cebuano and Ilocano. Please write in one of these languages if you can."
+const SUPPORTED_LANGUAGES_NOTICES: Record<CustomerLanguage, string> = {
+	en: "I can reply in English, Filipino, Cebuano and Ilocano. Please write in one of these languages if you can.",
+	fil: "Maaari akong sumagot sa English, Filipino, Cebuano, at Ilocano. Kung maaari, sumulat gamit ang isa sa mga wikang ito.",
+	ceb: "Makahatag ko og tubag sa English, Filipino, Cebuano, ug Ilocano. Palihog pagsulat gamit ang usa niini kung mahimo.",
+	ilo: "Mabalin nga sumungbatak iti English, Filipino, Cebuano ken Ilocano. Pangngaasi nga agsurat iti maysa kadagitoy no mabalin.",
+}
+
+export const SUPPORTED_LANGUAGES_NOTICE = SUPPORTED_LANGUAGES_NOTICES.en
 
 export const I_DONT_KNOW_REPLIES: Record<CustomerLanguage, string> = {
 	en: "I don't know.",
@@ -22,20 +28,33 @@ export function isCustomerLanguage(value: unknown): value is CustomerLanguage {
 
 /**
  * CNV-4: a message written in Filipino, Cebuano or Ilocano is answered in that
- * language; an unsupported one in English; an English or undetected one in the
- * session's language, which the customer can pick from the widget menu.
+ * language by default, but an explicit non-English choice in the widget takes
+ * precedence over an uncertain or conflicting classifier result. An English
+ * or undetected message uses the session's selected language.
  */
 export function replyLanguageFor(
 	detected: string | null,
 	sessionLanguage: string
 ): CustomerLanguage {
+	// A non-English language selected in the widget is an explicit reply
+	// preference. Do not let a classifier mistake (e.g. Filipino → Ilocano)
+	// or low-confidence `unsupported` result override it. English remains the
+	// default so detected Filipino/Cebuano/Ilocano questions still receive a
+	// reply in the language they used.
+	if (isCustomerLanguage(sessionLanguage) && sessionLanguage !== "en") return sessionLanguage
 	if (detected === UNSUPPORTED_LANGUAGE) return "en"
 	if (detected !== "en" && isCustomerLanguage(detected)) return detected
 	return isCustomerLanguage(sessionLanguage) ? sessionLanguage : "en"
 }
 
-export function withLanguageNotice(answer: string, detected: string | null): string {
-	return detected === UNSUPPORTED_LANGUAGE ? `${answer}\n\n${SUPPORTED_LANGUAGES_NOTICE}` : answer
+export function withLanguageNotice(
+	answer: string,
+	detected: string | null,
+	replyLanguage: CustomerLanguage = "en"
+): string {
+	return detected === UNSUPPORTED_LANGUAGE
+		? `${answer}\n\n${SUPPORTED_LANGUAGES_NOTICES[replyLanguage]}`
+		: answer
 }
 
 /** What the RAG service needs to translate the question and write the reply. */

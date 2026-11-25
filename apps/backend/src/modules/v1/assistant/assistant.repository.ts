@@ -20,9 +20,13 @@ export class AssistantRepository {
 		return db.select().from(inquiryCategories).orderBy(asc(inquiryCategories.code))
 	}
 
-	async listActiveCategories(): Promise<{ code: string; name: string }[]> {
+	async listActiveCategories(): Promise<{ code: string; name: string; isEligible: boolean }[]> {
 		return db
-			.select({ code: inquiryCategories.code, name: inquiryCategories.name })
+			.select({
+				code: inquiryCategories.code,
+				name: inquiryCategories.name,
+				isEligible: inquiryCategories.isEligible,
+			})
 			.from(inquiryCategories)
 			.where(eq(inquiryCategories.isActive, true))
 			.orderBy(asc(inquiryCategories.code))

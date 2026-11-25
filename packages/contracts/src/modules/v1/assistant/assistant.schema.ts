@@ -36,6 +36,22 @@ export const CreateInquiryCategoryRequestSchema = z.object({
 	isEligible: z.boolean().default(false),
 })
 
+export const AssistantSettingsSchema = z.object({
+	confidenceThreshold: z.number().min(0).max(1),
+	maxOutputTokens: z.number().int().min(1).max(200),
+})
+
+export const UpdateAssistantSettingsRequestSchema = z
+	.object({
+		confidenceThreshold: z.number().min(0).max(1).optional(),
+		maxOutputTokens: z.number().int().min(1).max(200).optional(),
+	})
+	.refine(value => value.confidenceThreshold !== undefined || value.maxOutputTokens !== undefined, {
+		message: "At least one assistant setting must be provided",
+	})
+
 export type InquiryCategory = z.infer<typeof InquiryCategorySchema>
 export type CreateInquiryCategoryRequest = z.infer<typeof CreateInquiryCategoryRequestSchema>
 export type UpdateInquiryCategoryRequest = z.infer<typeof UpdateInquiryCategoryRequestSchema>
+export type AssistantSettings = z.infer<typeof AssistantSettingsSchema>
+export type UpdateAssistantSettingsRequest = z.infer<typeof UpdateAssistantSettingsRequestSchema>
