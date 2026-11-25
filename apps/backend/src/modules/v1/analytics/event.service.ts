@@ -26,8 +26,10 @@ export class EventService {
 		) {
 			throw new Error("Interaction event response time must be a non-negative number")
 		}
-		if (!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language)) {
-		if (input.language !== "unsupported" && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language)) {
+		if (
+			input.language !== "unsupported" &&
+			!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language)
+		) {
 			throw new Error("Interaction event language must be a language code")
 		}
 		if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(input.channelCode)) {

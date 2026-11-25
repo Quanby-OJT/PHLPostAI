@@ -152,8 +152,14 @@ export class CustomerController {
 			if (classification.route === "tracking") {
 				try {
 					return adapter.send(
-  await this.answerTracking(session, conversation.id, classification, correlationId, startedAt)
-)
+						await this.answerTracking(
+							session,
+							conversation.id,
+							classification,
+							correlationId,
+							startedAt
+						)
+					)
 				} catch (error) {
 					return toORPCError(error)
 				}
@@ -263,7 +269,13 @@ export class CustomerController {
 			try {
 				const turn =
 					classification.route === "tracking"
-						? await this.answerTracking(conversation.id, classification, correlationId)
+						? await this.answerTracking(
+								session,
+								conversation.id,
+								classification,
+								correlationId,
+								startedAt
+							)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(adapter.send(turn))
 			} catch {
@@ -420,6 +432,7 @@ export class CustomerController {
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
+		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string,

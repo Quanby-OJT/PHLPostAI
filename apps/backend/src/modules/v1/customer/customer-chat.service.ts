@@ -333,9 +333,8 @@ export class CustomerChatService {
 		envelope: RagAnswerEnvelope
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
-		classification?: Pick<InquiryClassification, "category" | "language">
-		requestStartedAt?: number
 		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		requestStartedAt?: number
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope, classification } = input
 		const answerKind = input.answerKind ?? this.answerKindFor(envelope)
