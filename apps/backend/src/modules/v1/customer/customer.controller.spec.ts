@@ -133,6 +133,7 @@ class TestChannelAdapter implements ChannelAdapter {
 const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "retrieval" as const,
@@ -140,6 +141,7 @@ const RETRIEVAL_CLASSIFICATION = {
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "tracking" as const,
@@ -234,6 +236,9 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
+			{
+				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
+			} as never,
 			ragGatewayService as unknown as RagGatewayService,
 			channelAdapters,
 			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService
@@ -339,15 +344,12 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 		})
 
-		it("forwards the token frames verbatim", async () => {
+		it("withholds draft tokens until confidence is known, then sends the finalized answer", async () => {
 			const { response, state } = responseDouble()
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
-			expect(state.written.slice(0, 2)).toEqual([
-				'event: token\ndata: {"delta":"165 "}\n\n',
-				'event: token\ndata: {"delta":"pesos."}\n\n',
-			])
+			expect(state.written[0]).toBe('event: token\ndata: {"delta":"165 pesos."}\n\n')
 			expect(state.headers["content-type"]).toBe("text/event-stream")
 		})
 
@@ -394,6 +396,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				conversationId: "conversation-1",
 				envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
 				classification: RETRIEVAL_CLASSIFICATION,
+				confidenceThreshold: 0.7,
 			})
 		})
 
@@ -406,6 +409,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(body).toEqual({
 				query: "how much",
 				persist: false,
+				maxOutputTokens: 200,
 				language: "en",
 				queryLanguage: "en",
 				glossary: ["PHLPost"],
@@ -648,6 +652,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				conversationId: "conversation-1",
 				classification: TRACKING_CLASSIFICATION,
 				correlationId: "req-1",
+				confidenceThreshold: 0.7,
 			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
@@ -700,6 +705,41 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
+		})
+	})
+
+	describe("CNV-3: the JSON route caps routine answers too", () => {
+		type Handler = (args: { input: { query: string } }) => Promise<unknown>
+
+		beforeEach(() => {
+			ragGatewayService.submitChatQuery.mockResolvedValue({
+				answer: "165 pesos.",
+				screenedQuery: "how much",
+			})
+		})
+
+		it("sends the limit for an eligible category", async () => {
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ maxOutputTokens: 200 })
+			)
+		})
+
+		it("leaves the limit off for a category that is not eligible", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				eligible: false,
+			})
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery.mock.calls[0]?.[0]).not.toHaveProperty(
+				"maxOutputTokens"
 			)
 		})
 	})

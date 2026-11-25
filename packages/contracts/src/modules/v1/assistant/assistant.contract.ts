@@ -5,10 +5,21 @@ import {
 	CreateInquiryCategoryRequestSchema,
 	InquiryCategorySchema,
 	UpdateInquiryCategoryRequestSchema,
+	AssistantSettingsSchema,
+	UpdateAssistantSettingsRequestSchema,
 } from "./assistant.schema.js"
 
 /** Assistant configuration (CNV-2). Requires settings.assistant.manage. */
 export const assistantContract = {
+	settings: {
+		get: oc
+			.route({ method: "GET", path: "/assistant/settings", summary: "Get assistant settings", tags: ["Assistant"] })
+			.output(AssistantSettingsSchema),
+		update: oc
+			.route({ method: "PUT", path: "/assistant/settings", summary: "Update assistant settings", tags: ["Assistant"] })
+			.input(UpdateAssistantSettingsRequestSchema)
+			.output(AssistantSettingsSchema),
+	},
 	categories: {
 		list: oc
 			.route({

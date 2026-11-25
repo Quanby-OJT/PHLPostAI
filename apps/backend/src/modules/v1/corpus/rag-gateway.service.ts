@@ -84,6 +84,8 @@ export interface ChatForwardInput {
 	language?: string
 	queryLanguage?: string
 	glossary?: readonly string[]
+	/** CNV-3: the routine-answer limit for an eligible category. */
+	maxOutputTokens?: number
 }
 
 function base64UrlJson(value: unknown): string {
@@ -180,6 +182,7 @@ export class RagGatewayService {
 				...(input.language !== undefined && { language: input.language }),
 				...(input.queryLanguage !== undefined && { queryLanguage: input.queryLanguage }),
 				...(input.glossary !== undefined && { glossary: input.glossary }),
+				...(input.maxOutputTokens !== undefined && { maxOutputTokens: input.maxOutputTokens }),
 			}),
 			failureMessage: "RAG chat failed",
 		})

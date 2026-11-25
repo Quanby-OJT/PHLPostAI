@@ -464,6 +464,35 @@ Try it at `/assistant`: ask `Unsaon pagkuha og Postal ID?` (Cebuano reply),
 pick **Ilocano** and ask in English (Ilocano reply), or ask in Japanese (English
 reply with the supported-languages note).
 
+## Confidence and answer length (CNV-3)
+
+**Assistant Settings** (`/assistant-settings`, needs `settings.assistant.manage`)
+holds two values, read and written only through `AssistantSettingsService`
+(`assistant_settings` keys `confidence_threshold`, default 0.7, and
+`max_output_tokens`, default and ceiling 200). Every save is audited
+(`assistant.settings.update`) with the old and new values, and the next
+customer message uses them.
+
+Confidence = the top retrieval score × the groundedness result (1 or 0). The
+retrieval score is the top reranked score when the reranker runs (a local
+cross-encoder logit goes through a sigmoid), else the best cosine similarity.
+The groundedness result is the agentic verifier's verdict when it runs, else
+citation validation. Tool answers take the tool's certainty: a rate-table reply
+(including "no published rate") is 1, and a tracking outage is 0.
+
+Below the threshold the customer gets a fixed "not sure" reply in their
+language that names the articles it found and offers a person; the draft is
+never streamed. For eligible categories the limit is sent to the model and
+checked again afterwards: the answer ends on a full sentence and offers more
+details when something was cut. Each assistant Message stores `confidence`,
+`retrieval_score`, `groundedness_result` and `output_tokens` (from the
+provider's usage figures), and the Agent Inbox transcript shows them. Cached
+answers are kept per limit.
+
+Try it: set the threshold to 0.95 and ask a question with an approved article
+(the "not sure" reply with the article title), set it back to 0.5 (a normal
+answer), and set the limit to 40 to see a shortened answer.
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous

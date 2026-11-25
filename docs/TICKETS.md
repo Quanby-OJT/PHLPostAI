@@ -493,18 +493,20 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 - *Given* the settings screen, *when* a permitted user changes the threshold between 0 and 1, *then* the next message uses it and the change is audited with old and new values.
 - *Given* a stored assistant Message, *when* it is inspected, *then* it shows the retrieval score, the groundedness result, and the Confidence derived from them.
 - *Given* a user without `settings.assistant.manage`, *when* they call the settings endpoint, *then* the API returns 403 and the denial is audited.
+- *Given* the routine-answer length limit, which a permitted user can set to any value up to 200 tokens, *when* an answer in an eligible category is generated, *then* it does not exceed the limit, ends on a complete sentence, offers “more details” when content was left out, and stores its token count on the Message.
 
 **In scope:**
 
 - `assistant_settings` table and `SettingsService` (first consumer: `confidence_threshold`)
 - Confidence calculation; the 'not sure' reply; `confidence` and `answer_kind` columns on `messages`; settings screen
+- Routine-answer output limit (setting `max_output_tokens`, default and ceiling 200) passed to the model call and re-checked after generation; `output_tokens` column on `messages`
 
 **Out of scope:**
 
 - Creating the Escalation and the agent side (ESC-1 exists; rules in ESC-3)
 - Sensitive-topic rules (ESC-3)
 
-**Technical notes:** Flow A — Public chat turn, steps 6 and 7. Confidence = a documented function of the top reranked retrieval score and the template's groundedness gate result from the `agentic` profile; tool answers (tracking, rates) take the tool's certainty. `SettingsService` is the only reader and writer of `assistant_settings` from here on. Enforces `settings.assistant.manage`.
+**Technical notes:** Flow A — Public chat turn, steps 6 and 7. Confidence = a documented function of the top reranked retrieval score and the template's groundedness gate result from the `agentic` profile; tool answers (tracking, rates) take the tool's certainty. `SettingsService` is the only reader and writer of `assistant_settings` from here on. The output limit applies to answers in eligible categories (PRD assumption A9); the settings screen refuses a value above 200. Token counts come from the provider's usage figures, which ANL-8 also reads. Enforces `settings.assistant.manage`. Schema: use the table, column, setting-key, and event-kind names exactly as listed in DOMAIN-MODEL.md for `assistant_settings`, `messages`. If this ticket needs a name that is not listed there, add it to DOMAIN-MODEL.md in the same pull request first.
 
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 

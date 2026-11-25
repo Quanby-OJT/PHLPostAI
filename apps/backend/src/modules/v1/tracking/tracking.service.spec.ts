@@ -81,6 +81,19 @@ describe("TrackingService (TRK-1, Flow B)", () => {
 	})
 
 	describe("AC3: asks for the number and makes no lookup", () => {
+		it("answers in Filipino when Filipino is selected", async () => {
+			const source = new MockTrackingSource()
+			const lookup = jest.spyOn(source, "lookup")
+
+			const answer = await serviceWith(source).answer("Paano ko ita-track ang parcel ko?", "fil")
+
+			expect(answer.reply).toBe(
+				"Matutulungan kitang tingnan ito. Pakisend ang tracking number mo. Karaniwan itong ganito: RR123456789PH."
+			)
+			expect(answer.lookup).toBeNull()
+			expect(lookup).not.toHaveBeenCalled()
+		})
+
 		it.each([
 			["no number", "where is my parcel?", TRACKING_REPLIES.missing],
 			["a malformed number", "track RR12345PH678", TRACKING_REPLIES.malformed],
@@ -167,10 +180,10 @@ describe("TrackingService (TRK-1, Flow B)", () => {
 			expect(explanations.findActive).toHaveBeenCalledWith("IN_TRANSIT", "fil")
 			expect(answer.reply).toBe(
 				[
-					foundReply(IN_TRANSIT),
+					foundReply(IN_TRANSIT, { language: "fil" }),
 					"",
-					"What this means: Your item is on its way to the post office that will deliver it.",
-					"Next steps: No action is needed. Check again tomorrow.",
+					"Kahulugan nito: Your item is on its way to the post office that will deliver it.",
+					"Mga susunod na hakbang: No action is needed. Check again tomorrow.",
 				].join("\n")
 			)
 		})
@@ -187,7 +200,7 @@ describe("TrackingService (TRK-1, Flow B)", () => {
 		it("AC2: shows the official description unchanged when the code has no explanation", async () => {
 			const answer = await serviceWith().answer("where is RR123456789PH", "ceb")
 
-			expect(answer.reply).toBe(foundReply(IN_TRANSIT))
+			expect(answer.reply).toBe(foundReply(IN_TRANSIT, { language: "ceb" }))
 		})
 
 		it("AC3: adds the Customs guidance and states PHLPost does not decide the release", async () => {

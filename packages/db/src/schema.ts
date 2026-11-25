@@ -496,6 +496,9 @@ export const messages = createTable(
 		content: t.text("content").notNull(),
 		citations: t.jsonb("citations").$type<unknown>(),
 		confidence: t.real("confidence"),
+		retrievalScore: t.real("retrieval_score"),
+		groundednessResult: t.jsonb("groundedness_result").$type<Record<string, unknown> | null>(),
+		outputTokens: t.integer("output_tokens"),
 		retrievedChunks: t.jsonb("retrieved_chunks").$type<unknown>(),
 		// GN-2: the chunks actually USED in the prompt (rank-then-select under
 		// the hard token budget) — recorded separately from retrievedChunks so
@@ -1109,6 +1112,13 @@ export const inquiryCategories = createTable("inquiry_categories", t => ({
 	updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }))
 
+/** Admin-managed assistant controls (CNV-3). Values are JSON to keep settings extensible. */
+export const assistantSettings = createTable("assistant_settings", t => ({
+	key: t.text("key").primaryKey(),
+	value: t.jsonb("value").notNull().$type<unknown>(),
+	updatedBy: t.text("updated_by").notNull(),
+}))
+
 // ============================================================================
 // SCHEMA
 // ============================================================================
@@ -1149,6 +1159,7 @@ export const schema = Object.assign(
 		statusExplanations,
 		inquiryCategories,
 		kpiDefinitions,
+		assistantSettings,
 		rateBatches,
 		rateEntries,
 	},

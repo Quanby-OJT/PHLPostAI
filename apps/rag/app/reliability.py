@@ -183,13 +183,18 @@ class ReliableChatClient:
         base = self._settings.retry_base_delay_seconds * (2**attempt)
         return base * (0.5 + self._rng())  # jitter in [0.5x, 1.5x)
 
-    async def complete(self, messages: list[dict[str, str]]) -> tuple[str, dict[str, int] | None]:
+    async def complete(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> tuple[str, dict[str, int] | None]:
         if not await self._breaker.allow(self.provider):
             raise BreakerOpenError(self.provider)  # fail fast, no timeout wait
         attempts = self._settings.retry_max_attempts
         for attempt in range(attempts):
             try:
-                result = await self._inner.complete(messages)
+                if max_tokens is None:
+                    result = await self._inner.complete(messages)
+                else:
+                    result = await self._inner.complete(messages, max_tokens=max_tokens)
             except Exception as exc:
                 await self._breaker.record_failure(self.provider)
                 if attempt + 1 >= attempts or not is_transient(exc):
@@ -208,14 +213,18 @@ class ReliableChatClient:
                 return result
         raise RuntimeError("unreachable")  # pragma: no cover
 
-    async def stream(self, messages: list[dict[str, str]]) -> Any:
+    async def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any:
         if not await self._breaker.allow(self.provider):
             raise BreakerOpenError(self.provider)
         attempts = self._settings.retry_max_attempts
         for attempt in range(attempts):
             emitted = False
             try:
-                async for item in self._inner.stream(messages):
+                if max_tokens is None:
+                    provider_stream = self._inner.stream(messages)
+                else:
+                    provider_stream = self._inner.stream(messages, max_tokens=max_tokens)
+                async for item in provider_stream:
                     emitted = True
                     yield item
             except Exception as exc:

@@ -26,7 +26,7 @@ export class AssistantService {
 	}
 
 	/** The categories the classifier may choose from (CNV-2 AC3). */
-	listActiveCategories(): Promise<{ code: string; name: string }[]> {
+	listActiveCategories(): Promise<{ code: string; name: string; isEligible: boolean }[]> {
 		return this.repository.listActiveCategories()
 	}
 
