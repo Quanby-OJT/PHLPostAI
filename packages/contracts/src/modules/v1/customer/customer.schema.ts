@@ -38,6 +38,12 @@ export const CustomerSessionSchema = z.object({
 	language: CustomerLanguageSchema,
 	/** When the session lapses if the customer stops sending messages. */
 	idleExpiresAt: z.string(),
+	welcomeText: z.string().optional(),
+})
+
+export const CustomerChannelStatusSchema = z.object({
+	enabled: z.boolean(),
+	welcomeText: z.string(),
 })
 
 /** CNV-4: the language picked from the widget menu; later replies use it. */
@@ -54,6 +60,14 @@ export const CustomerChatRequestSchema = z.object({
 	intent: z.literal("scam").optional(),
 	/** Continue a conversation opened by the SAME session; omitted -> new. */
 	conversationId: z.string().uuid().optional(),
+})
+
+export const EndCustomerConversationRequestSchema = z.object({
+	conversationId: z.string().uuid(),
+})
+
+export const EndCustomerConversationResponseSchema = z.object({
+	resolvedByAi: z.boolean(),
 })
 
 /**
@@ -96,7 +110,10 @@ export type CustomerAnswerKind = z.infer<typeof CustomerAnswerKindSchema>
 export type StartCustomerSessionRequest = z.infer<typeof StartCustomerSessionRequestSchema>
 export type CustomerSession = z.infer<typeof CustomerSessionSchema>
 export type CustomerChatRequest = z.infer<typeof CustomerChatRequestSchema>
+export type EndCustomerConversationRequest = z.infer<typeof EndCustomerConversationRequestSchema>
+export type EndCustomerConversationResponse = z.infer<typeof EndCustomerConversationResponseSchema>
 export type SetCustomerLanguageRequest = z.infer<typeof SetCustomerLanguageRequestSchema>
 export type CustomerSessionLanguage = z.infer<typeof CustomerSessionLanguageSchema>
 export type CustomerAnswerSource = z.infer<typeof CustomerAnswerSourceSchema>
 export type CustomerAnswer = z.infer<typeof CustomerAnswerSchema>
+export type CustomerChannelStatus = z.infer<typeof CustomerChannelStatusSchema>

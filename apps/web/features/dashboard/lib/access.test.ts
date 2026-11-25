@@ -125,6 +125,12 @@ describe("navItems", () => {
 		).toContain("User Management")
 
 		expect(
+			getAccessibleNavItems({ roles: [], permissions: ["channels.channels.manage"] }).map(
+				item => item.label
+			)
+		).toContain("Channels")
+
+		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["corpus.documents.read"] }).map(
 				item => item.label
 			)
@@ -179,11 +185,14 @@ describe("navItems", () => {
 			"Status explanations",
 			"Chat",
 			"Agent inbox",
+			"Deflection KPI",
 			"User Management",
 			"Evaluation",
 			"Reports",
+			"Assistant Settings",
 			"Inquiry Categories",
 			"Configuration",
+			"Channels",
 			"API Keys",
 		])
 	})

@@ -47,7 +47,11 @@ const SEEDED_CATEGORIES = [
 	"scam",
 	"complaint",
 	"other",
-].map(code => ({ code, name: code }))
+].map(code => ({
+	code,
+	name: code,
+	isEligible: ["tracking", "rates", "postal-id", "service-info", "scam"].includes(code),
+}))
 
 const EXPRESS_ARTICLE = {
 	articleId: "11111111-1111-4111-8111-111111111111",
@@ -182,6 +186,71 @@ describe("CustomerChatService (CNV-1)", () => {
 	})
 
 	describe("AC2: an uncovered question is answered, not invented", () => {
+		it("replaces a below-threshold draft with a localized uncertainty and handoff offer", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "The draft answer must not be shown.",
+					isIDontKnow: false,
+					confidence: 0.42,
+					retrievalScore: 0.42,
+					groundednessResult: { grounded: false, outcome: "idk" },
+					outputTokens: 18,
+					screenedQuery: "q",
+				},
+				classification: { category: "service-info", language: "fil", replyLanguage: "fil" },
+				confidenceThreshold: 0.7,
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.isIDontKnow).toBe(true)
+			expect(turn.answer).toContain("Hindi ako sapat na sigurado")
+			expect(turn.answer).toContain("makipag-usap sa isang tao")
+			expect(turn.answer).not.toContain("The draft answer must not be shown")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					answerKind: "uncertain",
+					confidence: 0.42,
+					retrievalScore: 0.42,
+					groundednessResult: { grounded: false, outcome: "idk" },
+					outputTokens: 18,
+				})
+			)
+		})
+
+		it("names the articles it found when the uncertain answer cited none", async () => {
+			knowledgeRepository.resolveArticleSources.mockResolvedValue(
+				new Map([["document-1", EXPRESS_ARTICLE]])
+			)
+
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "I don't know.",
+					isIDontKnow: true,
+					confidence: 0,
+					citations: [],
+					retrievedChunks: [{ id: "chunk-1", documentId: "document-1", similarity: 0.4 }],
+					screenedQuery: "q",
+				},
+				confidenceThreshold: 0.7,
+			})
+
+			expect(turn.answer).toContain(`I found information in: ${EXPRESS_ARTICLE.title}.`)
+			expect(turn.sources).toEqual([])
+		})
+
+		it("sends an answer whose confidence equals the configured threshold normally", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: { answer: "Grounded answer [1].", confidence: 0.7, citations: [], screenedQuery: "q" },
+				confidenceThreshold: 0.7,
+			})
+
+			expect(turn.answer).toBe("Grounded answer [1].")
+			expect(turn.answerKind).toBe("answer")
+		})
+
 		it("marks the grounded I-don't-know as uncertain", () => {
 			expect(service.answerKindFor({ isIDontKnow: true })).toBe("uncertain")
 		})
@@ -196,13 +265,14 @@ describe("CustomerChatService (CNV-1)", () => {
 				envelope: {
 					answer: "I don't know.",
 					isIDontKnow: true,
+					confidence: 0,
 					citations: [],
 					screenedQuery: "who won the election",
 				},
 			})
 
 			expect(turn).toMatchObject({
-				answer: "I don't know.",
+				answer: expect.stringContaining("I'm not sure enough to answer"),
 				answerKind: "uncertain",
 				isIDontKnow: true,
 				sources: [],
@@ -370,6 +440,7 @@ describe("CustomerChatService (CNV-1)", () => {
 			expect(result).toEqual({
 				screenedQuery: "where is RR123456789PH",
 				category: "tracking",
+				eligible: true,
 				language: "en",
 				replyLanguage: "en",
 				route: "tracking",
@@ -557,6 +628,36 @@ describe("CustomerChatService (CNV-1)", () => {
 				expect.objectContaining({ answerKind: "tool", sources: [], citations: [] })
 			)
 		})
+
+		it("CNV-3: keeps 'no published rate' as a certain tool answer (KB-2 AC3)", async () => {
+			rateLookupService.answer.mockResolvedValue({
+				reply: "I don't have a published rate for that, so I can't quote a price.",
+				outcome: "no_rate",
+			})
+
+			const turn = await service.answerRates({
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "Express Mail to Visayas for 30 kg",
+					category: "rates",
+					language: "en",
+					replyLanguage: "en",
+					route: "rates",
+				},
+				principal: "customer-session:session-1",
+				permissions: ["chat.query.submit"],
+				correlationId: "req-1",
+			})
+
+			expect(turn).toMatchObject({
+				answer: "I don't have a published rate for that, so I can't quote a price.",
+				answerKind: "tool",
+				isIDontKnow: false,
+			})
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ answerKind: "tool", confidence: 1 })
+			)
+		})
 	})
 
 	describe("TRK-1: a tracking turn", () => {
@@ -696,20 +797,23 @@ describe("CustomerChatService (CNV-1)", () => {
 		it("gives the grounded I-don't-know in the reply language", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "I don't know.", isIDontKnow: true, screenedQuery: "q" },
+				envelope: { answer: "I don't know.", isIDontKnow: true, confidence: 0, screenedQuery: "q" },
 				classification: { category: "other", language: "fil", replyLanguage: "fil" },
 			})
 
-			expect(turn).toMatchObject({ answer: "Hindi ko alam.", answerKind: "uncertain" })
+			expect(turn).toMatchObject({
+				answer: expect.stringContaining("Hindi ako sapat na sigurado"),
+				answerKind: "uncertain",
+			})
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
-				expect.objectContaining({ answer: "Hindi ko alam.", language: "fil" })
+				expect.objectContaining({ answer: expect.stringContaining("Hindi ako sapat na sigurado"), language: "fil" })
 			)
 		})
 
 		it("answers an unsupported language in English and names the supported ones", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Express Mail is next-day [1].", screenedQuery: "q", citations: [] },
+				envelope: { answer: "Express Mail is next-day [1].", confidence: 0.9, screenedQuery: "q", citations: [] },
 				classification: { category: "service-info", language: "unsupported", replyLanguage: "en" },
 			})
 
@@ -745,7 +849,7 @@ describe("CustomerChatService (CNV-1)", () => {
 		it("leaves a supported-language answer untouched", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Oo, puwede [1].", screenedQuery: "q", citations: [] },
+				envelope: { answer: "Oo, puwede [1].", confidence: 0.9, screenedQuery: "q", citations: [] },
 				classification: { category: "service-info", language: "fil", replyLanguage: "fil" },
 			})
 

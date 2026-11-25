@@ -149,7 +149,9 @@ class WatsonxChatClient:
         base = self._settings.watsonx_url.rstrip("/")
         return f"{base}{path}?version={self._settings.watsonx_api_version}"
 
-    def _body(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+    def _body(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> dict[str, Any]:
         project_id = self._settings.watsonx_project_id
         if project_id is None:
             raise RuntimeError("Watsonx chat requested while Watsonx is disabled")
@@ -158,7 +160,7 @@ class WatsonxChatClient:
             "model_id": self.model,
             "messages": messages,
             "temperature": 0,
-            "max_tokens": self._settings.generation_max_tokens,
+            "max_tokens": max_tokens or self._settings.generation_max_tokens,
         }
 
     @staticmethod
@@ -172,7 +174,11 @@ class WatsonxChatClient:
         }
 
     async def _post_chat(
-        self, messages: list[dict[str, str]], *, refreshed: bool = False
+        self,
+        messages: list[dict[str, str]],
+        *,
+        refreshed: bool = False,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         token = await self._tokens.get_token(force_refresh=refreshed)
         response = await with_hard_timeout(
@@ -183,7 +189,7 @@ class WatsonxChatClient:
                     "authorization": f"Bearer {token}",
                     "content-type": "application/json",
                 },
-                json=self._body(messages),
+                json=self._body(messages, max_tokens=max_tokens),
             ),
             seconds=self._settings.external_call_timeout_seconds,
             operation="watsonx.chat",
@@ -191,7 +197,7 @@ class WatsonxChatClient:
         payload = _safe_response_payload(response)
         if response.status_code == 401 and not refreshed:
             self._tokens.invalidate()
-            return await self._post_chat(messages, refreshed=True)
+            return await self._post_chat(messages, refreshed=True, max_tokens=max_tokens)
         if response.status_code != 200:
             raise WatsonxApiError(
                 "chat", response.status_code, _safe_error_code(payload)
@@ -199,9 +205,9 @@ class WatsonxChatClient:
         return payload
 
     async def complete(
-        self, messages: list[dict[str, str]]
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
     ) -> tuple[str, dict[str, int] | None]:
-        payload = await self._post_chat(messages)
+        payload = await self._post_chat(messages, max_tokens=max_tokens)
         choices = payload.get("choices")
         content: Any = None
         if isinstance(choices, list) and choices and isinstance(choices[0], dict):
@@ -216,7 +222,7 @@ class WatsonxChatClient:
         return text, self._usage(payload.get("usage"))
 
     async def _stream_once(
-        self, messages: list[dict[str, str]], *, refreshed: bool
+        self, messages: list[dict[str, str]], *, refreshed: bool, max_tokens: int | None = None
     ) -> Any:
         token = await self._tokens.get_token(force_refresh=refreshed)
         manager = self._http.stream(
@@ -227,7 +233,7 @@ class WatsonxChatClient:
                 "authorization": f"Bearer {token}",
                 "content-type": "application/json",
             },
-            json=self._body(messages),
+            json=self._body(messages, max_tokens=max_tokens),
         )
         response: Any = None
         token_usage: dict[str, int] | None = None
@@ -284,7 +290,7 @@ class WatsonxChatClient:
             if response is not None:
                 await manager.__aexit__(None, None, None)
         if retry_with_fresh_token:
-            retry_stream = self._stream_once(messages, refreshed=True)
+            retry_stream = self._stream_once(messages, refreshed=True, max_tokens=max_tokens)
             try:
                 async for item in retry_stream:
                     yield item
@@ -293,8 +299,8 @@ class WatsonxChatClient:
             return
         yield ("__usage__", token_usage)
 
-    async def stream(self, messages: list[dict[str, str]]) -> Any:
-        provider_stream = self._stream_once(messages, refreshed=False)
+    async def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any:
+        provider_stream = self._stream_once(messages, refreshed=False, max_tokens=max_tokens)
         try:
             async for item in provider_stream:
                 yield item

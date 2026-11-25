@@ -2,9 +2,12 @@ import { oc } from "@orpc/contract"
 
 import {
 	CustomerAnswerSchema,
+	CustomerChannelStatusSchema,
 	CustomerChatRequestSchema,
 	CustomerSessionLanguageSchema,
 	CustomerSessionSchema,
+	EndCustomerConversationRequestSchema,
+	EndCustomerConversationResponseSchema,
 	SetCustomerLanguageRequestSchema,
 	StartCustomerSessionRequestSchema,
 } from "./customer.schema.js"
@@ -21,6 +24,14 @@ import {
  * and the corpus upload: oRPC is JSON-only (Tech Plan §5, D3).
  */
 export const customerContract = {
+	channelStatus: oc
+		.route({
+			method: "GET",
+			path: "/customer/channel-status",
+			summary: "Check widget availability",
+			tags: ["Customer"],
+		})
+		.output(CustomerChannelStatusSchema),
 	session: {
 		start: oc
 			.route({
@@ -57,5 +68,18 @@ export const customerContract = {
 			})
 			.input(CustomerChatRequestSchema)
 			.output(CustomerAnswerSchema),
+	},
+	conversation: {
+		end: oc
+			.route({
+				method: "POST",
+				path: "/customer/conversations/end",
+				summary: "End a customer conversation",
+				description:
+					"Closes a conversation owned by the Customer Session. Only a final grounded answer can be counted as resolved by AI.",
+				tags: ["Customer"],
+			})
+			.input(EndCustomerConversationRequestSchema)
+			.output(EndCustomerConversationResponseSchema),
 	},
 }

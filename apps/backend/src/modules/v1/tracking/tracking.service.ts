@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common"
+import type { CustomerLanguage } from "@repo/contracts"
 
 import { StatusExplanationsRepository } from "./status-explanations.repository"
 import { TrackingConnectorRegistry } from "./tracking-connector.registry"
@@ -10,7 +11,11 @@ import {
 } from "./tracking-number"
 import type { TrackingEvent, TrackingSource } from "./tracking-source"
 import { TRACKING_CONFIG, type TrackingConfig } from "./tracking.config"
-import { foundReply, TRACKING_REPLIES, type ReplyExplanation } from "./tracking.replies"
+import {
+	foundReply,
+	trackingReply,
+	type ReplyExplanation,
+} from "./tracking.replies"
 import type { TrackingLookupRecord } from "./tracking.repository"
 
 export interface TrackingAnswer {
@@ -48,15 +53,18 @@ export class TrackingService {
 		)
 	}
 
-	async answer(screenedQuery: string, language = "en"): Promise<TrackingAnswer> {
+	async answer(
+		screenedQuery: string,
+	language: CustomerLanguage = "en"
+	): Promise<TrackingAnswer> {
 		const scan = scanForTrackingNumber(screenedQuery, this.config.numberPattern)
 		const storedQuery = maskTrackingNumber(screenedQuery, scan)
 
 		if (scan.kind === "missing") {
-			return { reply: TRACKING_REPLIES.missing, storedQuery, lookup: null }
+			return { reply: trackingReply("missing", language), storedQuery, lookup: null }
 		}
 		if (scan.kind === "malformed") {
-			return { reply: TRACKING_REPLIES.malformed, storedQuery, lookup: null }
+			return { reply: trackingReply("malformed", language), storedQuery, lookup: null }
 		}
 
 		const started = Date.now()
@@ -74,10 +82,11 @@ export class TrackingService {
 				? foundReply(result.event, {
 						explanation: await this.explanationFor(result.event.statusCode, language),
 						customs: this.config.customsStatusCodes.includes(result.event.statusCode.toUpperCase()),
+						language,
 					})
 				: result.outcome === "not_found"
-					? TRACKING_REPLIES.notFound
-					: TRACKING_REPLIES.unavailable
+					? trackingReply("notFound", language)
+					: trackingReply("unavailable", language)
 		return { reply, storedQuery, lookup }
 	}
 

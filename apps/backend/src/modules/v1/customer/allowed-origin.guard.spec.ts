@@ -1,4 +1,8 @@
-import { ForbiddenException, type ExecutionContext } from "@nestjs/common"
+import {
+	ForbiddenException,
+	ServiceUnavailableException,
+	type ExecutionContext,
+} from "@nestjs/common"
 
 import type { AuditService } from "@/common/audit/audit.service"
 
@@ -19,6 +23,7 @@ function contextWith(headers: Record<string, string>): ExecutionContext {
 
 describe("AllowedOriginGuard", () => {
 	let getAllowedOrigins: jest.Mock
+	let isEnabled: jest.Mock
 	let writeAudit: jest.Mock
 	let guard: AllowedOriginGuard
 
@@ -26,9 +31,10 @@ describe("AllowedOriginGuard", () => {
 		getAllowedOrigins = jest
 			.fn()
 			.mockResolvedValue(["http://localhost:3001", "https://www.example.ph"])
+		isEnabled = jest.fn().mockResolvedValue(true)
 		writeAudit = jest.fn().mockResolvedValue(undefined)
 		guard = new AllowedOriginGuard(
-			{ getAllowedOrigins } as unknown as ChannelsService,
+			{ getAllowedOrigins, isEnabled } as unknown as ChannelsService,
 			{ writeAudit } as unknown as AuditService
 		)
 	})
@@ -76,6 +82,15 @@ describe("AllowedOriginGuard", () => {
 
 	it("allows a request with no Origin header", async () => {
 		await expect(guard.canActivate(contextWith({}))).resolves.toBe(true)
+		expect(getAllowedOrigins).not.toHaveBeenCalled()
+	})
+
+	it("blocks customer routes while the widget channel is disabled", async () => {
+		isEnabled.mockResolvedValue(false)
+
+		await expect(
+			guard.canActivate(contextWith({ origin: "https://www.example.ph" }))
+		).rejects.toBeInstanceOf(ServiceUnavailableException)
 		expect(getAllowedOrigins).not.toHaveBeenCalled()
 	})
 

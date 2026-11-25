@@ -47,6 +47,7 @@ export class ScamAssessmentService {
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
+		requestStartedAt?: number
 	}): Promise<CustomerAnswer> {
 		const [contacts, indicators] = await Promise.all([
 			db
@@ -90,6 +91,7 @@ export class ScamAssessmentService {
 		const screened = parsed.success ? parsed.data : null
 		if (screened?.injection) deterministic.push("prompt_injection")
 		const assessment = resolveScamAssessment(deterministic, active, screened?.assessment)
+		const isUncertain = assessment.riskLevel === "uncertain"
 		const detected = input.classification.language ?? screened?.language ?? null
 		const language = replyLanguageFor(detected, input.sessionLanguage)
 		const reply = withLanguageNotice(
@@ -103,9 +105,10 @@ export class ScamAssessmentService {
 			inquiryCategory: "scam",
 			language: detected ?? undefined,
 			answer: reply,
-			answerKind: "tool",
+			answerKind: isUncertain ? "uncertain" : "tool",
 			confidence: assessment.confidence,
 			traceId: input.correlationId,
+			requestStartedAt: input.requestStartedAt,
 			additionalEventKinds: ["scam_assessed"],
 			onRecorded: async tx => {
 				const [submission] = await tx
@@ -132,7 +135,7 @@ export class ScamAssessmentService {
 			sources: [],
 			citations: [],
 			answerKind: "tool",
-			isIDontKnow: assessment.riskLevel === "uncertain",
+			isIDontKnow: isUncertain,
 			scamAssessment: assessment,
 		}
 	}

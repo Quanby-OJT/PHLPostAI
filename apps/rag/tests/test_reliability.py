@@ -150,6 +150,33 @@ async def test_non_transient_errors_do_not_retry():
     assert sleeps == []
 
 
+async def test_reliable_client_forwards_output_token_limit():
+    class TokenLimitClient(FlakyClient):
+        def __init__(self):
+            super().__init__()
+            self.complete_limit = None
+            self.stream_limit = None
+
+        async def complete(self, messages, *, max_tokens=None):
+            self.complete_limit = max_tokens
+            return "ok [1]", {"completionTokens": 1}
+
+        async def stream(self, messages, *, max_tokens=None):
+            self.stream_limit = max_tokens
+            yield "ok"
+            yield ("__usage__", None)
+
+    inner = TokenLimitClient()
+    client, _, _ = make_reliable(make_settings(), inner, FakeRedis())
+
+    await client.complete([], max_tokens=40)
+    chunks = [item async for item in client.stream([], max_tokens=40)]
+
+    assert inner.complete_limit == 40
+    assert inner.stream_limit == 40
+    assert chunks == ["ok", ("__usage__", None)]
+
+
 def test_is_transient_classification():
     assert is_transient(ExternalCallTimeoutError("x", 1.0))
     assert is_transient(ConnectionError())

@@ -162,20 +162,28 @@ class ThrottledChatClient:
     def provider(self) -> str:
         return self._inner.provider
 
-    async def complete(self, messages: list[dict[str, str]]) -> Any:
+    async def complete(
+        self, messages: list[dict[str, str]], *, max_tokens: int | None = None
+    ) -> Any:
         await self._bucket.acquire(self.provider)
         try:
-            return await self._inner.complete(messages)
+            if max_tokens is None:
+                return await self._inner.complete(messages)
+            return await self._inner.complete(messages, max_tokens=max_tokens)
         except Exception as exc:
             if _looks_like_429(exc):
                 await self._bucket.on_429(self.provider)
             raise
 
-    async def stream(self, messages: list[dict[str, str]]) -> Any:
+    async def stream(self, messages: list[dict[str, str]], *, max_tokens: int | None = None) -> Any:
         # One token per stream START (the account bills the call, not deltas).
         await self._bucket.acquire(self.provider)
         try:
-            async for item in self._inner.stream(messages):
+            if max_tokens is None:
+                provider_stream = self._inner.stream(messages)
+            else:
+                provider_stream = self._inner.stream(messages, max_tokens=max_tokens)
+            async for item in provider_stream:
                 yield item
         except Exception as exc:
             if _looks_like_429(exc):

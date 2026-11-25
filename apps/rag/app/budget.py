@@ -17,6 +17,7 @@ than failing the request.
 
 import logging
 import os
+import re
 from typing import Any
 
 from app.config import Settings
@@ -46,6 +47,74 @@ def count_tokens(text: str) -> int:
     if encoder is None:
         return max(1, len(text) // 4)
     return len(encoder.encode(text))
+
+
+def _ends_with_complete_sentence(text: str) -> bool:
+    without_citations = re.sub(r"(?:\s*\[\d+\])+$", "", text.strip()).rstrip()
+    return bool(re.search(r"[.!?。！？][\"'”’)]*$", without_citations))
+
+
+def limit_routine_answer(text: str, max_tokens: int, language: str = "en") -> tuple[str, bool]:
+    """Cap customer-visible output on a token boundary and retain whole sentences.
+
+    If content is omitted, append a localized invitation to request more detail
+    whenever that notice and at least one full sentence fit the configured cap.
+    """
+    normalized = text.strip()
+    if count_tokens(normalized) <= max_tokens and _ends_with_complete_sentence(normalized):
+        return normalized, False
+
+    encoder = _encoding()
+    notices = {
+        "en": " More details are available if you need them.",
+        "fil": " Maaari akong magbigay ng dagdag na detalye kung kailangan mo.",
+        "ceb": " Makahatag ko og dugang nga detalye kung kinahanglan nimo.",
+        "ilo": " Mabalinak nga mangted iti ad-adu a detalye no kasapulam.",
+    }
+    notice = notices.get(language, notices["en"])
+    shortened_notice = {
+        "en": "The answer was shortened. I can give more details if needed.",
+        "fil": "Naputol ang sagot. Maaari akong magbigay ng dagdag na detalye kung kailangan.",
+        "ceb": "Napamubo ang tubag. Makahatag ko og dugang detalye kon kinahanglan.",
+        "ilo": "Pinabassit ti sungbat. Mabalinak nga mangted iti ad-adu a detalye no kasapulam.",
+    }.get(language, "The answer was shortened. I can give more details if needed.")
+    fallback = {
+        "en": "Please ask a person for help.",
+        "fil": "Humingi ng tulong sa tao.",
+        "ceb": "Pangayo og tabang sa tawo.",
+        "ilo": "Agkiddaw iti tulong ti tao.",
+    }.get(language, "Please ask a person for help.")
+
+    if encoder is None:
+        clipped = normalized[: max_tokens * 4]
+        sentence_matches = list(re.finditer(r"[^.!?。！？]*[.!?。！？]+(?:[\"'”’)]*)", clipped))
+        base = clipped[: sentence_matches[-1].end()].strip() if sentence_matches else fallback
+        candidate = f"{base}{notice}"
+        if count_tokens(candidate) <= max_tokens:
+            return candidate, True
+        if count_tokens(base) <= max_tokens:
+            return base, True
+        fits = count_tokens(shortened_notice) <= max_tokens
+        return (shortened_notice if fits else fallback), True
+
+    tokens = encoder.encode(normalized)
+    notice_tokens = encoder.encode(notice)
+    available = max_tokens - len(notice_tokens)
+    if available > 0:
+        clipped = encoder.decode(tokens[:available])
+        sentence_matches = list(re.finditer(r"[^.!?。！？]*[.!?。！？]+(?:[\"'”’)]*)", clipped))
+        if sentence_matches:
+            base = clipped[: sentence_matches[-1].end()].strip()
+            candidate = f"{base}{notice}"
+            if len(encoder.encode(candidate)) <= max_tokens:
+                return candidate, True
+
+    clipped = encoder.decode(tokens[:max_tokens])
+    sentence_matches = list(re.finditer(r"[^.!?。！？]*[.!?。！？]+(?:[\"'”’)]*)", clipped))
+    if sentence_matches:
+        return clipped[: sentence_matches[-1].end()].strip(), True
+    fits = len(encoder.encode(shortened_notice)) <= max_tokens
+    return (shortened_notice if fits else fallback), True
 
 
 def current_context_budget(settings: Settings) -> int:

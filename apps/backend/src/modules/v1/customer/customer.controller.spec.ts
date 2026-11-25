@@ -3,6 +3,8 @@ import { UnauthorizedException } from "@nestjs/common"
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
 
+import { ChannelAdapterRegistry, type ChannelAdapter } from "../channels/channel-adapter"
+import type { ChannelsService } from "./channels.service"
 import type { ConversationService } from "./conversation.service"
 import { CUSTOMER_REFUSAL_ANSWER, type CustomerChatService } from "./customer-chat.service"
 import type { CustomerSessionService } from "./customer-session.service"
@@ -28,7 +30,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { customer: { session: { start: {}, setLanguage: {} }, chat: { send: {} } } },
+v1: {
+  customer: {
+    session: { start: {}, setLanguage: {} },
+    conversation: { end: {} },
+    chat: { send: {} },
+  },
+},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -100,16 +108,32 @@ const REQUEST = { id: "req-1" } as never
 const ACTIVE_SESSION = {
 	id: "session-1",
 	tokenHash: "hash",
-	channelCode: "web",
+	channelCode: "test-adapter",
 	language: "en",
 	consentedAt: new Date(),
 	lastSeenAt: new Date(),
 	createdAt: new Date(),
 }
 
+/** Separate test-only channel proves the controller uses the adapter registry. */
+class TestChannelAdapter implements ChannelAdapter {
+	readonly code = "test-adapter"
+	readonly capabilities = { streaming: true, attachments: false, conversationHistory: true }
+	receive = jest.fn((payload: unknown) => {
+		const value = payload as { query?: unknown; conversationId?: unknown }
+		if (typeof value.query !== "string") throw new Error("Invalid test channel message")
+		return {
+			text: value.query,
+			...(typeof value.conversationId === "string" ? { conversationId: value.conversationId } : {}),
+		}
+	})
+	send = jest.fn(<T>(message: T): T => message)
+}
+
 const RETRIEVAL_CLASSIFICATION = {
 	screenedQuery: "how much is express mail",
 	category: "rates",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "retrieval" as const,
@@ -117,6 +141,7 @@ const RETRIEVAL_CLASSIFICATION = {
 const TRACKING_CLASSIFICATION = {
 	screenedQuery: "where is RR123456789PH",
 	category: "tracking",
+	eligible: true,
 	language: "en",
 	replyLanguage: "en" as const,
 	route: "tracking" as const,
@@ -133,6 +158,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 	let conversationService: {
 		startCustomerConversation: jest.Mock
 		findOwnedByCustomerSession: jest.Mock
+		endCustomerConversation: jest.Mock
+		recordUnansweredInquiry: jest.Mock
 	}
 	let customerChatService: {
 		completeTurn: jest.Mock
@@ -142,6 +169,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		answerRates: jest.Mock
 	}
 	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
+	let channelAdapter: TestChannelAdapter
 	let fetchMock: jest.Mock
 
 	beforeEach(() => {
@@ -156,6 +184,8 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				.fn()
 				.mockResolvedValue({ id: "conversation-1", channelCode: "web" }),
 			findOwnedByCustomerSession: jest.fn().mockResolvedValue(null),
+			endCustomerConversation: jest.fn(),
+			recordUnansweredInquiry: jest.fn(),
 		}
 		customerChatService = {
 			completeTurn: jest.fn().mockResolvedValue({
@@ -199,12 +229,20 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		fetchMock = jest.fn()
 		global.fetch = fetchMock as unknown as typeof fetch
 
+		const channelAdapters = new ChannelAdapterRegistry()
+		channelAdapter = new TestChannelAdapter()
+		channelAdapters.register(channelAdapter)
 		controller = new CustomerController(
 			customerSessionService as unknown as CustomerSessionService,
 			conversationService as unknown as ConversationService,
 			customerChatService as unknown as CustomerChatService,
+			{
+				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
+			} as never,
 			ragGatewayService as unknown as RagGatewayService,
-			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[4]
+			channelAdapters,
+			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService,
+			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[7]
 		)
 	})
 
@@ -307,16 +345,29 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 		})
 
-		it("forwards the token frames verbatim", async () => {
+		it("withholds draft tokens until confidence is known, then sends the finalized answer", async () => {
 			const { response, state } = responseDouble()
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
-			expect(state.written.slice(0, 2)).toEqual([
-				'event: token\ndata: {"delta":"165 "}\n\n',
-				'event: token\ndata: {"delta":"pesos."}\n\n',
-			])
+			expect(state.written[0]).toBe('event: token\ndata: {"delta":"165 pesos."}\n\n')
 			expect(state.headers["content-type"]).toBe("text/event-stream")
+		})
+
+		it("sends widget input and output through the test-registered channel adapter", async () => {
+			fetchMock.mockResolvedValue({
+				ok: true,
+				status: 200,
+				body: sseBody('event: final\ndata: {"answer":"ok"}\n\n'),
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage({ query: "hello" }, "a-token", REQUEST, response as never)
+
+			expect(channelAdapter.receive).toHaveBeenCalledWith({ query: "hello" })
+			expect(channelAdapter.send).toHaveBeenCalledWith(
+				expect.objectContaining({ conversationId: "conversation-1" })
+			)
 		})
 
 		it("replaces the final frame with the titles and the stored ids", async () => {
@@ -342,11 +393,15 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 			await controller.streamMessage({ query: "how much" }, "a-token", REQUEST, response as never)
 
-			expect(customerChatService.completeTurn).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
-				classification: RETRIEVAL_CLASSIFICATION,
-			})
+			expect(customerChatService.completeTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
+					classification: RETRIEVAL_CLASSIFICATION,
+					requestStartedAt: expect.any(Number),
+					confidenceThreshold: 0.7,
+				})
+			)
 		})
 
 		it("asks the RAG service not to persist the turn itself", async () => {
@@ -358,6 +413,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(body).toEqual({
 				query: "how much",
 				persist: false,
+				maxOutputTokens: 200,
 				language: "en",
 				queryLanguage: "en",
 				glossary: ["PHLPost"],
@@ -596,11 +652,16 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			)
 
 			expect(fetchMock).not.toHaveBeenCalled()
-			expect(customerChatService.answerTracking).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				classification: TRACKING_CLASSIFICATION,
-				correlationId: "req-1",
-			})
+			expect(customerChatService.answerTracking).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-1",
+					classification: TRACKING_CLASSIFICATION,
+					correlationId: "req-1",
+					explanationLanguage: "en",
+					requestStartedAt: expect.any(Number),
+					confidenceThreshold: 0.7,
+				})
+			)
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
@@ -652,6 +713,41 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			})
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
+		})
+	})
+
+	describe("CNV-3: the JSON route caps routine answers too", () => {
+		type Handler = (args: { input: { query: string } }) => Promise<unknown>
+
+		beforeEach(() => {
+			ragGatewayService.submitChatQuery.mockResolvedValue({
+				answer: "165 pesos.",
+				screenedQuery: "how much",
+			})
+		})
+
+		it("sends the limit for an eligible category", async () => {
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ maxOutputTokens: 200 })
+			)
+		})
+
+		it("leaves the limit off for a category that is not eligible", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				eligible: false,
+			})
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery.mock.calls[0]?.[0]).not.toHaveProperty(
+				"maxOutputTokens"
 			)
 		})
 	})

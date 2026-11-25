@@ -192,6 +192,13 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 		expect(answer.answer).toContain("You can report the message to PHLPost Customer Service")
 		expect(answer.answer).toContain("Verify the message through the official PHLPost website")
 		expect(answer.answer).toContain(ADVISORY)
+		const closed = await post(
+			"/conversations/end",
+			{ conversationId: answer.conversationId },
+			await englishSession()
+		)
+		expect(closed.status).toBe(200)
+		await expect(closed.json()).resolves.toEqual({ resolvedByAi: false })
 	})
 
 	it("AC5 stores masked text and a related assessment and event for an anonymous customer", async () => {
@@ -216,6 +223,16 @@ suite("SCM-1 public conversation and local persistence (e2e)", () => {
 			[answer.conversationId]
 		)
 		expect(events.rows).toEqual([{ kind: "scam_assessed", category: "scam", payload: null }])
+		const analytics = await database.query(
+			`select kind, payload from interaction_events where conversation_id=$1
+			 and kind in ('message_received', 'answer_sent', 'answer_classified') order by kind`,
+			[answer.conversationId]
+		)
+		expect(analytics.rows).toEqual([
+			{ kind: "answer_classified", payload: expect.objectContaining({ answerKind: "tool" }) },
+			{ kind: "answer_sent", payload: expect.objectContaining({ response_time_ms: expect.any(Number) }) },
+			{ kind: "message_received", payload: expect.objectContaining({ failed: false }) },
+		])
 	})
 
 	it.each([

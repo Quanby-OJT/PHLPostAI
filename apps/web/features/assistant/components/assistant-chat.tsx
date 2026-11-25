@@ -12,13 +12,15 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
-	RateLimitedError,
-	requestHumanHandoff,
-	SESSION_STORAGE_KEY,
-	setSessionLanguage,
-	startSession,
-	streamQuestion,
-	type StoredSession,
+  endConversation,
+  getChannelStatus,
+  RateLimitedError,
+  requestHumanHandoff,
+  SESSION_STORAGE_KEY,
+  setSessionLanguage,
+  startSession,
+  streamQuestion,
+  type StoredSession,
 } from "../api/assistant.client"
 import {
 	ASSISTANT_COPY,
@@ -120,6 +122,10 @@ export function AssistantChat() {
 	const [handoffDone, setHandoffDone] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [ending, setEnding] = useState(false)
+	const [endNotice, setEndNotice] = useState<string | null>(null)
+	const [channelEnabled, setChannelEnabled] = useState(true)
+	const [welcomeText, setWelcomeText] = useState("")
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
@@ -128,6 +134,8 @@ export function AssistantChat() {
 	// Restore this tab's chat after mount (not during render, to avoid a hydration mismatch).
 	useEffect(() => {
 		const stored = readStoredChat()
+		const storedSession = readStoredSession()
+		if (storedSession?.welcomeText) setWelcomeText(storedSession.welcomeText)
 		if (stored) {
 			setAccepted(stored.accepted)
 			setConversationId(stored.conversationId)
@@ -136,6 +144,27 @@ export function AssistantChat() {
 			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
 		setReady(true)
+	}, [])
+
+	useEffect(() => {
+		let alive = true
+		const refresh = async () => {
+			try {
+				const status = await getChannelStatus()
+				if (alive) {
+					setChannelEnabled(status.enabled)
+					setWelcomeText(status.welcomeText)
+				}
+			} catch (cause) {
+				if (alive && cause instanceof ApiError && cause.status === 503) setChannelEnabled(false)
+			}
+		}
+		void refresh()
+		const timer = window.setInterval(() => void refresh(), 30_000)
+		return () => {
+			alive = false
+			window.clearInterval(timer)
+		}
 	}, [])
 
 	// Save the chat whenever a turn settles.
@@ -159,10 +188,11 @@ export function AssistantChat() {
 
 	// Keep keyboard focus in the box: after accepting, and after each answer.
 	useEffect(() => {
-		if (accepted && !busy && waitSeconds === 0) {
-			;(scamMode ? scamInputRef : inputRef).current?.focus()
+		if (accepted && !busy && waitSeconds === 0 && channelEnabled) {
+			const composer = scamMode ? scamInputRef : inputRef
+			composer.current?.focus()
 		}
-	}, [accepted, busy, scamMode, waitSeconds])
+	}, [accepted, busy, channelEnabled, scamMode, waitSeconds])
 
 	/** The stored session, or a freshly opened one in the chosen language. */
 	const ensureSession = useCallback(
@@ -172,7 +202,12 @@ export function AssistantChat() {
 				if (stored) return stored.sessionToken
 			}
 			const session = await startSession(language)
-			storeSession({ sessionToken: session.sessionToken, idleExpiresAt: session.idleExpiresAt })
+			storeSession({
+				sessionToken: session.sessionToken,
+				idleExpiresAt: session.idleExpiresAt,
+				welcomeText: session.welcomeText,
+			})
+			if (session.welcomeText) setWelcomeText(session.welcomeText)
 			return session.sessionToken
 		},
 		[language]
@@ -224,10 +259,11 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone) return
+			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone || !channelEnabled) return
 
 			setQuestion("")
 			setError(null)
+			setEndNotice(null)
 			setBusy(true)
 			setTurns(previous => [
 				...previous,
@@ -288,6 +324,7 @@ export function AssistantChat() {
 			accepted,
 			appendFinal,
 			busy,
+			channelEnabled,
 			conversationId,
 			ensureSession,
 			handoffDone,
@@ -318,6 +355,24 @@ export function AssistantChat() {
 		},
 		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
 	)
+
+	const endChat = useCallback(async () => {
+		if (!conversationId || busy || ending || handoffDone) return
+		setEnding(true)
+		setError(null)
+		try {
+			const sessionToken = await ensureSession()
+			await endConversation({ conversationId, sessionToken })
+			setConversationId(undefined)
+			setEndNotice("Chat ended. You can start a new chat any time.")
+		} catch (caught) {
+			setError(
+				caught instanceof ApiError ? caught.message : "We couldn't end this chat. Please try again."
+			)
+		} finally {
+			setEnding(false)
+		}
+	}, [busy, conversationId, ending, ensureSession, handoffDone])
 
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
 	useEffect(() => {
@@ -399,7 +454,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
 					>
 						{copy.accept}
 					</button>
@@ -414,7 +469,7 @@ export function AssistantChat() {
 						className="flex-1 space-y-4 overflow-y-auto"
 					>
 						{turns.length === 0 ? (
-							<p className="mt-16 text-center text-sm">{copy.emptyPrompt}</p>
+							<p className="mt-16 text-center text-sm">{welcomeText || copy.emptyPrompt}</p>
 						) : (
 							turns.map((turn, index) => (
 								<div
@@ -483,6 +538,25 @@ export function AssistantChat() {
 						</form>
 					) : null}
 
+					{conversationId && turns.length > 0 && !handoffDone ? (
+						<div className="flex justify-end">
+							<button
+								type="button"
+								onClick={endChat}
+								className="text-muted-foreground min-h-9 px-3 text-sm underline underline-offset-2 disabled:opacity-50"
+								disabled={ending || busy || handoffBusy}
+							>
+								{ending ? "Ending chat…" : "End chat"}
+							</button>
+						</div>
+					) : null}
+
+					{endNotice ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							{endNotice}
+						</p>
+					) : null}
+
 					{waitSeconds > 0 ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
 							{copy.tooQuick(waitSeconds)}
@@ -494,6 +568,11 @@ export function AssistantChat() {
 							{error}
 						</p>
 					) : null}
+					{!channelEnabled ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							The assistant is unavailable right now. Please try again later.
+						</p>
+					) : null}
 
 					<div className="space-y-2 border-t pt-2">
 						<button
@@ -503,7 +582,7 @@ export function AssistantChat() {
 								setQuestion("")
 								setScamMode(mode => !mode)
 							}}
-							disabled={busy || waitSeconds > 0 || handoffDone}
+							disabled={busy || waitSeconds > 0 || handoffDone || !channelEnabled}
 							className="focus-visible:ring-ring aria-pressed:bg-secondary min-h-11 rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
 						>
 							{copy.scamEntry}
@@ -522,7 +601,7 @@ export function AssistantChat() {
 									maxLength={4000}
 									rows={3}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 resize-none rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-									disabled={busy || waitSeconds > 0 || handoffDone}
+									disabled={busy || waitSeconds > 0 || handoffDone || !channelEnabled}
 								/>
 							) : (
 								<input
@@ -534,13 +613,15 @@ export function AssistantChat() {
 									autoComplete="off"
 									maxLength={1000}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-									disabled={busy || waitSeconds > 0 || handoffDone}
+									disabled={busy || waitSeconds > 0 || handoffDone || !channelEnabled}
 								/>
 							)}
 							<button
 								type="submit"
 								className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
-								disabled={busy || waitSeconds > 0 || handoffDone || question.trim() === ""}
+								disabled={
+									busy || waitSeconds > 0 || handoffDone || !channelEnabled || question.trim() === ""
+								}
 							>
 								{busy ? copy.asking : scamMode ? copy.scamAsk : copy.ask}
 							</button>
