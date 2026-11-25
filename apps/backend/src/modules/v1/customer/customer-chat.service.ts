@@ -204,7 +204,6 @@ export class CustomerChatService {
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
-		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { classification } = input
 		const question = classification.context
@@ -215,10 +214,10 @@ export class CustomerChatService {
 			permissions: input.permissions,
 			correlationId: input.correlationId,
 		})
-		const confidence = result.outcome === "no_rate" ? 0 : 1
-		const belowThreshold = confidence < (input.confidenceThreshold ?? 0.7)
+		// CNV-3: the approved rate table is certain, including "no published rate" (KB-2 AC3).
+		const confidence = 1
 		const reply = withLanguageNotice(
-			belowThreshold ? this.lowConfidenceReply(classification, []) : result.reply,
+			result.reply,
 			classification.language,
 			classification.replyLanguage
 		)
@@ -229,7 +228,7 @@ export class CustomerChatService {
 			inquiryCategory: classification.category,
 			language: classification.language ?? undefined,
 			answer: reply,
-			answerKind: belowThreshold ? "uncertain" : "tool",
+			answerKind: "tool",
 			confidence,
 			traceId: input.correlationId,
 			category: "rates",
@@ -240,8 +239,8 @@ export class CustomerChatService {
 			messageId: assistantMessageId,
 			sources: [],
 			citations: [],
-			answerKind: belowThreshold ? "uncertain" : "tool",
-			isIDontKnow: belowThreshold,
+			answerKind: "tool",
+			isIDontKnow: false,
 		}
 	}
 
@@ -397,10 +396,15 @@ export class CustomerChatService {
 			answerKind !== "tool" &&
 			(confidence === null || confidence < threshold)
 		if (belowThreshold) answerKind = "uncertain"
+		const found = belowThreshold
+			? sources.length > 0
+				? sources
+				: await this.resolveSources(envelope.retrievedChunks)
+			: []
 		const answer = input.answerOverride
 			?? (belowThreshold
 				? withLanguageNotice(
-						this.lowConfidenceReply(classification, sources.map(source => source.title)),
+						this.lowConfidenceReply(classification, found.map(source => source.title)),
 						classification?.language ?? null,
 						classification?.replyLanguage ?? "en"
 					)

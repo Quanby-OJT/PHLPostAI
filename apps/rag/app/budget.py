@@ -94,7 +94,8 @@ def limit_routine_answer(text: str, max_tokens: int, language: str = "en") -> tu
             return candidate, True
         if count_tokens(base) <= max_tokens:
             return base, True
-        return (shortened_notice if count_tokens(shortened_notice) <= max_tokens else fallback), True
+        fits = count_tokens(shortened_notice) <= max_tokens
+        return (shortened_notice if fits else fallback), True
 
     tokens = encoder.encode(normalized)
     notice_tokens = encoder.encode(notice)
@@ -112,7 +113,8 @@ def limit_routine_answer(text: str, max_tokens: int, language: str = "en") -> tu
     sentence_matches = list(re.finditer(r"[^.!?。！？]*[.!?。！？]+(?:[\"'”’)]*)", clipped))
     if sentence_matches:
         return clipped[: sentence_matches[-1].end()].strip(), True
-    return (shortened_notice if len(encoder.encode(shortened_notice)) <= max_tokens else fallback), True
+    fits = len(encoder.encode(shortened_notice)) <= max_tokens
+    return (shortened_notice if fits else fallback), True
 
 
 def current_context_budget(settings: Settings) -> int:

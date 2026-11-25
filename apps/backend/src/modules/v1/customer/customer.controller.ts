@@ -163,13 +163,7 @@ export class CustomerController {
 			if (classification.route === "rates") {
 				try {
 					return adapter.send(
-						await this.answerRates(
-							session,
-							conversation.id,
-							classification,
-							correlationId,
-							settings.confidenceThreshold
-						)
+						await this.answerRates(session, conversation.id, classification, correlationId)
 					)
 				} catch (error) {
 					return toORPCError(error)
@@ -187,6 +181,7 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
@@ -264,13 +259,7 @@ export class CustomerController {
 								correlationId,
 								assistantSettings.confidenceThreshold
 							)
-						: await this.answerRates(
-								session,
-								conversation.id,
-								classification,
-								correlationId,
-								assistantSettings.confidenceThreshold
-							)
+						: await this.answerRates(session, conversation.id, classification, correlationId)
 				response.status(200).json(adapter.send(turn))
 			} catch {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
@@ -416,8 +405,7 @@ export class CustomerController {
 		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
-		correlationId: string,
-		confidenceThreshold: number
+		correlationId: string
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerRates({
 			conversationId,
@@ -425,7 +413,6 @@ export class CustomerController {
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
-			confidenceThreshold,
 		})
 		return { ...turn, conversationId }
 	}

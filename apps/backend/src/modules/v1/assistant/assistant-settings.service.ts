@@ -44,12 +44,14 @@ export class AssistantSettingsService {
 	): Promise<AssistantSettings> {
 		const before = await this.get()
 		const after: AssistantSettings = { ...before, ...input }
+		const entries: { key: string; value: number }[] = []
 		if (input.confidenceThreshold !== undefined) {
-			await this.repository.set("confidence_threshold", input.confidenceThreshold, actor.userId)
+			entries.push({ key: "confidence_threshold", value: input.confidenceThreshold })
 		}
 		if (input.maxOutputTokens !== undefined) {
-			await this.repository.set("max_output_tokens", input.maxOutputTokens, actor.userId)
+			entries.push({ key: "max_output_tokens", value: input.maxOutputTokens })
 		}
+		await this.repository.setMany(entries, actor.userId)
 		await this.auditService.writeAudit({
 			actorId: actor.userId,
 			actorType: "user",

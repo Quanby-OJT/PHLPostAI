@@ -20,6 +20,7 @@ writes ONE RAG-action audit entry attributed to the service-JWT principal.
 import asyncio
 import json
 import logging
+import math
 import re
 import time
 import uuid
@@ -28,7 +29,12 @@ from typing import Annotated, Any, Literal, NoReturn
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from app.budget import count_tokens, current_context_budget, limit_routine_answer, select_within_budget
+from app.budget import (
+    count_tokens,
+    current_context_budget,
+    limit_routine_answer,
+    select_within_budget,
+)
 from app.classification import DEFAULT_CATEGORIES, Category, classify_text
 from app.compression import Compressor, build_compressor, compress_with_fallback
 from app.config import Settings
@@ -107,6 +113,26 @@ _SYSTEM_PROMPT = (
 _CITATION_MARKER = re.compile(r"\[(\d+)\]")
 
 
+def top_retrieval_score(retrieved_chunks: list[dict[str, Any]]) -> float:
+    """CNV-3: the top reranked score when the reranker ran, else the best cosine
+    similarity, bounded to [0, 1]. Cohere relevance is already in [0, 1]; a local
+    cross-encoder logit outside that range goes through a sigmoid."""
+    reranked = [
+        float(chunk["rerankScore"])
+        for chunk in retrieved_chunks
+        if isinstance(chunk.get("rerankScore"), (int, float))
+    ]
+    if reranked:
+        top = max(reranked)
+        return top if 0.0 <= top <= 1.0 else 1.0 / (1.0 + math.exp(-top))
+    similarities = [
+        float(chunk["similarity"])
+        for chunk in retrieved_chunks
+        if isinstance(chunk.get("similarity"), (int, float))
+    ]
+    return max(0.0, min(1.0, max(similarities))) if similarities else 0.0
+
+
 def calculate_answer_confidence(
     retrieved_chunks: list[dict[str, Any]],
     *,
@@ -115,21 +141,13 @@ def calculate_answer_confidence(
     is_i_dont_know: bool,
     grounding: dict[str, Any] | None,
 ) -> float:
-    """Combine retrieval strength with the grounded-answer check.
-
-    Retrieval strength is the best retrieved cosine similarity, bounded to
-    [0, 1]. Citation validation is the baseline groundedness check; when the
-    optional CE-4 verifier explicitly rejects the final draft, confidence is
-    zero. The score is retrieval strength multiplied by that binary check.
-    """
-    similarities = [
-        float(chunk["similarity"])
-        for chunk in retrieved_chunks
-        if isinstance(chunk.get("similarity"), (int, float))
-    ]
-    if not similarities:
+    """CNV-3: Confidence = top retrieval score (see top_retrieval_score) x the
+    groundedness result. The CE-4 verifier verdict decides when present;
+    citation validation is the baseline otherwise. A degraded answer or an
+    "I don't know" is never grounded."""
+    retrieval_strength = top_retrieval_score(retrieved_chunks)
+    if retrieval_strength == 0.0:
         return 0.0
-    retrieval_strength = max(0.0, min(1.0, max(similarities)))
     explicit_groundedness = grounding.get("grounded") if grounding else None
     grounded = (
         explicit_groundedness
@@ -145,8 +163,21 @@ def answer_output_tokens(
 ) -> int:
     """Prefer provider usage (the billed output count), with a text-count fallback."""
     reported = token_usage.get("completionTokens") if token_usage else None
-    count = int(reported) if isinstance(reported, (int, float)) and reported >= 0 else count_tokens(answer)
+    if isinstance(reported, (int, float)) and reported >= 0:
+        count = int(reported)
+    else:
+        count = count_tokens(answer)
     return min(count, max_output_tokens) if max_output_tokens is not None else count
+
+
+def _cache_scope(
+    language: LanguageContext, filters: dict[str, Any] | None, max_output_tokens: int | None
+) -> dict[str, Any] | None:
+    """Cache entries are kept per reply language and per routine-answer limit (CNV-3)."""
+    scope = language.cache_scope(filters)
+    if max_output_tokens is None:
+        return scope
+    return {**(scope or {}), "maxOutputTokens": max_output_tokens}
 
 
 def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
@@ -161,6 +192,9 @@ def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "isIDontKnow",
             "degraded",
             "confidence",
+            "retrievalScore",
+            "groundednessResult",
+            "outputTokens",
         )
         if key in payload
     }
@@ -360,6 +394,12 @@ class GenerationService:
             "isIDontKnow": bool(cached.get("isIDontKnow", False)),
             "degraded": bool(cached.get("degraded", False)),
             "confidence": confidence,
+            # CNV-3: the metrics recorded when the answer was generated.
+            **{
+                key: cached[key]
+                for key in ("retrievalScore", "groundednessResult", "outputTokens")
+                if key in cached
+            },
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -548,6 +588,11 @@ class GenerationService:
                 "id": chunk["id"],
                 "documentId": chunk["document_id"],
                 "similarity": chunk["similarity"],
+                **(
+                    {"rerankScore": chunk["rerank_score"]}
+                    if isinstance(chunk.get("rerank_score"), (int, float))
+                    else {}
+                ),
             }
             for chunk in chunks
         ]
@@ -706,10 +751,10 @@ class GenerationService:
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage (AFTER SC-1, BEFORE retrieval/LLM — contractual).
-        if self._response_cache is not None and max_output_tokens is None:
+        if self._response_cache is not None:
             async with stage("cache.lookup") as record:
                 cached = await self._response_cache.lookup(
-                    query=query, filters=language.cache_scope(filters)
+                    query=query, filters=_cache_scope(language, filters, max_output_tokens)
                 )
                 record(
                     hit=cached is not None,
@@ -730,7 +775,7 @@ class GenerationService:
         # compute exactly once across replicas; followers reuse the leader's
         # result (their own turn is still persisted + audited). Any
         # coalescing failure degrades to an uncoalesced computation.
-        flight = await self._single_flight() if max_output_tokens is None else None
+        flight = await self._single_flight()
         if flight is not None:
             holder: dict[str, Any] = {}
 
@@ -750,8 +795,9 @@ class GenerationService:
                 return _sharable_entry(payload)
 
             try:
+                scope = _cache_scope(language, filters, max_output_tokens)
                 entry, role = await flight.run(
-                    self._response_cache.flight_key(query, language.cache_scope(filters)), compute
+                    self._response_cache.flight_key(query, scope), compute
                 )
             except SingleFlightError:
                 logger.warning("single_flight.degraded_to_uncoalesced", exc_info=True)
@@ -1004,10 +1050,7 @@ class GenerationService:
                 "degraded": degraded,
                 "costUsd": cost_usd,
                 "traceId": trace_id,
-                "retrievalScore": max(
-                    (float(chunk["similarity"]) for chunk in retrieved_record if isinstance(chunk.get("similarity"), (int, float))),
-                    default=0.0,
-                ),
+                "retrievalScore": top_retrieval_score(retrieved_record),
                 "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
                 # CE-3: hop summary only when the loop ran (linear audit
                 # payloads keep their exact pre-CE-3 shape).
@@ -1050,10 +1093,7 @@ class GenerationService:
             # retrieval evidence there for the authorized agent inbox.
             "retrievedChunks": retrieved_record,
             "confidence": confidence,
-            "retrievalScore": max(
-                (float(chunk["similarity"]) for chunk in prep["retrieved_record"] if isinstance(chunk.get("similarity"), (int, float))),
-                default=0.0,
-            ),
+            "retrievalScore": top_retrieval_score(prep["retrieved_record"]),
             "groundednessResult": groundedness_result,
             "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
             "outputTruncated": output_truncated,
@@ -1073,9 +1113,11 @@ class GenerationService:
         }
         # CP-1: successful grounded answers become cache entries (the cache
         # itself refuses I-don't-know/degraded payloads).
-        if self._response_cache is not None and max_output_tokens is None:
+        if self._response_cache is not None:
             await self._response_cache.store(
-                query=query, filters=language.cache_scope(filters), payload=payload
+                query=query,
+                filters=_cache_scope(language, filters, max_output_tokens),
+                payload=payload,
             )
 
         # The traced return value lands on the rag.chat span — the one trace
@@ -1111,10 +1153,10 @@ class GenerationService:
         await self._assert_conversation_access(conversation_id, principal)
 
         # ── CP-1 cache stage: a hit replays as one token event + final.
-        if self._response_cache is not None and max_output_tokens is None:
+        if self._response_cache is not None:
             async with stage("cache.lookup") as record:
                 cached = await self._response_cache.lookup(
-                    query=query, filters=language.cache_scope(filters)
+                    query=query, filters=_cache_scope(language, filters, max_output_tokens)
                 )
                 record(
                     hit=cached is not None,
@@ -1141,11 +1183,13 @@ class GenerationService:
         # key is already being computed waits for the COMPLETED answer and
         # replays it as one token + final; the leader streams normally and
         # publishes its result at the final flush.
-        flight = await self._single_flight() if max_output_tokens is None else None
+        flight = await self._single_flight()
         flight_owner: str | None = None
         flight_key = ""
         if flight is not None:
-            flight_key = self._response_cache.flight_key(query, language.cache_scope(filters))
+            flight_key = self._response_cache.flight_key(
+                query, _cache_scope(language, filters, max_output_tokens)
+            )
             flight_owner = uuid.uuid4().hex
             if not await flight.try_acquire(flight_key, flight_owner):
                 flight_owner = None
@@ -1486,10 +1530,7 @@ class GenerationService:
             # inbox confidence indicator without exposing it to the widget.
             "retrievedChunks": prep["retrieved_record"],
             "confidence": confidence,
-            "retrievalScore": max(
-                (float(chunk["similarity"]) for chunk in prep["retrieved_record"] if isinstance(chunk.get("similarity"), (int, float))),
-                default=0.0,
-            ),
+            "retrievalScore": top_retrieval_score(prep["retrieved_record"]),
             "groundednessResult": groundedness_result,
             "outputTokens": answer_output_tokens(answer_text, token_usage, max_output_tokens),
             "outputTruncated": output_truncated,

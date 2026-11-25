@@ -10,13 +10,18 @@ export class AssistantSettingsRepository {
 		return db.select().from(assistantSettings)
 	}
 
-	async set(key: string, value: number, updatedBy: string): Promise<void> {
-		await db
-			.insert(assistantSettings)
-			.values({ key, value, updatedBy })
-			.onConflictDoUpdate({
-				target: assistantSettings.key,
-				set: { value, updatedBy },
-			})
+	/** Saves several settings in one transaction, so a save never applies halfway. */
+	async setMany(entries: ReadonlyArray<{ key: string; value: number }>, updatedBy: string) {
+		await db.transaction(async tx => {
+			for (const { key, value } of entries) {
+				await tx
+					.insert(assistantSettings)
+					.values({ key, value, updatedBy })
+					.onConflictDoUpdate({
+						target: assistantSettings.key,
+						set: { value, updatedBy },
+					})
+			}
+		})
 	}
 }

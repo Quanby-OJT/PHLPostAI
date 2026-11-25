@@ -28,20 +28,13 @@ export function isCustomerLanguage(value: unknown): value is CustomerLanguage {
 
 /**
  * CNV-4: a message written in Filipino, Cebuano or Ilocano is answered in that
- * language by default, but an explicit non-English choice in the widget takes
- * precedence over an uncertain or conflicting classifier result. An English
- * or undetected message uses the session's selected language.
+ * language; an unsupported one in English; an English or undetected one in the
+ * session's language, which the customer can pick from the widget menu.
  */
 export function replyLanguageFor(
 	detected: string | null,
 	sessionLanguage: string
 ): CustomerLanguage {
-	// A non-English language selected in the widget is an explicit reply
-	// preference. Do not let a classifier mistake (e.g. Filipino → Ilocano)
-	// or low-confidence `unsupported` result override it. English remains the
-	// default so detected Filipino/Cebuano/Ilocano questions still receive a
-	// reply in the language they used.
-	if (isCustomerLanguage(sessionLanguage) && sessionLanguage !== "en") return sessionLanguage
 	if (detected === UNSUPPORTED_LANGUAGE) return "en"
 	if (detected !== "en" && isCustomerLanguage(detected)) return detected
 	return isCustomerLanguage(sessionLanguage) ? sessionLanguage : "en"

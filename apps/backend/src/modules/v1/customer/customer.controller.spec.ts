@@ -692,10 +692,44 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				principal: "customer-session:session-1",
 				permissions: ["chat.query.submit", "corpus.read"],
 				correlationId: "req-1",
-				confidenceThreshold: 0.7,
 			})
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
+		})
+	})
+
+	describe("CNV-3: the JSON route caps routine answers too", () => {
+		type Handler = (args: { input: { query: string } }) => Promise<unknown>
+
+		beforeEach(() => {
+			ragGatewayService.submitChatQuery.mockResolvedValue({
+				answer: "165 pesos.",
+				screenedQuery: "how much",
+			})
+		})
+
+		it("sends the limit for an eligible category", async () => {
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery).toHaveBeenCalledWith(
+				expect.objectContaining({ maxOutputTokens: 200 })
+			)
+		})
+
+		it("leaves the limit off for a category that is not eligible", async () => {
+			customerChatService.classify.mockResolvedValue({
+				...RETRIEVAL_CLASSIFICATION,
+				eligible: false,
+			})
+			const handler = (await controller.sendMessage("token", REQUEST)) as unknown as Handler
+
+			await handler({ input: { query: "how much" } })
+
+			expect(ragGatewayService.submitChatQuery.mock.calls[0]?.[0]).not.toHaveProperty(
+				"maxOutputTokens"
 			)
 		})
 	})

@@ -218,6 +218,28 @@ describe("CustomerChatService (CNV-1)", () => {
 			)
 		})
 
+		it("names the articles it found when the uncertain answer cited none", async () => {
+			knowledgeRepository.resolveArticleSources.mockResolvedValue(
+				new Map([["document-1", EXPRESS_ARTICLE]])
+			)
+
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "I don't know.",
+					isIDontKnow: true,
+					confidence: 0,
+					citations: [],
+					retrievedChunks: [{ id: "chunk-1", documentId: "document-1", similarity: 0.4 }],
+					screenedQuery: "q",
+				},
+				confidenceThreshold: 0.7,
+			})
+
+			expect(turn.answer).toContain(`I found information in: ${EXPRESS_ARTICLE.title}.`)
+			expect(turn.sources).toEqual([])
+		})
+
 		it("sends an answer whose confidence equals the configured threshold normally", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
@@ -606,6 +628,36 @@ describe("CustomerChatService (CNV-1)", () => {
 				expect.objectContaining({ answerKind: "tool", sources: [], citations: [] })
 			)
 		})
+
+		it("CNV-3: keeps 'no published rate' as a certain tool answer (KB-2 AC3)", async () => {
+			rateLookupService.answer.mockResolvedValue({
+				reply: "I don't have a published rate for that, so I can't quote a price.",
+				outcome: "no_rate",
+			})
+
+			const turn = await service.answerRates({
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "Express Mail to Visayas for 30 kg",
+					category: "rates",
+					language: "en",
+					replyLanguage: "en",
+					route: "rates",
+				},
+				principal: "customer-session:session-1",
+				permissions: ["chat.query.submit"],
+				correlationId: "req-1",
+			})
+
+			expect(turn).toMatchObject({
+				answer: "I don't have a published rate for that, so I can't quote a price.",
+				answerKind: "tool",
+				isIDontKnow: false,
+			})
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ answerKind: "tool", confidence: 1 })
+			)
+		})
 	})
 
 	describe("TRK-1: a tracking turn", () => {
@@ -715,11 +767,10 @@ describe("CustomerChatService (CNV-1)", () => {
 
 		it.each([
 			["ceb", "en", "ceb"],
-			["ilo", "fil", "fil"],
-			["unsupported", "fil", "fil"],
+			["fil", "ilo", "fil"],
 			["en", "fil", "fil"],
 			[null, "ilo", "ilo"],
-			["unsupported", "ceb", "ceb"],
+			["unsupported", "ceb", "en"],
 		] as [string | null, string, string][])(
 			"a %s message in a %s session is answered in %s",
 			async (language, sessionLanguage, replyLanguage) => {
@@ -757,18 +808,6 @@ describe("CustomerChatService (CNV-1)", () => {
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
 				expect.objectContaining({ answer: expect.stringContaining("Hindi ako sapat na sigurado"), language: "fil" })
 			)
-		})
-
-		it("keeps a Filipino selection for an uncertain classifier result", async () => {
-			const turn = await service.completeTurn({
-				conversationId: "conversation-1",
-				envelope: { answer: "I don't know.", isIDontKnow: true, confidence: 0, screenedQuery: "q" },
-				classification: { category: "other", language: "unsupported", replyLanguage: "fil" },
-			})
-
-			expect(turn.answer).toContain("Hindi ako sapat na sigurado")
-			expect(turn.answer).toContain("Maaari akong sumagot")
-			expect(turn.answer).not.toContain("I don't know")
 		})
 
 		it("answers an unsupported language in English and names the supported ones", async () => {

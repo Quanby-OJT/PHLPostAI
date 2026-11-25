@@ -1,6 +1,6 @@
 import type { AuditService } from "@/common/audit/audit.service"
 
-import { AssistantSettingsRepository } from "./assistant-settings.repository"
+import { type AssistantSettingsRepository } from "./assistant-settings.repository"
 import { AssistantSettingsService, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-settings.service"
 
 jest.mock("@/common/audit/audit.service", () => ({ AuditService: class AuditService {} }))
@@ -10,12 +10,15 @@ jest.mock("./assistant-settings.repository", () => ({
 }))
 
 describe("AssistantSettingsService (CNV-3)", () => {
-	let repository: { list: jest.Mock; set: jest.Mock }
+	let repository: { list: jest.Mock; setMany: jest.Mock }
 	let audit: { writeAudit: jest.Mock }
 	let service: AssistantSettingsService
 
 	beforeEach(() => {
-		repository = { list: jest.fn().mockResolvedValue([]), set: jest.fn().mockResolvedValue(undefined) }
+		repository = {
+			list: jest.fn().mockResolvedValue([]),
+			setMany: jest.fn().mockResolvedValue(undefined),
+		}
 		audit = { writeAudit: jest.fn().mockResolvedValue(undefined) }
 		service = new AssistantSettingsService(
 			repository as unknown as AssistantSettingsRepository,
@@ -33,8 +36,13 @@ describe("AssistantSettingsService (CNV-3)", () => {
 			{ userId: "admin-1" }
 		)
 
-		expect(repository.set).toHaveBeenNthCalledWith(1, "confidence_threshold", 0.82, "admin-1")
-		expect(repository.set).toHaveBeenNthCalledWith(2, "max_output_tokens", 120, "admin-1")
+		expect(repository.setMany).toHaveBeenCalledWith(
+			[
+				{ key: "confidence_threshold", value: 0.82 },
+				{ key: "max_output_tokens", value: 120 },
+			],
+			"admin-1"
+		)
 		expect(audit.writeAudit).toHaveBeenCalledWith({
 			actorId: "admin-1",
 			actorType: "user",
@@ -44,6 +52,15 @@ describe("AssistantSettingsService (CNV-3)", () => {
 			before: DEFAULT_ASSISTANT_SETTINGS,
 			after: { confidenceThreshold: 0.82, maxOutputTokens: 120 },
 		})
+	})
+
+	it("saves only the setting that changed", async () => {
+		await service.update({ confidenceThreshold: 0.5 }, { userId: "admin-1" })
+
+		expect(repository.setMany).toHaveBeenCalledWith(
+			[{ key: "confidence_threshold", value: 0.5 }],
+			"admin-1"
+		)
 	})
 
 	it("applies stored values on the next read", async () => {

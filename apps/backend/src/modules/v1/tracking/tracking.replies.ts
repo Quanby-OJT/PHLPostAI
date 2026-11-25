@@ -55,7 +55,7 @@ const TRACKING_REPLIES_BY_LANGUAGE: Record<
 		unavailable:
 			"Saanak a makakonektar iti tracking system ita. Pangngaasi a padasem manen kalpasan ti sumagmamano a minuto, wenno agpatulongka iti maysa a tao.",
 		customs:
-			"Prosespresuan ti Bureau of Customs ti itemmo. Saan a PHLPost ti mangikeddeng no kaano a rummuar daytoy iti Customs.",
+			"Ipropproseso ti Bureau of Customs ti itemmo. Saan a PHLPost ti mangikeddeng no kaano a rummuar daytoy iti Customs.",
 	},
 }
 

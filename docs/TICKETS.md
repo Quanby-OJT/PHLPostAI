@@ -497,16 +497,16 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **In scope:**
 
-- `assistant_settings` table and `SettingsService` (first consumers: `confidence_threshold`, `max_output_tokens`)
-- Confidence calculation; the 'not sure' reply; `confidence`, `answer_kind`, `retrieval_score`, `groundedness_result`, and `output_tokens` columns on `messages`; settings screen
-- Routine-answer output limit passed to the model and re-checked after generation; default and ceiling are 200 tokens
+- `assistant_settings` table and `SettingsService` (first consumer: `confidence_threshold`)
+- Confidence calculation; the 'not sure' reply; `confidence` and `answer_kind` columns on `messages`; settings screen
+- Routine-answer output limit (setting `max_output_tokens`, default and ceiling 200) passed to the model call and re-checked after generation; `output_tokens` column on `messages`
 
 **Out of scope:**
 
 - Creating the Escalation and the agent side (ESC-1 exists; rules in ESC-3)
 - Sensitive-topic rules (ESC-3)
 
-**Technical notes:** Flow A — Public chat turn, steps 6 and 7. Confidence = a documented function of the top reranked retrieval score and the template's groundedness result; use the agentic verifier verdict when present and citation validation as the baseline groundedness result otherwise. Tool answers (tracking, rates) take the tool's certainty. `SettingsService` is the only reader and writer of `assistant_settings` from here on; the configurable default confidence threshold is 0.7. Enforces `settings.assistant.manage`. The output limit applies to answers in eligible categories (PRD assumption A9), defaults to 200, and is capped at 200 in both the settings API and the model call. Re-check after generation, end at a complete sentence, and offer more details when content was omitted. Buffer streamed draft text until the final Confidence is known so a below-threshold answer cannot leak before the uncertainty reply. Persist `retrieval_score`, `groundedness_result`, `confidence`, and the provider's output token count on the assistant Message, and show the recorded answer metrics in transcript inspection.
+**Technical notes:** Flow A — Public chat turn, steps 6 and 7. Confidence = a documented function of the top reranked retrieval score and the template's groundedness gate result from the `agentic` profile; tool answers (tracking, rates) take the tool's certainty. `SettingsService` is the only reader and writer of `assistant_settings` from here on. The output limit applies to answers in eligible categories (PRD assumption A9); the settings screen refuses a value above 200. Token counts come from the provider's usage figures, which ANL-8 also reads. Enforces `settings.assistant.manage`. Schema: use the table, column, setting-key, and event-kind names exactly as listed in DOMAIN-MODEL.md for `assistant_settings`, `messages`. If this ticket needs a name that is not listed there, add it to DOMAIN-MODEL.md in the same pull request first.
 
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 
@@ -528,8 +528,6 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 - *Given* a message in a language outside the four, *when* it is answered, *then* the reply is in English, says which languages are supported, and the Message is tagged `unsupported`.
 - *Given* knowledge that exists only in English, *when* a Cebuano or Ilocano question matches it, *then* the answer is given in the customer's language from the English source and cites it.
 - *Given* the widget, *when* the customer picks a language from the menu, *then* the fixed interface text switches and later replies use that language.
-- *Given* a customer asks a tracking question without a tracking number, *when* the widget has a selected language, *then* the request for the number is in that language.
-- *Given* a tracking result with an official status description, *when* it is presented, *then* the official description remains unchanged while the surrounding explanation and labels use the selected language.
 
 **In scope:**
 

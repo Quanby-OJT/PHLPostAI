@@ -15,18 +15,18 @@ from typing import Any
 import httpx
 import pytest
 
+from app.budget import limit_routine_answer
 from app.config import Settings
 from app.generation import (
     DEGRADED_ANSWER,
     I_DONT_KNOW_ANSWER,
     ChatClient,
     GenerationService,
+    _is_i_dont_know,
     calculate_answer_confidence,
     get_chat_client,
     get_conversations_repository,
-    _is_i_dont_know,
 )
-from app.budget import limit_routine_answer
 from app.main import create_app
 from app.retrieval import get_retrieval_service
 from app.security import ServicePrincipal
@@ -125,7 +125,8 @@ def test_routine_answer_limit_keeps_a_complete_sentence_and_offers_more(monkeypa
 
     monkeypatch.setattr(budget, "_encoder", WordEncoder())
     answer, truncated = limit_routine_answer(
-        "First sentence is complete. Second sentence has a lot of additional words and detail. Third sentence also has extra words.",
+        "First sentence is complete. Second sentence has a lot of additional words and detail. "
+        "Third sentence also has extra words.",
         14,
         "en",
     )
