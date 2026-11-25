@@ -207,6 +207,10 @@ export {
 	DeflectionReportSchema,
 	DeflectionDrilldownRowSchema,
 	DeflectionDrilldownSchema,
+	DashboardTileSchema,
+	AnalyticsDashboardFiltersSchema,
+	AnalyticsDashboardSchema,
+	DashboardLayoutSchema,
 } from "./modules/v1/analytics/analytics.schema.js"
 export type {
 	InteractionEventKind,
@@ -220,6 +224,10 @@ export type {
 	DeflectionReport,
 	DeflectionDrilldownRow,
 	DeflectionDrilldown,
+	DashboardTile,
+	AnalyticsDashboardFilters,
+	AnalyticsDashboard,
+	DashboardLayout,
 } from "./modules/v1/analytics/analytics.schema.js"
 export {
 	CUSTOMER_CHANNEL_CODES,

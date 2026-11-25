@@ -8,6 +8,10 @@ import {
 	KpiDefinitionListSchema,
 	KpiDefinitionSchema,
 	SaveKpiDefinitionRequestSchema,
+	AnalyticsDashboardFiltersSchema,
+	AnalyticsDashboardSchema,
+	AnalyticsOverviewSchema,
+	DashboardLayoutSchema,
 } from "./analytics.schema.js"
 
 export const analyticsContract = {
@@ -56,4 +60,30 @@ export const analyticsContract = {
 		})
 		.input(SaveKpiDefinitionRequestSchema)
 		.output(KpiDefinitionSchema),
+	dashboard: oc
+		.route({
+			method: "GET",
+			path: "/analytics/dashboard",
+			summary: "Management dashboard aggregates",
+			tags: ["Analytics"],
+		})
+		.input(AnalyticsDashboardFiltersSchema)
+		.output(AnalyticsDashboardSchema),
+	getLayout: oc
+		.route({
+			method: "GET",
+			path: "/analytics/dashboard/layout",
+			summary: "Saved management dashboard layout",
+			tags: ["Analytics"],
+		})
+		.output(DashboardLayoutSchema),
+	saveLayout: oc
+		.route({
+			method: "PUT",
+			path: "/analytics/dashboard/layout",
+			summary: "Save management dashboard layout",
+			tags: ["Analytics"],
+		})
+		.input(DashboardLayoutSchema)
+		.output(DashboardLayoutSchema),
 }

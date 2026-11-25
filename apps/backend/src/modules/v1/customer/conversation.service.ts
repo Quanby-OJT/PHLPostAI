@@ -37,6 +37,8 @@ export interface RecordTurnInput {
 	traceId?: string | null
 	modelUsed?: string | null
 	category?: string
+	responseTimeMs?: number
+	requestStartedAt?: number
 	additionalEventKinds?: "tracking_lookup"[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
@@ -445,6 +447,20 @@ export class ConversationService {
 			if (!channelCode || !language)
 				throw new Error("Could not resolve the conversation event context")
 			const category = input.category ?? resolvedCategory
+			const responseTimeMs =
+				input.requestStartedAt === undefined
+					? input.responseTimeMs
+					: performance.now() - input.requestStartedAt
+			await this.eventService.record(
+				{
+					conversationId: input.conversationId,
+					kind: "message_received",
+					category: resolvedCategory,
+					language,
+					channelCode,
+				},
+				tx
+			)
 			await this.eventService.record(
 				{
 					conversationId: input.conversationId,
@@ -464,11 +480,13 @@ export class ConversationService {
 					language,
 					channelCode,
 					payload: {
-						answerKind: input.answerKind,
-						eligible: eligibleSnapshot,
-						turnIndex: nextTurn,
-					},
-				},
+	answerKind: input.answerKind,
+	eligible: eligibleSnapshot,
+	turnIndex: nextTurn,
+	...(responseTimeMs === undefined
+		? {}
+		: { response_time_ms: Math.max(0, Math.round(responseTimeMs)) }),
+},
 				tx
 			)
 			await this.eventService.record(

@@ -26,13 +26,23 @@ export interface InteractionEventPayload {
 	lastEligibleTurn?: number | null
 	sessionFingerprint?: string
 	testSession?: boolean
+  response_time_ms?: number
 }
 
 /** Sole writer for `interaction_events`; payloads are restricted to validated non-text metadata. */
 @Injectable()
 export class EventService {
 	async record(input: RecordInteractionEventInput, writer: EventWriter = db): Promise<void> {
-		if (input.language !== "unsupported" && !/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language)) {
+		if (
+			input.payload?.response_time_ms !== undefined &&
+			(!Number.isFinite(input.payload.response_time_ms) || input.payload.response_time_ms < 0)
+		) {
+			throw new Error("Interaction event response time must be a non-negative number")
+		}
+		if (
+			input.language !== "unsupported" &&
+			!/^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(input.language)
+		) {
 			throw new Error("Interaction event language must be a language code")
 		}
 		if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(input.channelCode)) {

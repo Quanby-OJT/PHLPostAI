@@ -261,6 +261,9 @@ export class CustomerChatService {
 		conversationId: string
 		classification: InquiryClassification
 		correlationId: string
+		/** The language of the Status Explanation (TRK-2). */
+		explanationLanguage?: string
+		requestStartedAt?: number
 		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { classification } = input
@@ -286,6 +289,7 @@ export class CustomerChatService {
 			answerKind: belowThreshold ? "uncertain" : "tool",
 			confidence,
 			category: "tracking",
+			requestStartedAt: input.requestStartedAt,
 			additionalEventKinds: lookup ? ["tracking_lookup"] : [],
 			traceId: input.correlationId,
 			onRecorded: lookup
@@ -353,6 +357,7 @@ export class CustomerChatService {
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
 		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		requestStartedAt?: number
 		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope, classification } = input
@@ -440,6 +445,7 @@ export class CustomerChatService {
 			tokenUsage: envelope.tokenUsage ?? null,
 			traceId: asString(envelope.traceId),
 			modelUsed: asString(envelope.model),
+			requestStartedAt: input.requestStartedAt,
 		})
 
 		return {
@@ -502,6 +508,7 @@ export class CustomerChatService {
 		channelCode: string
 		reason: string
 		traceId: string
+		requestStartedAt?: number
 	}): Promise<CustomerTurn> {
 		await this.auditService.writeAudit({
 			actorId: `customer-session:${input.customerSessionId}`,
@@ -525,6 +532,7 @@ export class CustomerChatService {
 			envelope: { screenedQuery: "", traceId: input.traceId },
 			answerKind: "refusal",
 			answerOverride: CUSTOMER_REFUSAL_ANSWER,
+			requestStartedAt: input.requestStartedAt,
 		})
 	}
 }

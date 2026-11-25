@@ -20,10 +20,13 @@ jest.mock("./analytics-overview.service", () => ({ AnalyticsOverviewService: cla
 jest.mock("./deflection-kpi.service", () => ({ DeflectionKpiService: class {} }))
 
 describe("AnalyticsController", () => {
-	it("requires analytics.dashboard.view on the overview endpoint", () => {
-		const handler = AnalyticsController.prototype.overview
-		expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toEqual([
-			"analytics.dashboard.view",
-		])
-	})
+	it.each(["overview", "dashboard", "getLayout", "saveLayout"])(
+		"requires analytics.dashboard.view on %s",
+		method => {
+			const handler = AnalyticsController.prototype[method as keyof AnalyticsController]
+			expect(Reflect.getMetadata(REQUIRED_PERMISSIONS_KEY, handler)).toEqual([
+				"analytics.dashboard.view",
+			])
+		}
+	)
 })
