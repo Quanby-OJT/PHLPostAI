@@ -179,6 +179,7 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 			return current.filter(value => value !== tile)
 		})
 	}
+	const customizationOrder = [...tiles, ...DEFAULT_TILES.filter(tile => !tiles.includes(tile))]
 	const data = dashboard.data
 	const chartDimensions = {
 		"by-category": data?.byCategory.map(item => ({ label: item.code, value: item.count })) ?? [],
@@ -311,7 +312,7 @@ export function ManagementDashboard({ access }: { access: AccessProfile }) {
 			<details className="group border-border bg-card rounded-xl border px-4 py-3">
 				<summary className="cursor-pointer text-sm font-medium">Customize dashboard tiles</summary>
 				<div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-					{DEFAULT_TILES.map(tile => {
+					{customizationOrder.map(tile => {
 						const index = tiles.indexOf(tile)
 						return (
 							<div
