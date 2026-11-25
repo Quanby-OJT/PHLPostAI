@@ -78,11 +78,45 @@ export class ConversationService {
 			.where(eq(conversations.id, conversationId))
 	}
 
+	/** Complete the offline path while preserving ConversationService as the sole status writer. */
+	async markContactCaptured(
+		tx: DbTransaction,
+		conversationId: string,
+		options: { missed: boolean }
+	): Promise<void> {
+		const [context] = await tx
+			.select({ channelCode: conversations.channelCode, language: customerSessions.language })
+			.from(conversations)
+			.innerJoin(customerSessions, eq(customerSessions.id, conversations.customerSessionId))
+			.where(eq(conversations.id, conversationId))
+			.limit(1)
+		if (!context?.channelCode || !context.language) {
+			throw new Error("Could not resolve the conversation event context")
+		}
+		await tx
+			.update(conversations)
+			.set({ status: "contact_captured" })
+			.where(eq(conversations.id, conversationId))
+		if (options.missed) {
+			await this.eventService.record(
+				{
+					conversationId,
+					kind: "escalation_missed",
+					category: "other",
+					language: context.language,
+					channelCode: context.channelCode,
+				},
+				tx
+			)
+		}
+	}
+
 	/** Store a screened customer message while an escalation is queued or claimed. */
 	async recordCustomerMessage(input: {
 		conversationId: string
 		customerSessionId: string
 		maskedQuery: string
+		inquiryCategory?: string
 	}): Promise<{ id: string; turnIndex: number }> {
 		return db.transaction(async tx => {
 			const [conversation] = await tx
@@ -98,7 +132,8 @@ export class ConversationService {
 			if (!conversation) throw new NotFoundException("Conversation not found")
 			if (
 				conversation.status !== "escalation_requested" &&
-				conversation.status !== "agent_active"
+				conversation.status !== "agent_active" &&
+				conversation.status !== "contact_captured"
 			) {
 				throw new ConflictException("This conversation is not waiting for an agent")
 			}
@@ -114,12 +149,39 @@ export class ConversationService {
 					role: "user",
 					sender: "customer",
 					content: input.maskedQuery,
+					inquiryCategory: input.inquiryCategory,
 					turnIndex,
 				})
 				.returning({ id: messages.id })
 			if (!message) throw new Error("Failed to record customer message")
 			return { id: message.id, turnIndex }
 		})
+	}
+
+	/** Count consecutive recent AI turns whose confidence was below the saved threshold. */
+	async countRecentLowConfidenceTurns(conversationId: string, threshold: number): Promise<number> {
+		const rows = await db
+			.select({ confidence: messages.confidence, answerKind: messages.answerKind })
+			.from(messages)
+			.where(
+				and(
+					eq(messages.conversationId, conversationId),
+					eq(messages.role, "assistant"),
+					sql`${messages.sender} is distinct from 'agent'`
+				)
+			)
+			.orderBy(desc(messages.turnIndex))
+			.limit(10)
+		let count = 0
+		for (const row of rows) {
+			const low =
+				row.answerKind === "uncertain" ||
+				((row.answerKind === "answer" || row.answerKind === "tool" || row.answerKind === null) &&
+					(row.confidence === null || row.confidence < threshold))
+			if (!low) break
+			count += 1
+		}
+		return count
 	}
 
 	/** Append an agent reply. Caller holds the conversation lock and verifies assignment. */
@@ -168,7 +230,11 @@ export class ConversationService {
 	 * both writes commit together while ConversationService remains the sole
 	 * writer of conversation status.
 	 */
-	async markEscalationRequested(tx: DbTransaction, conversationId: string): Promise<void> {
+	async markEscalationRequested(
+		tx: DbTransaction,
+		conversationId: string,
+		categoryOverride?: string
+	): Promise<void> {
 		const [eventContext] = await tx
 			.select({
 				channelCode: conversations.channelCode,
@@ -195,7 +261,7 @@ export class ConversationService {
 			{
 				conversationId,
 				kind: "escalated",
-				category: latestCustomerMessage?.category ?? "other",
+				category: categoryOverride ?? latestCustomerMessage?.category ?? "other",
 				language: eventContext.language,
 				channelCode: eventContext.channelCode,
 			},

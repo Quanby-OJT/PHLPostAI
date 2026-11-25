@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common"
 import { AnalyticsModule } from "@/modules/v1/analytics/analytics.module"
 import { AssistantModule } from "@/modules/v1/assistant/assistant.module"
 import { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
+import { EscalationService } from "@/modules/v1/escalations/escalation.service"
 import { KnowledgeModule } from "@/modules/v1/knowledge/knowledge.module"
 import { RatesModule } from "@/modules/v1/rates/rates.module"
 import { TrackingModule } from "@/modules/v1/tracking/tracking.module"
@@ -36,6 +37,7 @@ import { ScamAssessmentService } from "./scam-assessment.service"
 		CustomerSessionService,
 		ConversationService,
 		CustomerChatService,
+		EscalationService,
 		RagGatewayService,
 		ChannelsService,
 		AllowedOriginGuard,
@@ -50,6 +52,6 @@ import { ScamAssessmentService } from "./scam-assessment.service"
 		},
 	],
 
-	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard],
+	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard, EscalationService],
 })
 export class CustomerModule {}

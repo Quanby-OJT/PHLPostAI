@@ -1,19 +1,27 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common"
-import { and, asc, desc, eq, sql } from "drizzle-orm"
+import { ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common"
+import { Cron } from "@nestjs/schedule"
+import { and, asc, desc, eq, lt, sql } from "drizzle-orm"
 
 import { conversations, customerSessions, escalations, messages } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { db } from "@/common/database/database.client"
+import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { ConversationService } from "@/modules/v1/customer/conversation.service"
+
+import { decryptEscalationContact, encryptEscalationContact } from "./contact-crypto"
+import { isWithinBusinessHours } from "./escalation-rules"
 
 @Injectable()
 export class EscalationService {
+	private readonly logger = new Logger(EscalationService.name)
+
 	constructor(
 		private readonly conversationService: ConversationService,
 		private readonly auditService: AuditService,
-		private readonly conversationLiveService: ConversationLiveService
+		private readonly conversationLiveService: ConversationLiveService,
+		private readonly settingsService: AssistantSettingsService
 	) {}
 
 	async claim(id: string, agentId: string) {
@@ -120,8 +128,15 @@ export class EscalationService {
 	}
 
 	/** Creates the queued escalation and conversation transition atomically. */
-	async request(input: { conversationId: string; customerSessionId: string; reason: string }) {
-		return db.transaction(async tx => {
+	async request(input: {
+		conversationId: string
+		customerSessionId: string
+		reason: string
+		category?: string
+	}) {
+		const settings = await this.settingsService.getEscalationSettings()
+		const offline = !isWithinBusinessHours(new Date(), settings.businessHours)
+		const result = await db.transaction(async tx => {
 			const [conversation] = await tx
 				.select()
 				.from(conversations)
@@ -147,12 +162,150 @@ export class EscalationService {
 
 			const [row] = await tx
 				.insert(escalations)
-				.values({ conversationId: conversation.id, reason: input.reason, status: "queued" })
+				.values({
+					conversationId: conversation.id,
+					reason: input.reason,
+					status: offline ? "contact_captured" : "queued",
+				})
 				.returning({ id: escalations.id, createdAt: escalations.createdAt })
 			if (!row) throw new Error("Failed to create escalation")
-			await this.conversationService.markEscalationRequested(tx, conversation.id)
-			return { id: row.id, status: "queued" as const, createdAt: row.createdAt }
+			await this.conversationService.markEscalationRequested(tx, conversation.id, input.category)
+			if (offline) {
+				await this.conversationService.markContactCaptured(tx, conversation.id, { missed: false })
+			}
+			await this.auditService.writeAudit(
+				{
+					actorId: `customer-session:${input.customerSessionId}`,
+					actorType: "system",
+					action: "escalations.requested",
+					resourceType: "escalation",
+					resourceId: row.id,
+					before: null,
+					after: { conversationId: input.conversationId, reason: input.reason, offline },
+				},
+				tx
+			)
+			return {
+				id: row.id,
+				status: offline ? ("contact_captured" as const) : ("queued" as const),
+				createdAt: row.createdAt,
+			}
 		})
+		if (offline) await this.conversationLiveService.publish(input.conversationId)
+		return result
+	}
+
+	/** Encrypt the optional contact; only the customer session owning this conversation can set it. */
+	async captureCustomerContact(input: {
+		conversationId: string
+		customerSessionId: string
+		contact?: string
+	}) {
+		const contact = input.contact?.trim() || null
+		const ciphertext = contact ? encryptEscalationContact(contact) : null
+		return db.transaction(async tx => {
+			const [row] = await tx
+				.select({ id: escalations.id })
+				.from(escalations)
+				.innerJoin(conversations, eq(conversations.id, escalations.conversationId))
+				.where(
+					and(
+						eq(escalations.conversationId, input.conversationId),
+						eq(conversations.customerSessionId, input.customerSessionId),
+						eq(escalations.status, "contact_captured"),
+						eq(conversations.status, "contact_captured")
+					)
+				)
+				.for("update")
+			if (!row) throw new NotFoundException("Offline escalation not found")
+			await tx.update(escalations).set({ contact: ciphertext }).where(eq(escalations.id, row.id))
+			await this.auditService.writeAudit(
+				{
+					actorId: `customer-session:${input.customerSessionId}`,
+					actorType: "system",
+					action: "escalations.contact.updated",
+					resourceType: "escalation",
+					resourceId: row.id,
+					after: { contactProvided: contact !== null },
+				},
+				tx
+			)
+			return { status: "contact_captured" as const, contactProvided: contact !== null }
+		})
+	}
+
+	/** This endpoint is only exposed behind escalations.conversations.handle. */
+	async getCustomerContact(id: string, actorId: string) {
+		const [row] = await db
+			.select({ contact: escalations.contact })
+			.from(escalations)
+			.where(eq(escalations.id, id))
+			.limit(1)
+		if (!row) throw new NotFoundException("Escalation not found")
+		await this.auditService.writeAudit({
+			actorId,
+			actorType: "user",
+			action: "escalations.contact.viewed",
+			resourceType: "escalation",
+			resourceId: id,
+		})
+		return { contact: row.contact ? decryptEscalationContact(row.contact) : null }
+	}
+
+	/** Move unclaimed requests to the offline path after the configured wait limit. */
+	@Cron("*/10 * * * * *", { name: "escalation-wait-limit" })
+	async markMissedEscalations(): Promise<number> {
+		try {
+			const { businessHours } = await this.settingsService.getEscalationSettings()
+			const cutoff = new Date(Date.now() - businessHours.waitLimitSeconds * 1000)
+			const waiting = await db
+				.select({ id: escalations.id, conversationId: escalations.conversationId })
+				.from(escalations)
+				.where(and(eq(escalations.status, "queued"), lt(escalations.createdAt, cutoff)))
+				.limit(200)
+			let missed = 0
+			for (const item of waiting) {
+				const changed = await db.transaction(async tx => {
+					const [row] = await tx
+						.select({ id: escalations.id, createdAt: escalations.createdAt })
+						.from(escalations)
+						.where(and(eq(escalations.id, item.id), eq(escalations.status, "queued")))
+						.for("update")
+					if (!row || row.createdAt > cutoff) return false
+					await tx
+						.update(escalations)
+						.set({ status: "contact_captured", updatedAt: new Date() })
+						.where(eq(escalations.id, row.id))
+					await this.conversationService.markContactCaptured(tx, item.conversationId, {
+						missed: true,
+					})
+					await this.auditService.writeAudit(
+						{
+							actorId: "system",
+							actorType: "system",
+							action: "escalations.missed",
+							resourceType: "escalation",
+							resourceId: item.id,
+							before: { status: "queued" },
+							after: { status: "contact_captured" },
+						},
+						tx
+					)
+					return true
+				})
+				if (changed) {
+					missed += 1
+					await this.conversationLiveService.publish(item.conversationId)
+				}
+			}
+			return missed
+		} catch (error) {
+			this.logger.error(
+				"Failed to process escalation wait limits",
+				error instanceof Error ? error.stack : undefined
+			)
+			return 0
+		}
 	}
 
 	/** Queue view. Sort by the original request time, oldest first. */
@@ -275,8 +428,7 @@ export class EscalationService {
 				citations: message.citations ?? [],
 				confidence: message.role === "assistant" ? message.confidence : null,
 				retrievalScore: message.role === "assistant" ? message.retrievalScore : null,
-				groundednessResult:
-					message.role === "assistant" ? message.groundednessResult : null,
+				groundednessResult: message.role === "assistant" ? message.groundednessResult : null,
 				outputTokens: message.role === "assistant" ? message.outputTokens : null,
 				createdAt: message.createdAt,
 				turnIndex: message.turnIndex,

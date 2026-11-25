@@ -268,13 +268,21 @@ export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
 export {
 	CreateInquiryCategoryRequestSchema,
 	AssistantSettingsSchema,
+	EscalationSettingsSchema,
+	EscalationRulesSchema,
+	EscalationBusinessHoursSchema,
 	InquiryCategorySchema,
+	UpdateEscalationSettingsRequestSchema,
 	UpdateAssistantSettingsRequestSchema,
 	UpdateInquiryCategoryRequestSchema,
 } from "./modules/v1/assistant/assistant.schema.js"
 export type {
 	CreateInquiryCategoryRequest,
 	AssistantSettings,
+	EscalationSettings,
+	EscalationBusinessHours,
+	EscalationRules,
+	UpdateEscalationSettingsRequest,
 	InquiryCategory,
 	UpdateAssistantSettingsRequest,
 	UpdateInquiryCategoryRequest,

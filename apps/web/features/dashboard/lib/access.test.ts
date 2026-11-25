@@ -190,6 +190,7 @@ describe("navItems", () => {
 			"Evaluation",
 			"Reports",
 			"Assistant Settings",
+			"Escalation Rules",
 			"Inquiry Categories",
 			"Configuration",
 			"Channels",
