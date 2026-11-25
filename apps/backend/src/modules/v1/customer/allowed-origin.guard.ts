@@ -2,6 +2,7 @@ import {
 	ForbiddenException,
 	Injectable,
 	Logger,
+	ServiceUnavailableException,
 	type CanActivate,
 	type ExecutionContext,
 } from "@nestjs/common"
@@ -36,6 +37,9 @@ export class AllowedOriginGuard implements CanActivate {
 		const request = context.switchToHttp().getRequest<Request>()
 		const origin = request.headers.origin
 
+		if (!(await this.channels.isEnabled(WEB_WIDGET_CHANNEL))) {
+			throw new ServiceUnavailableException("The assistant is unavailable")
+		}
 		if (!origin) return ALLOW_MISSING_ORIGIN
 
 		const allowed = await this.channels.getAllowedOrigins(WEB_WIDGET_CHANNEL)

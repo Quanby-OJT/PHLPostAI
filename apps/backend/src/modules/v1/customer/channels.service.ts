@@ -20,6 +20,27 @@ export function normalizeOrigin(value: string): string {
  */
 @Injectable()
 export class ChannelsService {
+	async getWelcomeText(code: string): Promise<string> {
+		const [row] = await db
+			.select({ config: channels.config })
+			.from(channels)
+			.where(eq(channels.code, code))
+			.limit(1)
+		const config = row?.config as { welcomeText?: unknown } | undefined
+		return typeof config?.welcomeText === "string"
+			? config.welcomeText
+			: "Ask a question about PHLPost services."
+	}
+
+	async isEnabled(code: string): Promise<boolean> {
+		const [row] = await db
+			.select({ isEnabled: channels.isEnabled })
+			.from(channels)
+			.where(eq(channels.code, code))
+			.limit(1)
+		return row?.isEnabled ?? false
+	}
+
 	async getAllowedOrigins(code: string): Promise<string[]> {
 		const [row] = await db
 			.select({ config: channels.config })

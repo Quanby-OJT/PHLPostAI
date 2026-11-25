@@ -3,6 +3,7 @@ import {
 	Body,
 	ConflictException,
 	Controller,
+	Get,
 	Headers,
 	NotFoundException,
 	Post,
@@ -24,13 +25,16 @@ import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
+import { ChannelAdapterRegistry } from "../channels/channel-adapter"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
+import { ChannelsService, WEB_WIDGET_CHANNEL } from "./channels.service"
 import { ConversationService } from "./conversation.service"
 import {
 	CustomerChatService,
 	type InquiryClassification,
 	type RagAnswerEnvelope,
 } from "./customer-chat.service"
+import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
@@ -58,8 +62,20 @@ export class CustomerController {
 		private readonly customerSessionService: CustomerSessionService,
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
-		private readonly ragGatewayService: RagGatewayService
+		private readonly ragGatewayService: RagGatewayService,
+		private readonly channelAdapters: ChannelAdapterRegistry,
+		private readonly channelsService: ChannelsService
 	) {}
+
+	@AllowAnonymous()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.channelStatus)
+	async channelStatus() {
+		return implement(v1.customer.channelStatus).handler(async () => ({
+			enabled: true,
+			welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
+		}))
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -77,6 +93,7 @@ export class CustomerController {
 				channelCode: row.channelCode as typeof input.channelCode,
 				language: row.language as typeof input.language,
 				idleExpiresAt: this.customerSessionService.idleExpiresAt(row.lastSeenAt).toISOString(),
+				welcomeText: await this.channelsService.getWelcomeText(WEB_WIDGET_CHANNEL),
 			}
 		})
 	}
@@ -85,16 +102,30 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
-	@Implement(v1.customer.conversation.end)
-	async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
-		return implement(v1.customer.conversation.end).handler(async ({ input }) => {
-			const session = await this.requireSession(sessionToken, toORPCError)
-			return this.conversationService.endCustomerConversation({
-				conversationId: input.conversationId,
-				customerSessionId: session.id,
-			})
-		})
-	}
+@Implement(v1.customer.conversation.end)
+async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+  return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+    const session = await this.requireSession(sessionToken, toORPCError)
+    return this.conversationService.endCustomerConversation({
+      conversationId: input.conversationId,
+      customerSessionId: session.id,
+    })
+  })
+}
+
+@AllowAnonymous()
+@StrictThrottle()
+@SessionThrottle()
+@UseGuards(AllowedOriginGuard)
+@Implement(v1.customer.session.setLanguage)
+async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+  return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+    const session = await this.requireSession(sessionToken, toORPCError)
+    await this.customerSessionService.setLanguage(session.id, input.language)
+    return { language: input.language }
+  })
+}
+		
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -107,16 +138,20 @@ export class CustomerController {
 	) {
 		return implement(v1.customer.chat.send).handler(async ({ input }) => {
 			const session = await this.requireSession(sessionToken, toORPCError)
+			const adapter = this.channelAdapters.get(
+				session.channelCode === "web" ? "web-widget" : session.channelCode
+			)
+			const message = adapter.receive(input)
 			const conversation = await this.resolveConversation(
 				session,
-				input.conversationId,
+				message.conversationId,
 				toORPCError
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, conversation.id, input.query, correlationId)
+				classification = await this.classify(session, conversation.id, message.text, correlationId)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 				if (refusal) return refusal
@@ -125,7 +160,9 @@ export class CustomerController {
 
 			if (classification.route === "tracking") {
 				try {
-					return await this.answerTracking(session, conversation.id, classification, correlationId)
+					return adapter.send(
+						await this.answerTracking(conversation.id, classification, correlationId)
+					)
 				} catch (error) {
 					await this.conversationService.recordUnansweredInquiry({
 						conversationId: conversation.id,
@@ -137,7 +174,9 @@ export class CustomerController {
 
 			if (classification.route === "rates") {
 				try {
-					return await this.answerRates(session, conversation.id, classification, correlationId)
+					return adapter.send(
+						await this.answerRates(session, conversation.id, classification, correlationId)
+					)
 				} catch (error) {
 					await this.conversationService.recordUnansweredInquiry({
 						conversationId: conversation.id,
@@ -150,7 +189,7 @@ export class CustomerController {
 			let envelope: RagAnswerEnvelope
 			try {
 				envelope = (await this.ragGatewayService.submitChatQuery({
-					query: input.query,
+					query: message.text,
 					userId: this.principalFor(session),
 					permissions: CUSTOMER_SERVICE_PERMISSIONS,
 					requestId: correlationId,
@@ -158,6 +197,7 @@ export class CustomerController {
 					actorType: "customer",
 					// The public path's rows belong to ConversationService.
 					persist: false,
+					...ragLanguageFields(classification),
 				})) as RagAnswerEnvelope
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
@@ -174,7 +214,7 @@ export class CustomerController {
 				envelope,
 				classification,
 			})
-			return { ...turn, conversationId: conversation.id } satisfies CustomerAnswer
+			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
 	}
 
@@ -204,18 +244,17 @@ export class CustomerController {
 		if (!parsed.success) {
 			throw new BadRequestException(parsed.error.issues[0]?.message ?? "Invalid question")
 		}
-		const conversation = await this.resolveConversation(session, parsed.data.conversationId)
+		const adapter = this.channelAdapters.get(
+			session.channelCode === "web" ? "web-widget" : session.channelCode
+		)
+		const message = adapter.receive(parsed.data)
+		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(
-				session,
-				conversation.id,
-				parsed.data.query,
-				correlationId
-			)
+			classification = await this.classify(session, conversation.id, message.text, correlationId)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(error, session, conversation.id, correlationId)
 			if (refusal) {
@@ -231,9 +270,9 @@ export class CustomerController {
 			try {
 				const turn =
 					classification.route === "tracking"
-						? await this.answerTracking(session, conversation.id, classification, correlationId)
+						? await this.answerTracking(conversation.id, classification, correlationId)
 						: await this.answerRates(session, conversation.id, classification, correlationId)
-				response.status(200).json(turn)
+				response.status(200).json(adapter.send(turn))
 			} catch {
 				await this.conversationService.recordUnansweredInquiry({
 					conversationId: conversation.id,
@@ -266,7 +305,11 @@ export class CustomerController {
 					"content-type": "application/json",
 					"x-request-id": correlationId,
 				},
-				body: JSON.stringify({ query: parsed.data.query, persist: false }),
+				body: JSON.stringify({
+					query: message.text,
+					persist: false,
+					...ragLanguageFields(classification),
+				}),
 				signal: abort.signal,
 			})
 		} catch {
@@ -333,10 +376,10 @@ export class CustomerController {
 			})
 			turnRecorded = true
 			response.write(
-				formatSseFrame("final", {
-					...turn,
-					conversationId: conversation.id,
-				} satisfies CustomerAnswer)
+				formatSseFrame(
+					"final",
+					adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
+				)
 			)
 		} catch {
 			// The upstream died or the turn could not be stored. Say so plainly
@@ -377,6 +420,7 @@ export class CustomerController {
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			sessionLanguage: session.language,
 			conversationId,
 		})
 	}
@@ -400,7 +444,6 @@ export class CustomerController {
 
 	/** TRK-1: answer from the tracking connector. The question is already screened. */
 	private async answerTracking(
-		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string
@@ -409,7 +452,6 @@ export class CustomerController {
 			conversationId,
 			classification,
 			correlationId,
-			explanationLanguage: session.language,
 		})
 		return { ...turn, conversationId }
 	}

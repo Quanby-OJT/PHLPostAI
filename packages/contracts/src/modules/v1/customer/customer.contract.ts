@@ -2,10 +2,13 @@ import { oc } from "@orpc/contract"
 
 import {
 	CustomerAnswerSchema,
+	CustomerChannelStatusSchema,
 	CustomerChatRequestSchema,
+	CustomerSessionLanguageSchema,
 	CustomerSessionSchema,
 	EndCustomerConversationRequestSchema,
 	EndCustomerConversationResponseSchema,
+	SetCustomerLanguageRequestSchema,
 	StartCustomerSessionRequestSchema,
 } from "./customer.schema.js"
 
@@ -21,6 +24,14 @@ import {
  * and the corpus upload: oRPC is JSON-only (Tech Plan §5, D3).
  */
 export const customerContract = {
+	channelStatus: oc
+		.route({
+			method: "GET",
+			path: "/customer/channel-status",
+			summary: "Check widget availability",
+			tags: ["Customer"],
+		})
+		.output(CustomerChannelStatusSchema),
 	session: {
 		start: oc
 			.route({
@@ -33,6 +44,17 @@ export const customerContract = {
 			})
 			.input(StartCustomerSessionRequestSchema)
 			.output(CustomerSessionSchema),
+		setLanguage: oc
+			.route({
+				method: "POST",
+				path: "/customer/session/language",
+				summary: "Change the chat language",
+				description:
+					"Stores the language the customer picked from the widget menu on their Customer Session. Later replies are written in it; a message clearly written in another supported language is still answered in that language.",
+				tags: ["Customer"],
+			})
+			.input(SetCustomerLanguageRequestSchema)
+			.output(CustomerSessionLanguageSchema),
 	},
 	chat: {
 		send: oc
