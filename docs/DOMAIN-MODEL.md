@@ -154,7 +154,9 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 
 `interaction_events.kind` is a Zod enum in `packages/contracts` (ANL-1). These names are binding; a ticket that needs a new kind adds it here and to the enum.
 
-`conversation_started` · `message_received` · `answer_sent` · `answer_blocked` · `injection_refused` · `throttled` · `tracking_lookup` · `escalated` · `escalation_claimed` · `escalation_transferred` · `escalation_missed` · `escalation_resolved` · `feedback_given` · `sentiment_labelled` · `scam_assessed` · `scam_reported` · `conversation_closed`
+`kpi_definitions.method` records `eligibleCategories`, `includeAbandoned`, `duplicateWindowMinutes`, `duplicateRule` (`same_session_and_category`), `excludeTestSessions`, `excludeEscalated`, `excludeUncertainOrBlocked`, `failedInteractions`, `reportingPeriod`, and `periodTimezone`. The fixed rules are: escalated and uncertain/blocked conversations are never AI-resolved; failed interactions remain eligible but unresolved; periods are selected Asia/Manila calendar days. Each approved change creates the next version. The `deflection_kpi_conversations` SQL view assigns conversations to the definition effective when they started; it is the auditable source for KPI counts and drill-down.
+
+`conversation_started` · `conversation_context` · `message_received` · `answer_sent` · `answer_classified` · `answer_blocked` · `injection_refused` · `throttled` · `tracking_lookup` · `escalated` · `escalation_claimed` · `escalation_transferred` · `escalation_missed` · `escalation_resolved` · `feedback_given` · `sentiment_labelled` · `scam_assessed` · `scam_reported` · `conversation_closed`
 
 ## 5. State machines
 

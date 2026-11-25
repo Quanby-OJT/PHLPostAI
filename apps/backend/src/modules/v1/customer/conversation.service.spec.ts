@@ -243,6 +243,15 @@ describe("ConversationService (CNV-1 sole writer)", () => {
 			expect(eventService.record).toHaveBeenCalledWith(
 				{
 					conversationId: "conversation-1",
+					kind: "answer_classified",
+					category: "other",
+					language: "en",
+					channelCode: "web-widget",
+					payload: {
+						answerKind: "answer",
+						eligible: false,
+						turnIndex: 0,
+					},
 					kind: "message_received",
 					category: "other",
 					language: "en",

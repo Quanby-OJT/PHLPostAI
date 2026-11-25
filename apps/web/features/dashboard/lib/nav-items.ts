@@ -81,6 +81,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "escalations.queue.view",
 	},
 	{
+		label: "Deflection KPI",
+		href: "/analytics/deflection",
+		icon: ChartLineData01Icon,
+		section: "Analytics",
+		requiredPermission: "analytics.dashboard.view",
+	},
+	{
 		label: "User Management",
 		href: "/user-management",
 		icon: UserMultipleIcon,

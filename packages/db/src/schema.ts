@@ -579,6 +579,27 @@ export const interactionEvents = createTable(
 	]
 )
 
+/** Approved, immutable-by-version method for the deflection KPI (ANL-3). */
+export const kpiDefinitions = createTable(
+	"kpi_definitions",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		code: t.text("code").notNull(),
+		version: t.integer("version").notNull(),
+		method: t.jsonb("method").$type<Record<string, unknown>>().notNull(),
+		baseline: t.jsonb("baseline").$type<{ eligible: number; resolved: number } | null>(),
+		target: t.real("target").notNull().default(0.7),
+		approvedBy: t
+			.text("approved_by")
+			.notNull()
+			.references(() => users.id),
+		effectiveFrom: t.timestamp("effective_from", { withTimezone: true }).notNull().defaultNow(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		unique("kpi_definitions_code_version_unique").on(t.code, t.version),
+		index("kpi_definitions_effective_from_idx").on(t.code, t.effectiveFrom),
+	]
 /** Saved dashboard tiles. A null user_id row is the workspace default. */
 export const dashboardLayouts = createTable(
 	"dashboard_layouts",
@@ -1138,6 +1159,7 @@ export const schema = Object.assign(
 		trackingLookups,
 		statusExplanations,
 		inquiryCategories,
+		kpiDefinitions,
 		assistantSettings,
 		rateBatches,
 		rateEntries,

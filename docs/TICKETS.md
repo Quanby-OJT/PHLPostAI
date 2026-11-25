@@ -1276,7 +1276,7 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 - Any claim about answer accuracy — the TS says the 70% is not an accuracy rate
 
-**Technical notes:** Flow F — Deflection KPI. The computation is one documented SQL view per definition version so an auditor can rerun it. Enforces `analytics.kpi.manage`; viewing the tile needs `analytics.dashboard.view`.
+**Technical notes:** Flow F — Deflection KPI. The computation is one documented SQL view per definition version over append-only `interaction_events` so an auditor can rerun it. A customer ending a chat closes it as `resolved_by_ai` only when the last eligible inquiry received a grounded or tool answer; uncertain, blocked, failed, and escalated interactions remain unresolved. Enforces `analytics.kpi.manage`; viewing the tile needs `analytics.dashboard.view`.
 
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 

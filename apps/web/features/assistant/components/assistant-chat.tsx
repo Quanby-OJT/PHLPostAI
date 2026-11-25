@@ -12,14 +12,15 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
-	getChannelStatus,
-	RateLimitedError,
-	requestHumanHandoff,
-	SESSION_STORAGE_KEY,
-	setSessionLanguage,
-	startSession,
-	streamQuestion,
-	type StoredSession,
+  endConversation,
+  getChannelStatus,
+  RateLimitedError,
+  requestHumanHandoff,
+  SESSION_STORAGE_KEY,
+  setSessionLanguage,
+  startSession,
+  streamQuestion,
+  type StoredSession,
 } from "../api/assistant.client"
 import {
 	ASSISTANT_COPY,
@@ -120,6 +121,8 @@ export function AssistantChat() {
 	const [handoffDone, setHandoffDone] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
+	const [ending, setEnding] = useState(false)
+	const [endNotice, setEndNotice] = useState<string | null>(null)
 	const [channelEnabled, setChannelEnabled] = useState(true)
 	const [welcomeText, setWelcomeText] = useState("")
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
@@ -245,6 +248,7 @@ export function AssistantChat() {
 
 			setQuestion("")
 			setError(null)
+			setEndNotice(null)
 			setBusy(true)
 			setTurns(previous => [
 				...previous,
@@ -334,6 +338,24 @@ export function AssistantChat() {
 		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
 	)
 
+	const endChat = useCallback(async () => {
+		if (!conversationId || busy || ending || handoffDone) return
+		setEnding(true)
+		setError(null)
+		try {
+			const sessionToken = await ensureSession()
+			await endConversation({ conversationId, sessionToken })
+			setConversationId(undefined)
+			setEndNotice("Chat ended. You can start a new chat any time.")
+		} catch (caught) {
+			setError(
+				caught instanceof ApiError ? caught.message : "We couldn't end this chat. Please try again."
+			)
+		} finally {
+			setEnding(false)
+		}
+	}, [busy, conversationId, ending, ensureSession, handoffDone])
+
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
 	useEffect(() => {
 		if (window.parent === window) return
@@ -414,7 +436,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
 					>
 						{copy.accept}
 					</button>
@@ -496,6 +518,25 @@ export function AssistantChat() {
 								{handoffBusy ? copy.requestingHandoff : copy.confirmHandoff}
 							</button>
 						</form>
+					) : null}
+
+					{conversationId && turns.length > 0 && !handoffDone ? (
+						<div className="flex justify-end">
+							<button
+								type="button"
+								onClick={endChat}
+								className="text-muted-foreground min-h-9 px-3 text-sm underline underline-offset-2 disabled:opacity-50"
+								disabled={ending || busy || handoffBusy}
+							>
+								{ending ? "Ending chat…" : "End chat"}
+							</button>
+						</div>
+					) : null}
+
+					{endNotice ? (
+						<p role="status" className="rounded-lg border p-3 text-sm">
+							{endNotice}
+						</p>
 					) : null}
 
 					{waitSeconds > 0 ? (

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { DashboardOverview } from "./dashboard-overview"
 
+
 const mocks = vi.hoisted(() => ({
 	useAnalyticsOverviewQuery: vi.fn(),
 	useAnalyticsDashboardQuery: vi.fn(),
@@ -21,6 +22,9 @@ vi.mock("@/features/dashboard/api/analytics.hooks", () => ({
 vi.mock("@/features/user-management/api/rbac.hooks", () => ({
 	useRolesQuery: mocks.useRolesQuery,
 	useUsersQuery: mocks.useUsersQuery,
+}))
+vi.mock("./deflection-dashboard-tile", () => ({
+	DeflectionDashboardTile: () => null,
 }))
 
 describe("DashboardOverview analytics counters (ANL-1)", () => {

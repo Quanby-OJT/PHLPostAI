@@ -21,6 +21,7 @@ import {
 } from "@/core/components/ui/card"
 import { Skeleton } from "@/core/components/ui/skeleton"
 import { useAnalyticsOverviewQuery } from "@/features/dashboard/api/analytics.hooks"
+import { DeflectionDashboardTile } from "@/features/dashboard/components/deflection-dashboard-tile"
 import { ManagementDashboard } from "@/features/dashboard/components/management-dashboard"
 import { canAccess, type AccessProfile } from "@/features/dashboard/lib/access"
 import { getAccessibleNavItems } from "@/features/dashboard/lib/nav-items"
@@ -133,6 +134,7 @@ export function DashboardOverview({ user, access }: DashboardOverviewProps) {
 			</div>
 
 			<div className="grid gap-6">
+				{canViewAnalytics ? <DeflectionDashboardTile /> : null}
 				<Card>
 					<CardHeader>
 						<CardTitle>Quick actions</CardTitle>
