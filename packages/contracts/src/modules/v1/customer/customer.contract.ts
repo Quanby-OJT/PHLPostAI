@@ -1,9 +1,9 @@
 import { oc } from "@orpc/contract"
 
 import {
-	CustomerAnswerSchema,
 	CustomerChannelStatusSchema,
 	CustomerChatRequestSchema,
+	CustomerChatResultSchema,
 	CustomerSessionLanguageSchema,
 	CustomerSessionSchema,
 	EndCustomerConversationRequestSchema,
@@ -67,7 +67,7 @@ export const customerContract = {
 				tags: ["Customer"],
 			})
 			.input(CustomerChatRequestSchema)
-			.output(CustomerAnswerSchema),
+			.output(CustomerChatResultSchema),
 	},
 	conversation: {
 		end: oc

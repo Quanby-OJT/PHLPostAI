@@ -476,6 +476,7 @@ export const messages = createTable(
 		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`.
 		 */
 		sender: t.text("sender").$type<"customer" | "assistant" | "agent">(),
+		agentId: t.text("agent_id").references(() => users.id, { onDelete: "set null" }),
 		/**
 		 * What the assistant produced (DOMAIN-MODEL `messages.answer_kind`).
 		 * CNV-1 writes `answer` for a grounded reply, `uncertain` for the grounded
@@ -541,6 +542,7 @@ export const escalations = createTable(
 		assignedAgentId: t
 			.text("assigned_agent_id")
 			.references(() => users.id, { onDelete: "set null" }),
+		outcomeNote: t.text("outcome_note"),
 		contact: t.text("contact"),
 		claimedAt: t.timestamp("claimed_at", { withTimezone: true }),
 		resolvedAt: t.timestamp("resolved_at", { withTimezone: true }),
@@ -600,6 +602,8 @@ export const kpiDefinitions = createTable(
 		unique("kpi_definitions_code_version_unique").on(t.code, t.version),
 		index("kpi_definitions_effective_from_idx").on(t.code, t.effectiveFrom),
 	]
+)
+
 /** Saved dashboard tiles. A null user_id row is the workspace default. */
 export const dashboardLayouts = createTable(
 	"dashboard_layouts",

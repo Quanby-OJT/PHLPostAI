@@ -24,6 +24,7 @@ import { TelemetryLifecycle } from "@/telemetry/telemetry.lifecycle"
 
 import { AnalyticsModule } from "./common/analytics/analytics.module"
 import { AuditModule } from "./common/audit/audit.module"
+import { ConversationLiveModule } from "./common/conversation-live/conversation-live.module"
 import { MaintenanceModule } from "./common/maintenance/maintenance.module"
 import { ORPCCommonModule } from "./common/orpc/orpc.module"
 import { RbacModule } from "./common/rbac/rbac.module"
@@ -122,6 +123,7 @@ import { env } from "./config/env.config"
 		RedisModule,
 		// PostHog: one shared client, or none when analytics is off.
 		AnalyticsModule,
+		ConversationLiveModule,
 		// Append-only audit spine (global). The audit trail outgrows RBAC.
 		AuditModule,
 		// RBAC services

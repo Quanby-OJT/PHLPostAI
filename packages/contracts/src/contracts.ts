@@ -244,6 +244,8 @@ export {
 	CustomerSessionLanguageSchema,
 	CustomerAnswerSourceSchema,
 	CustomerAnswerSchema,
+	AgentModeResultSchema,
+	CustomerChatResultSchema,
 	CustomerChannelStatusSchema,
 } from "./modules/v1/customer/customer.schema.js"
 export type {

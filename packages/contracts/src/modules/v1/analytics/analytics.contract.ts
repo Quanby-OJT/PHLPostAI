@@ -1,17 +1,16 @@
 import { oc } from "@orpc/contract"
 
 import {
+	AnalyticsDashboardFiltersSchema,
+	AnalyticsDashboardSchema,
 	AnalyticsOverviewSchema,
+	DashboardLayoutSchema,
 	DeflectionDrilldownSchema,
 	DeflectionReportRequestSchema,
 	DeflectionReportSchema,
 	KpiDefinitionListSchema,
 	KpiDefinitionSchema,
 	SaveKpiDefinitionRequestSchema,
-	AnalyticsDashboardFiltersSchema,
-	AnalyticsDashboardSchema,
-	AnalyticsOverviewSchema,
-	DashboardLayoutSchema,
 } from "./analytics.schema.js"
 
 export const analyticsContract = {

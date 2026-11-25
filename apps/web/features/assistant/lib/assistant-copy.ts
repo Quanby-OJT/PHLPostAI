@@ -29,8 +29,11 @@ export interface AssistantCopy {
 	emptyPrompt: string
 	youSaid: string
 	assistantSaid: string
+	agentLabel: string
 	sources: string
 	handoffQueued: string
+	handoffJoined: string
+	handoffResolved: string
 	needPerson: string
 	handoffReasons: Record<HandoffReason, string>
 	confirmHandoff: string
@@ -60,8 +63,11 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Ask a question about PHLPost services.",
 		youSaid: "You said: ",
 		assistantSaid: "Assistant said: ",
+		agentLabel: "PHLPost agent",
 		sources: "From these PHLPost articles:",
 		handoffQueued: "Your request is in the queue. A PHLPost agent will join when available.",
+		handoffJoined: "A PHLPost agent has joined. You can continue the conversation here.",
+		handoffResolved: "This conversation has been resolved by a PHLPost agent.",
 		needPerson: "Need a person?",
 		handoffReasons: {
 			"I want to speak with a person": "I want to speak with a person",
@@ -94,9 +100,13 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Magtanong tungkol sa mga serbisyo ng PHLPost.",
 		youSaid: "Sinabi mo: ",
 		assistantSaid: "Sinabi ng assistant: ",
+		agentLabel: "PHLPost agent",
 		sources: "Mula sa mga artikulong ito ng PHLPost:",
 		handoffQueued:
 			"Nasa pila na ang iyong kahilingan. Sasali ang isang PHLPost agent kapag may available na.",
+		handoffJoined:
+			"Sumali na ang isang PHLPost agent. Maaari kang magpatuloy sa pakikipag-usap dito.",
+		handoffResolved: "Nalutas na ng isang PHLPost agent ang usapang ito.",
 		needPerson: "Kailangan mo ba ng makakausap na tao?",
 		handoffReasons: {
 			"I want to speak with a person": "Gusto kong makausap ang isang tao",
@@ -129,9 +139,12 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Pangutana bahin sa mga serbisyo sa PHLPost.",
 		youSaid: "Ingon nimo: ",
 		assistantSaid: "Ingon sa assistant: ",
+		agentLabel: "PHLPost agent",
 		sources: "Gikan niining mga artikulo sa PHLPost:",
 		handoffQueued:
 			"Naa na sa linya ang imong hangyo. Moapil ang usa ka PHLPost agent kon naa nay bakante.",
+		handoffJoined: "Miapil na ang usa ka PHLPost agent. Mahimo kang mopadayon sa pag-chat dinhi.",
+		handoffResolved: "Nasulbad na sa usa ka PHLPost agent kining panag-istoryaha.",
 		needPerson: "Gusto ka bang makig-istorya sa usa ka tawo?",
 		handoffReasons: {
 			"I want to speak with a person": "Gusto kong makig-istorya sa usa ka tawo",
@@ -164,9 +177,12 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		emptyPrompt: "Agdamag maipapan kadagiti serbisio ti PHLPost.",
 		youSaid: "Kinunam: ",
 		assistantSaid: "Kinuna ti assistant: ",
+		agentLabel: "Agent ti PHLPost",
 		sources: "Manipud kadagitoy nga artikulo ti PHLPost:",
 		handoffQueued:
 			"Adda iti pila ti kiddawmo. Sumangpet ti maysa nga agent ti PHLPost no adda makaasikaso.",
+		handoffJoined: "Immayen ti maysa nga agent ti PHLPost. Mabalinmo nga ituloy ti saritaan ditoy.",
+		handoffResolved: "Nalusawen ti daytoy a saritaan babaen ti maysa nga agent ti PHLPost.",
 		needPerson: "Masapulmo kadi ti tao a makasarita?",
 		handoffReasons: {
 			"I want to speak with a person": "Kayatko ti makisarita iti tao",

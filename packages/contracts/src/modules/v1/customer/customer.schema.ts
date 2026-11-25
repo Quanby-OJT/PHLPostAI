@@ -90,6 +90,14 @@ export const CustomerAnswerSchema = z.object({
 	isIDontKnow: z.boolean(),
 })
 
+export const AgentModeResultSchema = z.object({
+	agentMode: z.literal(true),
+	conversationId: z.string().uuid(),
+	messageId: z.string().uuid(),
+})
+
+export const CustomerChatResultSchema = z.union([CustomerAnswerSchema, AgentModeResultSchema])
+
 // ============================================================================
 // TYPES
 // ============================================================================

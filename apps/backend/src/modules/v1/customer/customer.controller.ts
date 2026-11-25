@@ -6,7 +6,9 @@ import {
 	Get,
 	Headers,
 	NotFoundException,
+	Param,
 	Post,
+	Query,
 	Req,
 	Res,
 	UnauthorizedException,
@@ -16,9 +18,11 @@ import { Implement } from "@orpc/nest"
 import { implement } from "@orpc/server"
 import { AllowAnonymous } from "@thallesp/nestjs-better-auth"
 import type { Request, Response } from "express"
+import { z } from "zod"
 
 import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 
+import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
@@ -65,6 +69,7 @@ export class CustomerController {
 		private readonly customerChatService: CustomerChatService,
 		private readonly assistantSettingsService: AssistantSettingsService,
 		private readonly ragGatewayService: RagGatewayService,
+		private readonly conversationLiveService: ConversationLiveService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
 		private readonly channelsService: ChannelsService
 	) {}
@@ -127,7 +132,7 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
     return { language: input.language }
   })
 }
-		
+
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -151,6 +156,19 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				toORPCError
 			)
 			const correlationId = String(request.id ?? crypto.randomUUID())
+			if (
+				conversation.status === "escalation_requested" ||
+				conversation.status === "agent_active"
+			) {
+				const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
+				const saved = await this.conversationService.recordCustomerMessage({
+					conversationId: conversation.id,
+					customerSessionId: session.id,
+					maskedQuery,
+				})
+				await this.conversationLiveService.publish(conversation.id)
+				return { agentMode: true as const, conversationId: conversation.id, messageId: saved.id }
+			}
 
 			let classification: InquiryClassification
 			try {
@@ -275,6 +293,19 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		const message = adapter.receive(parsed.data)
 		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
+		if (conversation.status === "escalation_requested" || conversation.status === "agent_active") {
+			const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
+			const saved = await this.conversationService.recordCustomerMessage({
+				conversationId: conversation.id,
+				customerSessionId: session.id,
+				maskedQuery,
+			})
+			await this.conversationLiveService.publish(conversation.id)
+			response
+				.status(200)
+				.json({ agentMode: true, conversationId: conversation.id, messageId: saved.id })
+			return
+		}
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
@@ -453,6 +484,36 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		}
 	}
 
+	@Get("v1/customer/conversations/:id/events")
+	@AllowAnonymous()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	async customerEvents(
+		@Param("id") id: string,
+		@Query("after") after: string | undefined,
+		@Headers("x-customer-session") sessionToken: string | undefined,
+		@Res() response: Response
+	) {
+		if (!z.string().uuid().safeParse(id).success)
+			throw new BadRequestException("Invalid conversation id")
+		const session = sessionToken ? await this.customerSessionService.resolve(sessionToken) : null
+		if (!session) throw new UnauthorizedException("Invalid or expired customer session")
+		const conversation = await this.conversationService.findOwnedByCustomerSession(id, session.id)
+		if (!conversation) throw new NotFoundException("Conversation not found")
+		if (
+			conversation.status !== "escalation_requested" &&
+			conversation.status !== "agent_active" &&
+			conversation.status !== "resolved_by_agent"
+		) {
+			throw new ConflictException("This conversation is not waiting for an agent")
+		}
+		const afterIndex = after === undefined ? -1 : Number(after)
+		await this.conversationLiveService.stream(id, response, {
+			afterTurnIndex: Number.isSafeInteger(afterIndex) && afterIndex >= -1 ? afterIndex : -1,
+			agentsOnly: true,
+		})
+	}
+
 	/** CNV-2: screen and classify the question (Flow A steps 3 to 5). */
 	private classify(
 		session: CustomerSessionRow,
@@ -546,7 +607,11 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			session.id
 		)
 		if (existing) {
-			if (existing.status !== "ai_active") {
+			if (
+				existing.status !== "ai_active" &&
+				existing.status !== "escalation_requested" &&
+				existing.status !== "agent_active"
+			) {
 				const error = new ConflictException(
 					"A human agent has been requested for this conversation"
 				)
@@ -559,6 +624,18 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		const error = new NotFoundException("Conversation not found")
 		if (mapError) mapError(error)
 		throw error
+	}
+
+	private async screenForAgent(query: string, session: CustomerSessionRow, correlationId: string) {
+		const screened = await this.ragGatewayService.screenQuery({
+			query,
+			userId: this.principalFor(session),
+			permissions: CUSTOMER_SERVICE_PERMISSIONS,
+			requestId: correlationId,
+			traceId: correlationId,
+			actorType: "customer",
+		})
+		return screened.screenedQuery
 	}
 
 	/** Turn a screening 400 from the gateway into a recorded refusal (AC4). */

@@ -12,15 +12,18 @@ import {
 import { ApiError } from "@/core/lib/api-error"
 
 import {
-  endConversation,
-  getChannelStatus,
-  RateLimitedError,
-  requestHumanHandoff,
-  SESSION_STORAGE_KEY,
-  setSessionLanguage,
-  startSession,
-  streamQuestion,
-  type StoredSession,
+	endConversation,
+	getChannelStatus,
+	RateLimitedError,
+	requestHumanHandoff,
+	SESSION_STORAGE_KEY,
+	setSessionLanguage,
+	startSession,
+	streamQuestion,
+	watchAgentConversation,
+	type AgentMessageEvent,
+	type AssistantStreamHandlers,
+	type StoredSession,
 } from "../api/assistant.client"
 import {
 	ASSISTANT_COPY,
@@ -40,7 +43,8 @@ function isCustomerLanguage(value: unknown): value is CustomerLanguage {
 }
 
 interface Turn {
-	sender: "customer" | "assistant"
+	id?: string
+	sender: "customer" | "assistant" | "agent"
 	content: string
 	sources?: CustomerAnswerSource[]
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
@@ -53,6 +57,8 @@ interface StoredChat {
 	conversationId?: string
 	turns: Turn[]
 	handoffDone?: boolean
+	agentJoined?: boolean
+	agentResolved?: boolean
 	language?: CustomerLanguage
 }
 
@@ -119,6 +125,8 @@ export function AssistantChat() {
 	const [error, setError] = useState<string | null>(null)
 	const [waitSeconds, setWaitSeconds] = useState(0)
 	const [handoffDone, setHandoffDone] = useState(false)
+	const [agentJoined, setAgentJoined] = useState(false)
+	const [agentResolved, setAgentResolved] = useState(false)
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
 	const [ending, setEnding] = useState(false)
@@ -139,6 +147,8 @@ export function AssistantChat() {
 			setConversationId(stored.conversationId)
 			setTurns(stored.turns.filter(turn => !turn.streaming))
 			setHandoffDone(stored.handoffDone ?? false)
+			setAgentJoined(stored.agentJoined ?? false)
+			setAgentResolved(stored.agentResolved ?? false)
 			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
 		setReady(true)
@@ -168,8 +178,68 @@ export function AssistantChat() {
 	// Save the chat whenever a turn settles.
 	useEffect(() => {
 		if (!ready || busy) return
-		storeChat({ accepted, conversationId, turns, handoffDone, language })
-	}, [accepted, busy, conversationId, handoffDone, language, ready, turns])
+		storeChat({
+			accepted,
+			conversationId,
+			turns,
+			handoffDone,
+			agentJoined,
+			agentResolved,
+			language,
+		})
+	}, [
+		accepted,
+		agentJoined,
+		agentResolved,
+		busy,
+		conversationId,
+		handoffDone,
+		language,
+		ready,
+		turns,
+	])
+
+	useEffect(() => {
+		if (!ready || !handoffDone || !conversationId) return
+		const session = readStoredSession()
+		if (!session) return
+		const abort = new AbortController()
+		let resolved = false
+		void (async () => {
+			while (!abort.signal.aborted && !resolved) {
+				try {
+					await watchAgentConversation(
+						conversationId,
+						session.sessionToken,
+						{
+							onMessage: message => {
+								setTurns(previous =>
+									previous.some(turn => turn.id === message.id)
+										? previous
+										: [...previous, { id: message.id, sender: "agent", content: message.content }]
+								)
+							},
+							onStatus: status => {
+								if (status === "agent_active") setAgentJoined(true)
+								if (status === "resolved_by_agent") {
+									resolved = true
+									setAgentJoined(true)
+									setAgentResolved(true)
+								}
+							},
+						},
+						abort.signal
+					)
+				} catch {
+					if (abort.signal.aborted) break
+				}
+				if (!resolved && !abort.signal.aborted) {
+					await new Promise(resolve => window.setTimeout(resolve, 1000))
+				}
+			}
+		})()
+		return () => abort.abort()
+	}, [conversationId, handoffDone, ready])
 
 	useEffect(() => {
 		endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
@@ -244,7 +314,7 @@ export function AssistantChat() {
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || handoffDone || !channelEnabled) return
+			if (!accepted || !asked || busy || waitSeconds > 0 || agentResolved || !channelEnabled) return
 
 			setQuestion("")
 			setError(null)
@@ -256,7 +326,7 @@ export function AssistantChat() {
 				{ sender: "assistant", content: "", streaming: true },
 			])
 
-			const handlers = {
+			const handlers: AssistantStreamHandlers = {
 				onToken: (delta: string) =>
 					setTurns(previous => {
 						const next = [...previous]
@@ -265,6 +335,11 @@ export function AssistantChat() {
 						return next
 					}),
 				onFinal: appendFinal,
+				onAgentMode: result => {
+					setConversationId(result.conversationId)
+					setHandoffDone(true)
+					setTurns(previous => (previous.at(-1)?.streaming ? previous.slice(0, -1) : previous))
+				},
 			}
 
 			try {
@@ -306,11 +381,12 @@ export function AssistantChat() {
 		},
 		[
 			accepted,
+			agentResolved,
+			channelEnabled,
 			appendFinal,
 			busy,
 			conversationId,
 			ensureSession,
-			handoffDone,
 			language,
 			question,
 			waitSeconds,
@@ -436,7 +512,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
 					>
 						{copy.accept}
 					</button>
@@ -465,8 +541,18 @@ export function AssistantChat() {
 												: "bg-muted border"
 										}`}
 									>
-										<span className="sr-only">
-											{turn.sender === "customer" ? copy.youSaid : copy.assistantSaid}
+										<span
+											className={
+												turn.sender === "agent"
+													? "text-muted-foreground text-xs font-medium"
+													: "sr-only"
+											}
+										>
+											{turn.sender === "customer"
+												? copy.youSaid
+												: turn.sender === "agent"
+													? copy.agentLabel
+													: copy.assistantSaid}
 										</span>
 										<p className="whitespace-pre-wrap">
 											{turn.content}
@@ -492,7 +578,11 @@ export function AssistantChat() {
 
 					{handoffDone ? (
 						<p role="status" className="rounded-lg border p-3 text-sm">
-							{copy.handoffQueued}
+							{agentResolved
+								? copy.handoffResolved
+								: agentJoined
+									? copy.handoffJoined
+									: copy.handoffQueued}
 						</p>
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
@@ -569,13 +659,17 @@ export function AssistantChat() {
 							autoComplete="off"
 							maxLength={1000}
 							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-							disabled={busy || waitSeconds > 0 || handoffDone || !channelEnabled}
+							disabled={busy || waitSeconds > 0 || agentResolved || !channelEnabled}
 						/>
 						<button
 							type="submit"
 							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
 							disabled={
-								busy || waitSeconds > 0 || handoffDone || !channelEnabled || question.trim() === ""
+								busy ||
+								waitSeconds > 0 ||
+								agentResolved ||
+								!channelEnabled ||
+								question.trim() === ""
 							}
 						>
 							{busy ? copy.asking : copy.ask}

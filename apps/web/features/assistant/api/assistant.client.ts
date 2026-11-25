@@ -121,7 +121,7 @@ export async function endConversation(input: {
 export interface AssistantStreamHandlers {
 	onToken: (delta: string) => void
 	onFinal: (final: CustomerAnswer) => void
-	onAgentMode?: () => void
+	onAgentMode?: (result: { conversationId: string; messageId: string }) => void
 }
 
 export interface AgentMessageEvent {
@@ -204,8 +204,10 @@ export async function streamQuestion(
 
 	// Screening refusal (and any other non-streamed turn) comes back as JSON.
 	if (!response.headers.get("content-type")?.includes("text/event-stream")) {
-		const payload = (await response.json()) as CustomerAnswer | { agentMode: true }
-		if ("agentMode" in payload && payload.agentMode) handlers.onAgentMode?.()
+		const payload = (await response.json()) as
+			| CustomerAnswer
+			| { agentMode: true; conversationId: string; messageId: string }
+		if ("agentMode" in payload && payload.agentMode) handlers.onAgentMode?.(payload)
 		else handlers.onFinal(payload as CustomerAnswer)
 		return
 	}

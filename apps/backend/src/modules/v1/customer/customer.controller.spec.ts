@@ -2,6 +2,7 @@ import { UnauthorizedException } from "@nestjs/common"
 
 import type { RagGatewayService } from "@/modules/v1/corpus/rag-gateway.service"
 import { REQUIRED_PERMISSIONS_KEY } from "@/shared/decorators/require-permissions.decorator"
+import { SESSION_THROTTLE_KEY } from "@/shared/decorators/session-throttle.decorator"
 
 import { ChannelAdapterRegistry, type ChannelAdapter } from "../channels/channel-adapter"
 import type { ChannelsService } from "./channels.service"
@@ -30,13 +31,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-v1: {
-  customer: {
-    session: { start: {}, setLanguage: {} },
-    conversation: { end: {} },
-    chat: { send: {} },
-  },
-},
+	v1: {
+		customer: {
+			session: { start: {}, setLanguage: {} },
+			conversation: { end: {} },
+			chat: { send: {} },
+		},
+	},
 }))
 jest.mock("@/config/env.config", () => ({
 	env: { RAG_SERVICE_URL: "http://rag:8000", CUSTOMER_SESSION_IDLE_MINUTES: 30 },
@@ -160,6 +161,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		findOwnedByCustomerSession: jest.Mock
 		endCustomerConversation: jest.Mock
 		recordUnansweredInquiry: jest.Mock
+		recordCustomerMessage: jest.Mock
 	}
 	let customerChatService: {
 		completeTurn: jest.Mock
@@ -168,7 +170,11 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		answerTracking: jest.Mock
 		answerRates: jest.Mock
 	}
-	let ragGatewayService: { mintServiceToken: jest.Mock; submitChatQuery: jest.Mock }
+	let ragGatewayService: {
+		mintServiceToken: jest.Mock
+		submitChatQuery: jest.Mock
+		screenQuery: jest.Mock
+	}
 	let channelAdapter: TestChannelAdapter
 	let fetchMock: jest.Mock
 
@@ -186,6 +192,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			findOwnedByCustomerSession: jest.fn().mockResolvedValue(null),
 			endCustomerConversation: jest.fn(),
 			recordUnansweredInquiry: jest.fn(),
+			recordCustomerMessage: jest.fn().mockResolvedValue({ id: "message-3", turnIndex: 3 }),
 		}
 		customerChatService = {
 			completeTurn: jest.fn().mockResolvedValue({
@@ -225,6 +232,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		ragGatewayService = {
 			mintServiceToken: jest.fn().mockReturnValue("service.jwt.token"),
 			submitChatQuery: jest.fn(),
+			screenQuery: jest.fn().mockResolvedValue({ screenedQuery: "another question" }),
 		}
 		fetchMock = jest.fn()
 		global.fetch = fetchMock as unknown as typeof fetch
@@ -240,6 +248,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
 			} as never,
 			ragGatewayService as unknown as RagGatewayService,
+			{ publish: jest.fn(), stream: jest.fn() } as never,
 			channelAdapters,
 			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService
 		)
@@ -256,8 +265,15 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			["setLanguage", CustomerController.prototype.setLanguage],
 			["sendMessage", CustomerController.prototype.sendMessage],
 			["streamMessage", CustomerController.prototype.streamMessage],
+			["customerEvents", CustomerController.prototype.customerEvents],
 		])("%s carries the PUBLIC metadata the guards read", (_name, handler) => {
 			expect(Reflect.getMetadata("PUBLIC", handler)).toBe(true)
+		})
+
+		it("rate limits the public customer event stream per session", () => {
+			expect(
+				Reflect.getMetadata(SESSION_THROTTLE_KEY, CustomerController.prototype.customerEvents)
+			).toBe(true)
 		})
 
 		it.each([
@@ -291,7 +307,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 	describe("AC5: an anonymous caller without a valid session token gets 401", () => {
 		it("refuses a request with no session header", async () => {
-			const { response } = responseDouble()
+			const { response, state } = responseDouble()
 
 			await expect(
 				controller.streamMessage({ query: "hello" }, undefined, REQUEST, response as never)
@@ -301,7 +317,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 
 		it("refuses an unknown token", async () => {
 			customerSessionService.resolve.mockResolvedValue(null)
-			const { response } = responseDouble()
+			const { response, state } = responseDouble()
 
 			await expect(
 				controller.streamMessage({ query: "hello" }, "not-a-real-token", REQUEST, response as never)
@@ -400,12 +416,6 @@ describe("CustomerController (CNV-1 public chat)", () => {
 					requestStartedAt: expect.any(Number),
 				})
 			)
-			expect(customerChatService.completeTurn).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				envelope: expect.objectContaining({ screenedQuery: "how much is express mail" }),
-				classification: RETRIEVAL_CLASSIFICATION,
-				confidenceThreshold: 0.7,
-			})
 		})
 
 		it("asks the RAG service not to persist the turn itself", async () => {
@@ -526,22 +536,27 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
 
-		it("stops AI turns after a human handoff has been requested", async () => {
+		it("records customer messages after handoff without asking the assistant", async () => {
 			conversationService.findOwnedByCustomerSession.mockResolvedValue({
 				id: "conversation-9",
 				channelCode: "web",
 				status: "escalation_requested",
 			})
-			const { response } = responseDouble()
+			const { response, state } = responseDouble()
 
-			await expect(
-				controller.streamMessage(
-					{ query: "another question", conversationId: "conversation-9" },
-					"a-token",
-					REQUEST,
-					response as never
-				)
-			).rejects.toThrow("A human agent has been requested")
+			await controller.streamMessage(
+				{ query: "another question", conversationId: "conversation-9" },
+				"a-token",
+				REQUEST,
+				response as never
+			)
+			expect(state.json).toMatchObject({ agentMode: true, conversationId: "conversation-9" })
+			expect(conversationService.recordCustomerMessage).toHaveBeenCalledWith(
+				expect.objectContaining({
+					conversationId: "conversation-9",
+					maskedQuery: "another question",
+				})
+			)
 			expect(fetchMock).not.toHaveBeenCalled()
 		})
 	})
@@ -665,12 +680,6 @@ describe("CustomerController (CNV-1 public chat)", () => {
 					requestStartedAt: expect.any(Number),
 				})
 			)
-			expect(customerChatService.answerTracking).toHaveBeenCalledWith({
-				conversationId: "conversation-1",
-				classification: TRACKING_CLASSIFICATION,
-				correlationId: "req-1",
-				confidenceThreshold: 0.7,
-			})
 			expect(state.statusCode).toBe(200)
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })

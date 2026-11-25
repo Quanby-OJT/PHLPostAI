@@ -17,7 +17,7 @@ type RequestWithSession = Request & { session?: { user?: { id?: string } } }
 export class AnalyticsController {
 	constructor(
 		private readonly analyticsOverviewService: AnalyticsOverviewService,
-		private readonly deflectionKpiService: DeflectionKpiService
+		private readonly deflectionKpiService: DeflectionKpiService,
 		private readonly analyticsDashboardService: AnalyticsDashboardService
 	) {}
 
@@ -34,6 +34,10 @@ export class AnalyticsController {
 	async deflectionReport() {
 		return implement(v1.analytics.deflectionReport).handler(async ({ input }) =>
 			this.deflectionKpiService.report(input)
+		)
+	}
+
+	@RequirePermissions("analytics.dashboard.view")
 	@Implement(v1.analytics.dashboard)
 	async dashboard() {
 		return implement(v1.analytics.dashboard).handler(async ({ input }) =>
@@ -46,6 +50,10 @@ export class AnalyticsController {
 	async deflectionDrilldown() {
 		return implement(v1.analytics.deflectionDrilldown).handler(async ({ input }) =>
 			this.deflectionKpiService.drilldown(input)
+		)
+	}
+
+	@RequirePermissions("analytics.dashboard.view")
 	@Implement(v1.analytics.getLayout)
 	async getLayout(@Req() request: RequestWithSession) {
 		return implement(v1.analytics.getLayout).handler(async () =>
@@ -67,6 +75,9 @@ export class AnalyticsController {
 		return implement(v1.analytics.saveKpiDefinition).handler(async ({ input }) =>
 			this.deflectionKpiService.approveVersion(input, { userId: session.user.id })
 		)
+	}
+
+	@RequirePermissions("analytics.dashboard.view")
 	@Implement(v1.analytics.saveLayout)
 	async saveLayout(@Req() request: RequestWithSession) {
 		return implement(v1.analytics.saveLayout).handler(async ({ input }) =>
