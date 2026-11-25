@@ -117,6 +117,19 @@ export function EscalationInbox() {
 													? "Not available"
 													: `${Math.round(message.confidence * 100)}%`}
 											</p>
+											<p>
+												Retrieval score: {message.retrievalScore === null
+													? "Not available"
+													: `${Math.round(message.retrievalScore * 100)}%`}
+											</p>
+											<p>
+												Groundedness: {message.groundednessResult?.grounded === true
+													? "Passed"
+													: message.groundednessResult?.grounded === false
+														? "Failed"
+														: "Not available"}
+											</p>
+											<p>Output tokens: {message.outputTokens ?? "Not available"}</p>
 											{message.citations.length ? (
 												<div className="mt-2">
 													<p className="font-medium">Sources</p>

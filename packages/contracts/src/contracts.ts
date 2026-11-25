@@ -243,12 +243,16 @@ export type {
 export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
 export {
 	CreateInquiryCategoryRequestSchema,
+	AssistantSettingsSchema,
 	InquiryCategorySchema,
+	UpdateAssistantSettingsRequestSchema,
 	UpdateInquiryCategoryRequestSchema,
 } from "./modules/v1/assistant/assistant.schema.js"
 export type {
 	CreateInquiryCategoryRequest,
+	AssistantSettings,
 	InquiryCategory,
+	UpdateAssistantSettingsRequest,
 	UpdateInquiryCategoryRequest,
 } from "./modules/v1/assistant/assistant.schema.js"
 

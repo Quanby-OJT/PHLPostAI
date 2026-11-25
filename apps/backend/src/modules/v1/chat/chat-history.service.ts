@@ -74,6 +74,10 @@ export class ChatHistoryService {
 				role: messages.role,
 				content: messages.content,
 				citations: messages.citations,
+				confidence: messages.confidence,
+				retrievalScore: messages.retrievalScore,
+				groundednessResult: messages.groundednessResult,
+				outputTokens: messages.outputTokens,
 				turnIndex: messages.turnIndex,
 				createdAt: messages.createdAt,
 			})

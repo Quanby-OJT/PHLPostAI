@@ -99,6 +99,10 @@ export const ConversationMessageSchema = z.object({
 	role: z.enum(["user", "assistant"]),
 	content: z.string(),
 	citations: z.array(ChatCitationSchema).nullable(),
+	confidence: z.number().min(0).max(1).nullable(),
+	retrievalScore: z.number().min(0).max(1).nullable(),
+	groundednessResult: z.record(z.string(), z.unknown()).nullable(),
+	outputTokens: z.number().int().nonnegative().nullable(),
 	turnIndex: z.number().int().nonnegative(),
 	createdAt: z
 		.union([z.date(), z.string()])
