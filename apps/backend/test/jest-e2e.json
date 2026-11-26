@@ -12,6 +12,7 @@
 		]
 	},
 	"moduleNameMapper": {
+		"^(\\.{1,2}/.*)\\.js$": "$1",
 		"^@repo/db/(.*)$": "<rootDir>/../../../packages/db/src/$1",
 		"^@repo/contracts$": "<rootDir>/../../../packages/contracts/src",
 		"^@/(.*)$": "<rootDir>/../src/$1"
