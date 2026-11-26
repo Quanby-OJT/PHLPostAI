@@ -25,8 +25,8 @@ import { CustomerChatRequestSchema, type CustomerAnswer } from "@repo/contracts"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
-import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
+import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
@@ -109,30 +109,29 @@ export class CustomerController {
 	@StrictThrottle()
 	@SessionThrottle()
 	@UseGuards(AllowedOriginGuard)
-@Implement(v1.customer.conversation.end)
-async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
-  return implement(v1.customer.conversation.end).handler(async ({ input }) => {
-    const session = await this.requireSession(sessionToken, toORPCError)
-    return this.conversationService.endCustomerConversation({
-      conversationId: input.conversationId,
-      customerSessionId: session.id,
-    })
-  })
-}
+	@Implement(v1.customer.conversation.end)
+	async endConversation(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.conversation.end).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			return this.conversationService.endCustomerConversation({
+				conversationId: input.conversationId,
+				customerSessionId: session.id,
+			})
+		})
+	}
 
-@AllowAnonymous()
-@StrictThrottle()
-@SessionThrottle()
-@UseGuards(AllowedOriginGuard)
-@Implement(v1.customer.session.setLanguage)
-async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
-  return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
-    const session = await this.requireSession(sessionToken, toORPCError)
-    await this.customerSessionService.setLanguage(session.id, input.language)
-    return { language: input.language }
-  })
-}
-
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	@Implement(v1.customer.session.setLanguage)
+	async setLanguage(@Headers("x-customer-session") sessionToken: string | undefined) {
+		return implement(v1.customer.session.setLanguage).handler(async ({ input }) => {
+			const session = await this.requireSession(sessionToken, toORPCError)
+			await this.customerSessionService.setLanguage(session.id, input.language)
+			return { language: input.language }
+		})
+	}
 
 	@AllowAnonymous()
 	@StrictThrottle()
@@ -190,12 +189,14 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				try {
 					return adapter.send(
 						await this.answerTracking(
-	            session,
-	            conversation.id,
-	            classification,
-	            correlationId,
-	            startedAt
-            )
+							session,
+							conversation.id,
+							classification,
+							correlationId,
+							startedAt,
+							settings.confidenceThreshold,
+							settings.blockedTopics
+						)
 					)
 				} catch (error) {
 					await this.conversationService.recordUnansweredInquiry({
@@ -209,7 +210,13 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			if (classification.route === "rates") {
 				try {
 					return adapter.send(
-						await this.answerRates(session, conversation.id, classification, correlationId)
+						await this.answerRates(
+							session,
+							conversation.id,
+							classification,
+							correlationId,
+							settings.blockedTopics
+						)
 					)
 				} catch (error) {
 					await this.conversationService.recordUnansweredInquiry({
@@ -255,6 +262,8 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				envelope,
 				classification,
 				requestStartedAt: startedAt,
+				confidenceThreshold: settings.confidenceThreshold,
+				blockedTopics: settings.blockedTopics,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
@@ -338,9 +347,17 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 								conversation.id,
 								classification,
 								correlationId,
-								startedAt
+								startedAt,
+								assistantSettings.confidenceThreshold,
+								assistantSettings.blockedTopics
 							)
-						: await this.answerRates(session, conversation.id, classification, correlationId)
+						: await this.answerRates(
+								session,
+								conversation.id,
+								classification,
+								correlationId,
+								assistantSettings.blockedTopics
+							)
 				response.status(200).json(adapter.send(turn))
 			} catch {
 				await this.conversationService.recordUnansweredInquiry({
@@ -448,6 +465,8 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 				envelope,
 				classification,
 				requestStartedAt: startedAt,
+				confidenceThreshold: assistantSettings.confidenceThreshold,
+				blockedTopics: assistantSettings.blockedTopics,
 			})
 			turnRecorded = true
 			response.write(formatSseFrame("token", { delta: turn.answer }))
@@ -536,7 +555,8 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		session: CustomerSessionRow,
 		conversationId: string,
 		classification: InquiryClassification,
-		correlationId: string
+		correlationId: string,
+		blockedTopics: readonly string[]
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerRates({
 			conversationId,
@@ -544,6 +564,7 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			blockedTopics,
 		})
 		return { ...turn, conversationId }
 	}
@@ -554,7 +575,9 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 		conversationId: string,
 		classification: InquiryClassification,
 		correlationId: string,
-		requestStartedAt?: number
+		requestStartedAt: number,
+		confidenceThreshold = 0.7,
+		blockedTopics: readonly string[] = []
 	): Promise<CustomerAnswer> {
 		const turn = await this.customerChatService.answerTracking({
 			conversationId,
@@ -562,6 +585,8 @@ async setLanguage(@Headers("x-customer-session") sessionToken: string | undefine
 			correlationId,
 			requestStartedAt,
 			explanationLanguage: session.language,
+			confidenceThreshold,
+			blockedTopics,
 		})
 		return { ...turn, conversationId }
 	}

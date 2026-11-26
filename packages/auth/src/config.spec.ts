@@ -75,4 +75,45 @@ describe("admin-provisioned sign-up policy", () => {
 
 		expect(auth.options.emailAndPassword?.enabled).toBe(true)
 	})
+
+	it("uses the configured auth URL when present", async () => {
+		const { createAuth } = await loadConfig({ BETTER_AUTH_URL: "https://auth.example.test" })
+		expect(createAuth().options.baseURL).toBe("https://auth.example.test")
+	})
+
+	it("falls back to localhost when there are no parseable trusted origins", async () => {
+		const { createAuth } = await loadConfig({ BETTER_AUTH_TRUSTED_ORIGINS: "not a URL" })
+		expect(createAuth().options.baseURL).toEqual({ allowedHosts: ["localhost"] })
+	})
+
+	it("sends verification and reset emails through the configured callbacks", async () => {
+		const { createAuth } = await loadConfig({
+			EMAIL_VERIFICATION_REQUIRED: "true",
+			EMAIL_VERIFICATION_ENABLED: "false",
+		})
+		const auth = createAuth()
+		const verify = auth.options.emailVerification?.sendVerificationEmail
+		const reset = auth.options.emailAndPassword?.sendResetPassword
+
+		expect(auth.options.emailVerification?.sendOnSignUp).toBe(true)
+		await verify?.({ user: { email: "test@example.com" }, token: "token" } as never)
+		await reset?.({ user: { email: "test@example.com" }, token: "token" } as never)
+	})
+
+	it("skips verification mail when sending and verification are both disabled", async () => {
+		const { createAuth } = await loadConfig({
+			EMAIL_VERIFICATION_REQUIRED: "false",
+			EMAIL_VERIFICATION_ENABLED: "false",
+		})
+		const verify = createAuth().options.emailVerification?.sendVerificationEmail
+		await verify?.({ user: { email: "test@example.com" }, token: "token" } as never)
+	})
+
+	it("caches the auth instance until the cache is cleared", async () => {
+		const { clearAuthCache, getAuth } = await loadConfig()
+		const first = getAuth()
+		expect(getAuth()).toBe(first)
+		clearAuthCache()
+		expect(getAuth()).not.toBe(first)
+	})
 })

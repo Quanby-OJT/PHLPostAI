@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { createHash } from "node:crypto"
 import { and, desc, eq, sql } from "drizzle-orm"
 
-import type { CustomerAnswerKind } from "@repo/contracts"
+import type { CustomerAnswerKind, InteractionEventKind } from "@repo/contracts"
 import {
 	conversations,
 	customerSessions,
@@ -39,7 +39,7 @@ export interface RecordTurnInput {
 	category?: string
 	responseTimeMs?: number
 	requestStartedAt?: number
-	additionalEventKinds?: "tracking_lookup"[]
+	additionalEventKinds?: InteractionEventKind[]
 	/** Runs inside the turn's transaction, e.g. to store the tracking lookup for the reply. */
 	onRecorded?: (
 		tx: DbTransaction,

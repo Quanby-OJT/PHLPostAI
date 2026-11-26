@@ -4,11 +4,10 @@ import request from "supertest"
 import { type App } from "supertest/types"
 
 import { AppModule } from "@/app.module"
-import { db } from "@/common/database/database.client"
 
 const API_PREFIX = "api"
 const API_VERSION = "1"
-const HEALTH_ENDPOINT = `/api/health`
+const HEALTH_ENDPOINT = `/api/v1/v1/health`
 
 describe("Health (e2e)", () => {
 	let app: INestApplication<App>
@@ -16,12 +15,7 @@ describe("Health (e2e)", () => {
 	const createTestApp = async (): Promise<INestApplication<App>> => {
 		const moduleFixture: TestingModule = await Test.createTestingModule({
 			imports: [AppModule],
-		})
-			.overrideProvider(db)
-			.useValue({
-				execute: jest.fn(async () => [] as any[]),
-			})
-			.compile()
+		}).compile()
 
 		const nestApp = moduleFixture.createNestApplication()
 		nestApp.setGlobalPrefix(API_PREFIX)
@@ -55,15 +49,12 @@ describe("Health (e2e)", () => {
 
 		expect(response.body).toMatchObject({
 			status: "ok",
-			checks: {
-				database: { status: "up" },
-				cache: { status: "not_configured" },
-			},
+			checks: { database: { status: "up" } },
 		})
-		expect(response.body.uptime).toBeDefined()
-		expect(typeof response.body.uptime).toBe("number")
 		expect(response.body.timestamp).toBeDefined()
-		expect(response.body.version).toBeDefined()
+		expect(response.body).not.toHaveProperty("uptime")
+		expect(response.body).not.toHaveProperty("version")
+		expect(response.body).not.toHaveProperty("environment")
 	})
 
 	it("database check is up", async () => {
@@ -71,8 +62,8 @@ describe("Health (e2e)", () => {
 		expect(response.body.checks.database.status).toBe("up")
 	})
 
-	it("cache check is not configured", async () => {
+	it("returns only the database dependency check", async () => {
 		const response = await getHealth().expect(200)
-		expect(response.body.checks.cache.status).toBe("not_configured")
+		expect(response.body.checks).toEqual({ database: { status: "up" } })
 	})
 })

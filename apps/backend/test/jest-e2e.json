@@ -1,17 +1,29 @@
 {
 	"moduleFileExtensions": ["js", "json", "ts"],
+	"extensionsToTreatAsEsm": [".ts"],
 	"rootDir": ".",
 	"testEnvironment": "node",
 	"testRegex": ".e2e-spec.ts$",
 	"transform": {
-		"^.+\\.(t|j)s$": [
+		"^.+\\.ts$": [
 			"ts-jest",
 			{
-				"tsconfig": "<rootDir>/../tsconfig.spec.json"
+				"tsconfig": "<rootDir>/../tsconfig.spec.json",
+				"useESM": true
 			}
 		]
 	},
+	"transformIgnorePatterns": [
+		"node_modules/(?!.pnpm/(@t3-oss\\+env-core|@t3-oss\\+env-nextjs)|@t3-oss/env-core)"
+	],
 	"moduleNameMapper": {
+		"^(\\.{1,2}/.*)\\.js$": "$1",
+		"^@thallesp/nestjs-better-auth$": "<rootDir>/mocks/better-auth.ts",
+		"^better-auth/node$": "<rootDir>/mocks/better-auth-node.ts",
+		"^@repo/auth$": "<rootDir>/mocks/auth.ts",
+		"^@repo/auth/api-docs$": "<rootDir>/mocks/auth-api-docs.ts",
+		"^@repo/auth/rate-limit-storage$": "<rootDir>/mocks/auth-rate-limit-storage.ts",
+		"^@repo/auth/secret-schema$": "<rootDir>/mocks/auth-secret-schema.ts",
 		"^@repo/db/(.*)$": "<rootDir>/../../../packages/db/src/$1",
 		"^@repo/contracts$": "<rootDir>/../../../packages/contracts/src",
 		"^@/(.*)$": "<rootDir>/../src/$1"

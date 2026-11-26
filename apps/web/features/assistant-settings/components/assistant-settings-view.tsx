@@ -24,17 +24,24 @@ export function AssistantSettingsView() {
 			</header>
 
 			{(error || update.error) && (
-				<p role="alert" className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm">
+				<p
+					role="alert"
+					className="border-destructive/30 bg-destructive/10 text-destructive rounded-md border p-3 text-sm"
+				>
 					{(error ?? update.error)?.message}
 				</p>
 			)}
-			{update.isSuccess && <p role="status" className="text-sm">Assistant settings saved.</p>}
+			{update.isSuccess && (
+				<p role="status" className="text-sm">
+					Assistant settings saved.
+				</p>
+			)}
 
 			{isLoading || !data ? (
 				<p className="text-muted-foreground text-sm">Loading assistant settings…</p>
 			) : (
 				<SettingsForm
-					key={`${data.confidenceThreshold}:${data.maxOutputTokens}`}
+					key={`${data.confidenceThreshold}:${data.maxOutputTokens}:${data.blockedTopics.join("|")}`}
 					initial={data}
 					saving={update.isPending}
 					onSave={values => update.mutate(values)}
@@ -56,12 +63,17 @@ function SettingsForm({
 }) {
 	const [threshold, setThreshold] = useState(String(initial.confidenceThreshold))
 	const [maxOutputTokens, setMaxOutputTokens] = useState(String(initial.maxOutputTokens))
+	const [blockedTopics, setBlockedTopics] = useState(initial.blockedTopics.join("\n"))
 
 	const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault()
 		onSave({
 			confidenceThreshold: Number(threshold),
 			maxOutputTokens: Number(maxOutputTokens),
+			blockedTopics: blockedTopics
+				.split("\n")
+				.map(topic => topic.trim())
+				.filter(Boolean),
 		})
 	}
 
@@ -90,6 +102,23 @@ function SettingsForm({
 						{Number(threshold).toFixed(2)}
 					</output>
 				</div>
+			</div>
+
+			<div className="space-y-2">
+				<label htmlFor="blocked-topics" className="block text-sm font-medium">
+					Blocked topics and phrases
+				</label>
+				<p className="text-muted-foreground text-sm">
+					One topic or phrase per line. Matching answers are replaced with the uncertainty reply.
+				</p>
+				<textarea
+					id="blocked-topics"
+					rows={5}
+					maxLength={12000}
+					value={blockedTopics}
+					onChange={event => setBlockedTopics(event.target.value)}
+					className="border-input bg-background w-full rounded-md border p-3 text-sm"
+				/>
 			</div>
 
 			<div className="space-y-2">

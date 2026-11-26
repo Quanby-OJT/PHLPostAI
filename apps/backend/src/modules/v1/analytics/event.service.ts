@@ -26,7 +26,7 @@ export interface InteractionEventPayload {
 	lastEligibleTurn?: number | null
 	sessionFingerprint?: string
 	testSession?: boolean
-  response_time_ms?: number
+	response_time_ms?: number
 }
 
 /** Sole writer for `interaction_events`; payloads are restricted to validated non-text metadata. */
@@ -60,6 +60,7 @@ export class EventService {
 			"lastEligibleTurn",
 			"sessionFingerprint",
 			"testSession",
+			"response_time_ms",
 		])
 		if (input.payload && Object.keys(input.payload).some(key => !allowedPayloadKeys.has(key))) {
 			throw new Error("Interaction event payload contains unsupported metadata")
