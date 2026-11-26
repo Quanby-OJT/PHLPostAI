@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common"
-import { and, eq } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import { z } from "zod"
 
 import type { CustomerAnswer } from "@repo/contracts"
@@ -19,6 +19,7 @@ import {
 	maskScamInput,
 	resolveScamAssessment,
 } from "./scam-checks"
+import { inspectScamContactFields } from "./scam-contacts"
 import { formatScamAssessment, SCAM_INDICATORS, type ScamIndicator } from "./scam-copy"
 
 const RagScamResultSchema = z.object({
@@ -39,37 +40,42 @@ export class ScamAssessmentService {
 		private readonly ragGateway: RagGatewayService
 	) {}
 
-	async answer(input: {
-		conversationId: string
+	async evaluate(input: {
 		query: string
-		classification: InquiryClassification
-		sessionLanguage: string
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
-		requestStartedAt?: number
-	}): Promise<CustomerAnswer> {
+		actorType: "user" | "customer"
+	}) {
 		const [contacts, indicators] = await Promise.all([
 			db
-				.select({ value: officialContacts.value })
+				.select({ kind: officialContacts.kind, value: officialContacts.value })
 				.from(officialContacts)
-				.where(and(eq(officialContacts.kind, "domain"), eq(officialContacts.isActive, true))),
+				.where(eq(officialContacts.isActive, true)),
 			db
-				.select({ code: riskIndicators.code })
+				.select({
+					code: riskIndicators.code,
+					name: riskIndicators.name,
+					weight: riskIndicators.weight,
+				})
 				.from(riskIndicators)
 				.where(eq(riskIndicators.isActive, true)),
 		])
-		const active = new Set(indicators.map(row => row.code))
+		const active = new Map(indicators.map(row => [row.code, row]))
 		const links = inspectScamLinks(
 			input.query,
-			contacts.map(row => row.value)
+			contacts.filter(row => row.kind === "domain").map(row => row.value)
 		)
+		const contactFields = inspectScamContactFields(input.query, contacts, links.textWithoutLinks)
 		const deterministic: ScamIndicator[] = []
 		if (hasPaymentRequest(links.textWithoutLinks)) deterministic.push("payment_request")
 		if (links.unofficialDomain) deterministic.push("unofficial_domain")
+		if (links.lookalikeDomain) deterministic.push("lookalike_domain")
 		if (links.suspiciousLink) deterministic.push("suspicious_link")
+		if (contactFields.unofficialSender) deterministic.push("unofficial_sender")
+		if (contactFields.unofficialPaymentChannel) deterministic.push("unofficial_payment_channel")
 
-		let query = links.textWithoutLinks
+		let query = contactFields.textWithoutContactValues
 		for (
 			let scan = scanForTrackingNumber(query, this.trackingPattern);
 			scan.kind === "number";
@@ -80,25 +86,61 @@ export class ScamAssessmentService {
 		const upstream = await this.ragGateway
 			.assessScam({
 				query: maskScamInput(query),
-				approvedIndicators: SCAM_INDICATORS.filter(code => active.has(code)),
+				approvedIndicators: indicators.map(row => row.code),
+				customIndicators: indicators
+					.filter(row => !(SCAM_INDICATORS as readonly string[]).includes(row.code))
+					.map(({ code, name }) => ({ code, name })),
 				deterministicIndicators: deterministic,
 				userId: input.principal,
 				permissions: input.permissions,
 				requestId: input.correlationId,
+				actorType: input.actorType,
 			})
 			.catch(() => null)
 		const parsed = RagScamResultSchema.safeParse(upstream)
 		const screened = parsed.success ? parsed.data : null
 		if (screened?.injection) deterministic.push("prompt_injection")
-		const assessment = resolveScamAssessment(deterministic, active, screened?.assessment)
+		const assessment = resolveScamAssessment(
+			deterministic,
+			new Map(indicators.map(row => [row.code, row.weight])),
+			screened?.assessment
+		)
+		return {
+			assessment,
+			findings: assessment.indicators.flatMap(code => {
+				const indicator = active.get(code)
+				return indicator ? [indicator] : []
+			}),
+			links,
+			maskedQuery: screened?.maskedQuery || UNAVAILABLE_MASKED_QUERY,
+			language: screened?.language ?? null,
+		}
+	}
+
+	async answer(input: {
+		conversationId: string
+		query: string
+		classification: InquiryClassification
+		sessionLanguage: string
+		principal: string
+		permissions: readonly string[]
+		correlationId: string
+		requestStartedAt?: number
+	}): Promise<CustomerAnswer> {
+		const result = await this.evaluate({ ...input, actorType: "customer" })
+		const { assessment, links, maskedQuery } = result
 		const isUncertain = assessment.riskLevel === "uncertain"
-		const detected = input.classification.language ?? screened?.language ?? null
+		const detected = input.classification.language ?? result.language
 		const language = replyLanguageFor(detected, input.sessionLanguage)
 		const reply = withLanguageNotice(
-			formatScamAssessment(assessment.riskLevel, assessment.indicators, language),
+			formatScamAssessment(
+				assessment.riskLevel,
+				assessment.indicators,
+				language,
+				new Map(result.findings.map(row => [row.code, row.name]))
+			),
 			detected
 		)
-		const maskedQuery = screened?.maskedQuery || UNAVAILABLE_MASKED_QUERY
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery,

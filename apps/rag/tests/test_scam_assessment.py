@@ -88,6 +88,41 @@ async def test_rejects_unapproved_indicators_and_invalid_output(reply: str) -> N
     assert result["maskedQuery"] == "Pay a fee."
 
 
+@pytest.mark.parametrize(
+    ("code", "active", "accepted"),
+    [
+        ("gift_card_request", True, True),
+        ("gift_card_request", False, False),
+        ("unofficial_sender", True, False),
+    ],
+)
+async def test_only_active_custom_indicators_can_be_proposed(
+    code: str, active: bool, accepted: bool
+) -> None:
+    client = AsyncMock()
+    client.complete.return_value = (
+        json.dumps(
+            {"riskLevel": "uncertain", "indicators": [code], "confidence": 0.8, "language": "en"}
+        ),
+        None,
+    )
+    label = "Request to pay with gift cards"
+    payload = ScamAssessmentRequest.model_validate(
+        {
+            "query": "Use a gift card to complete the transaction",
+            "approvedIndicators": [code] if active else [],
+            "customIndicators": [{"code": code, "name": label}],
+            "deterministicIndicators": [],
+        }
+    )
+    result = await assess_submission(client, payload, timeout_seconds=1)
+    assert (result["assessment"] is not None) is accepted
+    prompt = client.complete.call_args.args[0][0]["content"]
+    assert (label in prompt) is accepted
+    assert "Assess each listed indicator independently" in prompt
+    assert '"riskLevel":"uncertain"' not in prompt
+
+
 @pytest.mark.parametrize("failure", ["timeout", "provider failure"])
 async def test_provider_failure_preserves_masked_submission(failure: str, caplog) -> None:
     async def fail(*_args):
