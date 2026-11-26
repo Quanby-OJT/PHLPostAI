@@ -716,6 +716,15 @@ export class CustomerController {
 				requestStartedAt,
 			})
 		}
+		if (classification.route === "postal-id-status") {
+			const turn = await this.customerChatService.answerPostalIdStatus({
+				conversationId,
+				classification,
+				correlationId,
+				blockedTopics,
+			})
+			return { ...turn, conversationId }
+		}
 		const turn =
 			classification.route === "tracking"
 				? await this.customerChatService.answerTracking({
