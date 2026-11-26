@@ -343,6 +343,7 @@ export function buildQualityReport(evalRunsService: EvalRunsService): ReportImpl
 				evalRunsService.currentBaseline(),
 			])
 			const filtered = runs.filter(run => {
+				if (run.config.profile) return false
 				if (filters["kind"] && run.kind !== filters["kind"]) return false
 				if (filters["status"] && run.status !== filters["status"]) return false
 				const created = new Date(run.createdAt).getTime()

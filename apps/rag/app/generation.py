@@ -26,7 +26,7 @@ import time
 import uuid
 from typing import Annotated, Any, Literal, NoReturn
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.budget import (
@@ -1597,6 +1597,7 @@ class ChatRequest(BaseModel):
     # this service to answer WITHOUT persisting. Defaults to True, which keeps
     # the authenticated staff path exactly as it was.
     persist: bool = Field(default=True)
+    fresh_evaluation: bool = Field(default=False, alias="freshEvaluation")
     # CNV-3: per-request cap on eligible customer routine answers.
     max_output_tokens: int | None = Field(default=None, alias="maxOutputTokens", ge=1, le=200)
     # CNV-4: the customer's reply language, the detected question language,
@@ -1685,6 +1686,8 @@ async def chat(
     repository: Annotated[ConversationsRepository, Depends(get_conversations_repository)],
 ) -> dict[str, Any]:
     """Non-streamed JSON mode — preserved for integrators (GN-3 AC)."""
+    if payload.fresh_evaluation and "eval.runs.execute" not in principal.permissions:
+        raise HTTPException(status_code=403, detail="Evaluation execution permission required")
     vision_client, page_images = get_vision(request)
     service = GenerationService(
         settings=request.app.state.settings,
@@ -1692,7 +1695,7 @@ async def chat(
         chat_client=chat_client,
         repository=repository,
         compressor=get_compressor(request),
-        response_cache=get_response_cache(request),
+        response_cache=None if payload.fresh_evaluation else get_response_cache(request),
         agentic=get_agentic(request, retrieval),
         vision_client=vision_client,
         page_images=page_images,
@@ -1709,12 +1712,8 @@ async def chat(
             max_output_tokens=payload.max_output_tokens,
         )
     except QueryBlockedError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ConversationAccessError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=403 if exc.found else 404,
             detail="You do not have access to that conversation"

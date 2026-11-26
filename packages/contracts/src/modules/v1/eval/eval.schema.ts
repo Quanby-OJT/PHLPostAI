@@ -11,6 +11,22 @@ const isoDate = z
 	.transform(val => (typeof val === "string" ? new Date(val) : val))
 
 export const GoldenItemStatusSchema = z.enum(["active", "retired"])
+export const EvalLanguageSchema = z.enum(["en", "fil", "ceb", "ilo"])
+export const EvalUseCaseSchema = z.enum(["tracking", "rates", "postal-id", "service-info"])
+export const EvalBehaviorSchema = z.enum(["answer", "uncertain", "escalate"])
+export const GoldenAnswerQualitySchema = z.object({
+	language: EvalLanguageSchema,
+	useCase: EvalUseCaseSchema,
+	codeSwitched: z.boolean(),
+	expectedBehavior: EvalBehaviorSchema,
+	expectedTool: z
+		.object({
+			outcome: z.string().trim().min(1),
+			facts: z.record(z.string(), z.union([z.string(), z.number(), z.null()])),
+		})
+		.optional(),
+})
+export type GoldenAnswerQuality = z.infer<typeof GoldenAnswerQualitySchema>
 
 export const GoldenItemSchema = z.object({
 	id: z.string().uuid(),
@@ -20,6 +36,10 @@ export const GoldenItemSchema = z.object({
 	expectedChunkHashes: z.array(z.string()),
 	tags: z.array(z.string()),
 	status: GoldenItemStatusSchema,
+	answerQuality: GoldenAnswerQualitySchema.nullable().optional(),
+	approvalReference: z.string().nullable().optional(),
+	externalApprover: z.string().nullable().optional(),
+	approvedAt: isoDate.nullable().optional(),
 	/** Hashes no longer present in `chunks` (orphaned by re-chunking). */
 	staleHashes: z.array(z.string()),
 	createdBy: z.string(),
@@ -30,17 +50,38 @@ export const GoldenItemSchema = z.object({
 const GoldenItemFieldsSchema = z.object({
 	question: z.string().trim().min(1),
 	idealAnswer: z.string().trim().min(1),
-	expectedChunkHashes: z.array(z.string().min(1)).min(1),
+	expectedChunkHashes: z.array(z.string().min(1)),
 	tags: z.array(z.string().trim().min(1)).default([]),
+	answerQuality: GoldenAnswerQualitySchema.optional(),
 })
 
-export const CreateGoldenItemRequestSchema = GoldenItemFieldsSchema
+function hasExpectedEvidence(item: z.infer<typeof GoldenItemFieldsSchema>) {
+	return (
+		item.expectedChunkHashes.length > 0 ||
+		Boolean(item.answerQuality?.expectedTool) ||
+		Boolean(item.answerQuality && item.answerQuality.expectedBehavior !== "answer")
+	)
+}
+
+export const CreateGoldenItemRequestSchema = GoldenItemFieldsSchema.refine(hasExpectedEvidence, {
+	path: ["expectedChunkHashes"],
+	message: "Add an expected source or tool result for a grounded answer",
+})
 
 export const UpdateGoldenItemRequestSchema = z.object({
 	id: z.string().uuid(),
 	...GoldenItemFieldsSchema.partial().shape,
+	tags: z.array(z.string().trim().min(1)).optional(),
 	status: GoldenItemStatusSchema.optional(),
 })
+
+export const RecordGoldenApprovalRequestSchema = z.object({
+	id: z.string().uuid(),
+	externalApprover: z.string().trim().min(1).max(300),
+	approvalReference: z.string().trim().min(1).max(500),
+	revision: z.iso.datetime({ offset: true }),
+})
+export type RecordGoldenApprovalRequest = z.infer<typeof RecordGoldenApprovalRequestSchema>
 
 /** Portable golden-set document (§XI portability). */
 export const GoldenSetExportSchema = z.object({
@@ -48,6 +89,9 @@ export const GoldenSetExportSchema = z.object({
 	items: z.array(
 		GoldenItemFieldsSchema.extend({
 			status: GoldenItemStatusSchema.default("active"),
+		}).refine(hasExpectedEvidence, {
+			path: ["expectedChunkHashes"],
+			message: "Add expected evidence",
 		})
 	),
 })
@@ -97,6 +141,35 @@ export const EvalRunItemSchema = z.object({
 	answer: z.string().optional(),
 	faithfulness: z.number().nullable().optional(),
 	answerRelevancy: z.number().nullable().optional(),
+	quality: z
+		.object({
+			expected: GoldenAnswerQualitySchema,
+			idealAnswer: z.string(),
+			approvalReference: z.string(),
+			externalApprover: z.string().nullable(),
+			approvedAt: z.string().nullable(),
+			expectedHashes: z.array(z.string()),
+			citedHashes: z.array(z.string()).optional(),
+			actualBehavior: EvalBehaviorSchema.nullable(),
+			actualRoute: z.string().nullable(),
+			actualLanguage: EvalLanguageSchema.nullable(),
+			toolResult: z.record(z.string(), z.unknown()).nullable(),
+			providerOutputTokens: z.number().int().nonnegative().nullable(),
+			visibleOutputTokens: z.number().int().nonnegative().nullable(),
+			tokenLimitPassed: z.boolean().nullable().optional(),
+			outcome: z.enum(["passed", "failed", "error"]).optional(),
+			failureReasons: z.array(z.string()).optional(),
+			tokenizer: z.string().nullable(),
+			answerModel: z.string().optional(),
+			judgeModel: z.string().optional(),
+			grounded: z.boolean().nullable(),
+			behaviorCorrect: z.boolean().nullable(),
+			languageCorrect: z.boolean().nullable(),
+			judgeReason: z.string().nullable(),
+			traceId: z.string().optional(),
+			error: z.string().nullable(),
+		})
+		.optional(),
 })
 
 export const EvalRunSchema = z.object({
@@ -117,6 +190,7 @@ export const EvalRunSchema = z.object({
 export const EvalRunSummarySchema = EvalRunSchema.omit({ perItem: true })
 
 export const ExecuteEvalRunRequestSchema = z.object({
+	profile: z.enum(["evl1", "evl1-local"]).optional(),
 	k: z.number().int().min(1).max(50).optional(),
 	vectorWeight: z.number().min(0).optional(),
 	keywordWeight: z.number().min(0).optional(),

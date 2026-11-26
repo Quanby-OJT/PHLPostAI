@@ -1,11 +1,12 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm"
 
 import type {
 	CreateGoldenItemRequest,
 	GoldenItem,
 	GoldenSetExport,
+	RecordGoldenApprovalRequest,
 	UpdateGoldenItemRequest,
 } from "@repo/contracts"
 import { chunks, goldenItems } from "@repo/db/schema"
@@ -48,6 +49,10 @@ export class EvalGoldenService {
 			expectedChunkHashes: row.expectedChunkHashes,
 			tags: row.tags,
 			status: row.status,
+			answerQuality: row.answerQuality,
+			approvalReference: row.approvalReference,
+			externalApprover: row.externalApprover,
+			approvedAt: row.approvedAt,
 			staleHashes: row.expectedChunkHashes.filter(hash => !liveHashes.has(hash)),
 			createdBy: row.createdBy,
 			createdAt: row.createdAt,
@@ -70,6 +75,7 @@ export class EvalGoldenService {
 				idealAnswer: payload.idealAnswer,
 				expectedChunkHashes: payload.expectedChunkHashes,
 				tags: payload.tags,
+				answerQuality: payload.answerQuality,
 				createdBy: userId,
 			})
 			.returning()
@@ -87,6 +93,7 @@ export class EvalGoldenService {
 				question: payload.question,
 				expectedChunkHashes: payload.expectedChunkHashes,
 				tags: payload.tags,
+				answerQuality: payload.answerQuality,
 			},
 		})
 
@@ -100,6 +107,15 @@ export class EvalGoldenService {
 		if (!existing) {
 			throw new ORPCError("NOT_FOUND", { message: `Golden item ${payload.id} not found` })
 		}
+		const hashes = payload.expectedChunkHashes ?? existing.expectedChunkHashes
+		const quality = payload.answerQuality ?? existing.answerQuality
+		if (
+			!hashes.length &&
+			!quality?.expectedTool &&
+			(!quality || quality.expectedBehavior === "answer")
+		) {
+			throw new ORPCError("BAD_REQUEST", { message: "Add an expected source or tool result" })
+		}
 
 		const [row] = await db
 			.update(goldenItems)
@@ -109,14 +125,30 @@ export class EvalGoldenService {
 				...(payload.expectedChunkHashes !== undefined && {
 					expectedChunkHashes: payload.expectedChunkHashes,
 				}),
-				...(payload.tags !== undefined && { tags: payload.tags }),
+				...(payload.tags !== undefined && {
+					tags: [
+						...new Set([
+							...payload.tags,
+							...existing.tags.filter(tag => tag === "synthetic-review-candidate"),
+						]),
+					],
+				}),
 				...(payload.status !== undefined && { status: payload.status }),
-				updatedAt: new Date(),
+				answerQuality: quality,
+				approvalReference: null,
+				externalApprover: null,
+				approvedAt: null,
+				updatedAt: new Date(Math.max(Date.now(), existing.updatedAt.getTime() + 1)),
 			})
-			.where(eq(goldenItems.id, payload.id))
+			.where(
+				and(
+					eq(goldenItems.id, payload.id),
+					sql`date_trunc('milliseconds', ${goldenItems.updatedAt}) = ${existing.updatedAt.toISOString()}::timestamptz`
+				)
+			)
 			.returning()
 		if (!row) {
-			throw new ORPCError("NOT_FOUND", { message: `Golden item ${payload.id} not found` })
+			throw new ORPCError("CONFLICT", { message: "The golden item changed. Reload and try again." })
 		}
 
 		const retiring = payload.status !== undefined && payload.status !== existing.status
@@ -136,6 +168,8 @@ export class EvalGoldenService {
 				expectedChunkHashes: existing.expectedChunkHashes,
 				tags: existing.tags,
 				status: existing.status,
+				answerQuality: existing.answerQuality,
+				approvalReference: existing.approvalReference,
 			},
 			after: {
 				question: row.question,
@@ -143,10 +177,74 @@ export class EvalGoldenService {
 				expectedChunkHashes: row.expectedChunkHashes,
 				tags: row.tags,
 				status: row.status,
+				answerQuality: row.answerQuality,
+				approvalReference: row.approvalReference,
 			},
 		})
 
 		const liveHashes = await this.resolveLiveHashes(row.expectedChunkHashes)
+		return this.toItem(row, liveHashes)
+	}
+
+	async recordApproval(userId: string, input: RecordGoldenApprovalRequest): Promise<GoldenItem> {
+		const [existing] = await db.select().from(goldenItems).where(eq(goldenItems.id, input.id))
+		if (!existing) throw new ORPCError("NOT_FOUND")
+		if (
+			!existing.answerQuality ||
+			existing.status !== "active" ||
+			existing.approvalReference ||
+			existing.tags.includes("synthetic-review-candidate") ||
+			existing.updatedAt.toISOString() !== input.revision
+		) {
+			throw new ORPCError("CONFLICT", {
+				message:
+					"External approval requires the current active EVL-1 draft and authentic PHLPost evidence",
+			})
+		}
+		const liveHashes = await this.resolveLiveHashes(existing.expectedChunkHashes)
+		if (existing.expectedChunkHashes.some(hash => !liveHashes.has(hash))) {
+			throw new ORPCError("CONFLICT", {
+				message: "Replace stale source references before recording approval",
+			})
+		}
+		const row = await db.transaction(async tx => {
+			const [updated] = await tx
+				.update(goldenItems)
+				.set({
+					approvalReference: input.approvalReference,
+					externalApprover: input.externalApprover,
+					approvedAt: new Date(),
+				})
+				.where(
+					and(
+						eq(goldenItems.id, input.id),
+						sql`date_trunc('milliseconds', ${goldenItems.updatedAt}) = ${input.revision}::timestamptz`,
+						isNull(goldenItems.approvalReference)
+					)
+				)
+				.returning()
+			if (!updated)
+				throw new ORPCError("CONFLICT", {
+					message: "The golden revision changed. Reload and try again.",
+				})
+			await this.auditService.writeAudit(
+				{
+					actorId: userId,
+					actorType: "user",
+					action: "eval.golden.record-approval",
+					resourceType: "golden_item",
+					resourceId: input.id,
+					before: null,
+					after: {
+						revision: input.revision,
+						externalApprover: input.externalApprover,
+						approvalReference: input.approvalReference,
+					},
+				},
+				tx
+			)
+			return updated
+		})
 		return this.toItem(row, liveHashes)
 	}
 
@@ -161,6 +259,7 @@ export class EvalGoldenService {
 				expectedChunkHashes: row.expectedChunkHashes,
 				tags: row.tags,
 				status: row.status,
+				answerQuality: row.answerQuality ?? undefined,
 			})),
 		}
 	}
@@ -179,6 +278,7 @@ export class EvalGoldenService {
 					expectedChunkHashes: item.expectedChunkHashes,
 					tags: item.tags,
 					status: item.status,
+					answerQuality: item.answerQuality,
 					createdBy: userId,
 				}))
 			)

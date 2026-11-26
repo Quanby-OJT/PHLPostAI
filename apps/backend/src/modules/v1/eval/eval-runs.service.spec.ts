@@ -24,7 +24,7 @@ jest.mock("@repo/db/schema", () => ({
 }))
 
 jest.mock("@/common/database/database.client", () => ({
-	db: { select: jest.fn(), insert: jest.fn() },
+	db: { select: jest.fn(), insert: jest.fn(), transaction: jest.fn(), execute: jest.fn() },
 }))
 
 const mockSelect = db.select as jest.Mock
@@ -88,9 +88,7 @@ describe("EvalRunsService (EV-2)", () => {
 	it("compare computes candidate minus base for shared metrics only", async () => {
 		const service = new EvalRunsService(auditServiceMock() as never)
 		stubWhere([makeRun({ id: "base", metrics: { hitRate: 0.5, mrr: 0.4 } })])
-		stubWhere([
-			makeRun({ id: "cand", metrics: { hitRate: 0.75, mrr: 0.3, precisionAtK: 0.2 } }),
-		])
+		stubWhere([makeRun({ id: "cand", metrics: { hitRate: 0.75, mrr: 0.3, precisionAtK: 0.2 } })])
 
 		const comparison = await service.compare("base", "cand")
 
@@ -104,14 +102,19 @@ describe("EvalRunsService (EV-2)", () => {
 })
 
 describe("EvalRunsService baseline promotion (EV-4)", () => {
-	beforeEach(() => jest.clearAllMocks())
+	beforeEach(() => {
+		jest.clearAllMocks()
+		;(db.transaction as jest.Mock).mockImplementation(callback => callback(db))
+	})
 
 	function stubBaselineJoin(rows: unknown[]) {
 		mockSelect.mockReturnValueOnce({
 			from: jest.fn().mockReturnValue({
 				innerJoin: jest.fn().mockReturnValue({
-					orderBy: jest.fn().mockReturnValue({
-						limit: jest.fn().mockResolvedValue(rows),
+					where: jest.fn().mockReturnValue({
+						orderBy: jest.fn().mockReturnValue({
+							limit: jest.fn().mockResolvedValue(rows),
+						}),
 					}),
 				}),
 			}),
@@ -155,7 +158,8 @@ describe("EvalRunsService baseline promotion (EV-4)", () => {
 				action: "eval.gate.promote",
 				before: expect.objectContaining({ runId: "r1" }),
 				after: expect.objectContaining({ runId: "r2", note: "better" }),
-			})
+			}),
+			db
 		)
 	})
 

@@ -38,6 +38,7 @@ SELECT b.run_id, b.created_at AS promoted_at, b.promoted_by,
        r.metrics, r.git_sha, r.config
 FROM eval_baselines b
 JOIN eval_runs r ON r.id = b.run_id
+WHERE r.config->>'profile' IS NULL
 ORDER BY b.created_at DESC
 LIMIT 25
 """

@@ -101,7 +101,7 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/eval",
 		icon: CheckmarkBadge01Icon,
 		section: "Administration",
-		requiredPermission: ["eval.golden.manage", "eval.runs.execute"],
+		requiredPermission: ["eval.golden.manage", "eval.runs.execute", "eval.gate.approve"],
 	},
 	{
 		// RP-1 reporting console: audit trail now, RP-2..5 reports plug into

@@ -381,6 +381,67 @@ export class CustomerChatService {
 		confidenceThreshold?: number
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope, classification } = input
+		const preview = await this.previewAnswer(input)
+		const { answer, answerKind, citations, confidence, groundednessResult, retrievalScore } =
+			preview
+
+		const maskedQuery = asString(envelope.screenedQuery)
+		if (maskedQuery === null) {
+			this.logger.warn(
+				"RAG answer carried no screenedQuery; storing the turn without the question so no unmasked text is persisted"
+			)
+		}
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId,
+			maskedQuery: maskedQuery ?? "",
+			inquiryCategory: classification?.category ?? classifyInquiryCategory(maskedQuery ?? ""),
+			language: classification?.language ?? undefined,
+			answer,
+			answerKind,
+			confidence,
+			retrievalScore,
+			groundednessResult,
+			outputTokens:
+				typeof envelope.outputTokens === "number" && Number.isFinite(envelope.outputTokens)
+					? Math.max(0, Math.trunc(envelope.outputTokens))
+					: typeof envelope.tokenUsage === "object" &&
+						  envelope.tokenUsage !== null &&
+						  typeof (envelope.tokenUsage as { completionTokens?: unknown }).completionTokens ===
+								"number"
+						? Math.max(
+								0,
+								Math.trunc((envelope.tokenUsage as { completionTokens: number }).completionTokens)
+							)
+						: null,
+			citations,
+			retrievedChunks: envelope.retrievedChunks ?? null,
+			usedChunks: envelope.usedChunks ?? null,
+			tokenUsage: envelope.tokenUsage ?? null,
+			traceId: asString(envelope.traceId),
+			modelUsed: asString(envelope.model),
+			requestStartedAt: input.requestStartedAt,
+		})
+
+		return {
+			answer,
+			messageId: assistantMessageId,
+			sources: preview.sources,
+			citations,
+			answerKind,
+			isIDontKnow: preview.isIDontKnow,
+		}
+	}
+
+	/** Apply the customer answer policy without writing a conversation. */
+	async previewAnswer(input: {
+		envelope: RagAnswerEnvelope
+		answerKind?: CustomerAnswerKind
+		answerOverride?: string
+		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		confidenceThreshold?: number
+	}) {
+		const { envelope, classification } = input
 		let answerKind = input.answerKind ?? this.answerKindFor(envelope)
 		// The RAG service owns the citation shape (ChatCitationSchema); it crosses
 		// the internal boundary unvalidated, as it does on the staff path.
@@ -426,69 +487,54 @@ export class CustomerChatService {
 				? sources
 				: await this.resolveSources(envelope.retrievedChunks)
 			: []
-		const answer = input.answerOverride
-			?? (belowThreshold
+		const answer =
+			input.answerOverride ??
+			(belowThreshold
 				? withLanguageNotice(
-						this.lowConfidenceReply(classification, found.map(source => source.title)),
+						this.lowConfidenceReply(
+							classification,
+							found.map(source => source.title)
+						),
 						classification?.language ?? null,
 						classification?.replyLanguage ?? "en"
 					)
 				: this.localizedAnswer(envelope, answerKind, classification))
 
-		const maskedQuery = asString(envelope.screenedQuery)
-		if (maskedQuery === null) {
-			this.logger.warn(
-				"RAG answer carried no screenedQuery; storing the turn without the question so no unmasked text is persisted"
-			)
-		}
-
-		const { assistantMessageId } = await this.conversationService.recordTurn({
-			conversationId,
-			maskedQuery: maskedQuery ?? "",
-			inquiryCategory: input.classification?.category ?? classifyInquiryCategory(maskedQuery ?? ""),
-			language: input.classification?.language ?? undefined,
+		return {
 			answer,
+			sources,
+			citations,
 			answerKind,
 			confidence,
 			retrievalScore,
 			groundednessResult,
-			outputTokens:
-				typeof envelope.outputTokens === "number" && Number.isFinite(envelope.outputTokens)
-					? Math.max(0, Math.trunc(envelope.outputTokens))
-					: typeof envelope.tokenUsage === "object" && envelope.tokenUsage !== null &&
-						  typeof (envelope.tokenUsage as { completionTokens?: unknown }).completionTokens === "number"
-						? Math.max(0, Math.trunc((envelope.tokenUsage as { completionTokens: number }).completionTokens))
-						: null,
-			citations,
-			retrievedChunks: envelope.retrievedChunks ?? null,
-			usedChunks: envelope.usedChunks ?? null,
-			tokenUsage: envelope.tokenUsage ?? null,
-			traceId: asString(envelope.traceId),
-			modelUsed: asString(envelope.model),
-			requestStartedAt: input.requestStartedAt,
-		})
-
-		return {
-			answer,
-			messageId: assistantMessageId,
-			sources,
-			citations,
-			answerKind,
 			isIDontKnow: belowThreshold || envelope.isIDontKnow === true,
 		}
 	}
 
-	private lowConfidenceReply(
+	lowConfidenceReply(
 		classification: Pick<InquiryClassification, "replyLanguage"> | undefined,
 		sourceTitles: string[]
 	): string {
 		const language = classification?.replyLanguage ?? "en"
 		const titles = [...new Set(sourceTitles)].slice(0, 3)
 		const found: Record<typeof language, (items: string[]) => string> = {
-			en: items => items.length ? `I found information in: ${items.join(", ")}.` : "I could not find enough reliable information.",
-			fil: items => items.length ? `May nakita akong impormasyon sa: ${items.join(", ")}.` : "Wala akong sapat na mapagkakatiwalaang impormasyon.",
-			ceb: items => items.length ? `Nakakita ko og impormasyon sa: ${items.join(", ")}.` : "Wala koy igo nga kasaligan nga impormasyon.",
-			ilo: items => items.length ? `Nakitaak ti impormasion iti: ${items.join(", ")}.` : "Awan ti umdas a mapagtalkan nga impormasion.",
+			en: items =>
+				items.length
+					? `I found information in: ${items.join(", ")}.`
+					: "I could not find enough reliable information.",
+			fil: items =>
+				items.length
+					? `May nakita akong impormasyon sa: ${items.join(", ")}.`
+					: "Wala akong sapat na mapagkakatiwalaang impormasyon.",
+			ceb: items =>
+				items.length
+					? `Nakakita ko og impormasyon sa: ${items.join(", ")}.`
+					: "Wala koy igo nga kasaligan nga impormasyon.",
+			ilo: items =>
+				items.length
+					? `Nakitaak ti impormasion iti: ${items.join(", ")}.`
+					: "Awan ti umdas a mapagtalkan nga impormasion.",
 		}
 		const offer: Record<typeof language, string> = {
 			en: "I'm not sure enough to answer. You can ask to speak with a person below.",

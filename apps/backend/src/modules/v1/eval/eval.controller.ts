@@ -12,6 +12,7 @@ import { RequirePermissions } from "@/shared/decorators/require-permissions.deco
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { RagGatewayService, toORPCError } from "../corpus/rag-gateway.service"
+import { AnswerQualityService } from "./answer-quality.service"
 import { EvalGoldenService } from "./eval-golden.service"
 import { EvalRunsService } from "./eval-runs.service"
 
@@ -27,7 +28,8 @@ export class EvalController {
 		private readonly evalGoldenService: EvalGoldenService,
 		private readonly evalRunsService: EvalRunsService,
 		private readonly ragGatewayService: RagGatewayService,
-		private readonly rbacService: RbacService
+		private readonly rbacService: RbacService,
+		private readonly answerQuality: AnswerQualityService
 	) {}
 
 	@RequirePermissions("eval.golden.manage")
@@ -54,6 +56,15 @@ export class EvalController {
 		return implement(v1.eval.golden.update).handler(async ({ input }) => {
 			return this.evalGoldenService.update(session.user.id, input)
 		})
+	}
+
+	@StrictThrottle()
+	@RequirePermissions("eval.golden.manage")
+	@Implement(v1.eval.golden.recordApproval)
+	async recordGoldenApproval(@Session() session: UserSession) {
+		return implement(v1.eval.golden.recordApproval).handler(({ input }) =>
+			this.evalGoldenService.recordApproval(session.user.id, input)
+		)
 	}
 
 	@RequirePermissions("eval.golden.manage")
@@ -113,6 +124,7 @@ export class EvalController {
 		@Req() request: Request & { id?: string | number }
 	) {
 		return implement(v1.eval.runs.execute).handler(async ({ input }) => {
+			if (input.profile) return this.answerQuality.execute(input.profile, session.user.id)
 			const access = await this.rbacService.getUserAccess(session.user.id)
 			const correlationId = String(request.id ?? crypto.randomUUID())
 
@@ -171,8 +183,16 @@ export class EvalController {
 	@RequirePermissions("eval.runs.execute")
 	@Implement(v1.eval.runs.baseline)
 	async currentBaseline() {
-		return implement(v1.eval.runs.baseline).handler(async () => {
-			return this.evalRunsService.currentBaseline()
+		return implement(v1.eval.runs.baseline).handler(async ({ input }) => {
+			return this.evalRunsService.currentBaseline(input.profile)
+		})
+	}
+
+	@RequirePermissions("eval.gate.approve")
+	@Implement(v1.eval.runs.approvalOptions)
+	async approvalOptions() {
+		return implement(v1.eval.runs.approvalOptions).handler(async () => {
+			return (await this.evalRunsService.list()).filter(run => run.config.profile)
 		})
 	}
 }

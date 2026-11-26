@@ -43,6 +43,11 @@ The project is built on the Quanby `RAG_AI` template. Names marked _(template)_ 
 | **Export Bundle**                       | A machine-readable export of PHLPost-owned data and configuration.                                                                                                        |
 | **System**                              | The automated actor: classification, retention jobs, connector calls.                                                                                                     |
 
+### Answer quality evaluation
+
+- **Golden Item** `golden_items` carries the question, ideal answer, expected chunk hashes, tags, and active or retired status. EVL-1 adds `answer_quality` with language, use case, code-switch flag, expected behavior, and optional tool result. Linked external approvals carry `external_approver`, `approval_reference`, and `approved_at`. Editing the approved revision returns it to draft. The append-only audit retains the previous approval.
+- **Evaluation Run** `eval_runs` retains its versioned dataset and configuration, slice metrics, and per-item evidence. **Evaluation Baseline** `eval_baselines` points to a specific approved run and preserves the acceptance actor and reason. The release gate compares each language against the accepted compatible baseline and always applies the 200-token limit. See [EVL-1 evaluation](EVL-1.md).
+
 ## 2. Permission-key convention
 
 ```
