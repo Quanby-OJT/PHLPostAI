@@ -34,6 +34,12 @@ export interface AssistantCopy {
 	handoffQueued: string
 	handoffJoined: string
 	handoffResolved: string
+	handoffOffline: string
+	contactLabel: string
+	saveContact: string
+	skipContact: string
+	contactSaved: string
+	contactFailed: string
 	needPerson: string
 	handoffReasons: Record<HandoffReason, string>
 	confirmHandoff: string
@@ -72,6 +78,13 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		handoffQueued: "Your request is in the queue. A PHLPost agent will join when available.",
 		handoffJoined: "A PHLPost agent has joined. You can continue the conversation here.",
 		handoffResolved: "This conversation has been resolved by a PHLPost agent.",
+		handoffOffline:
+			"Our agents are offline. You may leave an email address or phone number for follow-up.",
+		contactLabel: "Email address or phone number (optional)",
+		saveContact: "Leave contact",
+		skipContact: "Continue without leaving contact",
+		contactSaved: "Thank you. Your request has been recorded.",
+		contactFailed: "We couldn't save that. Please try again.",
 		needPerson: "Need a person?",
 		handoffReasons: {
 			"I want to speak with a person": "I want to speak with a person",
@@ -115,6 +128,13 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		handoffJoined:
 			"Sumali na ang isang PHLPost agent. Maaari kang magpatuloy sa pakikipag-usap dito.",
 		handoffResolved: "Nalutas na ng isang PHLPost agent ang usapang ito.",
+		handoffOffline:
+			"Walang agent na naka-duty ngayon. Maaari kang mag-iwan ng email o numero ng telepono para matawagan.",
+		contactLabel: "Email o numero ng telepono (opsyonal)",
+		saveContact: "Mag-iwan ng contact",
+		skipContact: "Magpatuloy nang walang contact",
+		contactSaved: "Salamat. Naitala na ang iyong kahilingan.",
+		contactFailed: "Hindi namin ito na-save. Pakisubukan ulit.",
 		needPerson: "Kailangan mo ba ng makakausap na tao?",
 		handoffReasons: {
 			"I want to speak with a person": "Gusto kong makausap ang isang tao",
@@ -157,6 +177,13 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 			"Naa na sa linya ang imong hangyo. Moapil ang usa ka PHLPost agent kon naa nay bakante.",
 		handoffJoined: "Miapil na ang usa ka PHLPost agent. Mahimo kang mopadayon sa pag-chat dinhi.",
 		handoffResolved: "Nasulbad na sa usa ka PHLPost agent kining panag-istoryaha.",
+		handoffOffline:
+			"Walay agent nga naka-duty karon. Mahimo kang magbilin og email o numero sa telepono aron makontak ka.",
+		contactLabel: "Email o numero sa telepono (opsyonal)",
+		saveContact: "Ibilin ang contact",
+		skipContact: "Padayon nga walay ibiling contact",
+		contactSaved: "Salamat. Natala na ang imong hangyo.",
+		contactFailed: "Wala namo kini ma-save. Sulayi pag-usab.",
 		needPerson: "Gusto ka bang makig-istorya sa usa ka tawo?",
 		handoffReasons: {
 			"I want to speak with a person": "Gusto kong makig-istorya sa usa ka tawo",
@@ -199,6 +226,13 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 			"Adda iti pila ti kiddawmo. Sumangpet ti maysa nga agent ti PHLPost no adda makaasikaso.",
 		handoffJoined: "Immayen ti maysa nga agent ti PHLPost. Mabalinmo nga ituloy ti saritaan ditoy.",
 		handoffResolved: "Nalusawen ti daytoy a saritaan babaen ti maysa nga agent ti PHLPost.",
+		handoffOffline:
+			"Awan ti agent nga agserbi ita. Mabalinmo ti mangibati iti email wenno numero ti telepono tapno tawagan ka.",
+		contactLabel: "Email wenno numero ti telepono (opsional)",
+		saveContact: "Mangibati iti contact",
+		skipContact: "Ituloy a saan nga agibati iti contact",
+		contactSaved: "Agyaman kami. Nairehistro ti kiddawmo.",
+		contactFailed: "Saanmi a naidulin dayta. Padasem manen.",
 		needPerson: "Masapulmo kadi ti tao a makasarita?",
 		handoffReasons: {
 			"I want to speak with a person": "Kayatko ti makisarita iti tao",

@@ -95,7 +95,7 @@ export async function requestHumanHandoff(input: {
 	conversationId: string
 	reason: string
 	sessionToken: string
-}): Promise<{ id: string; status: "queued"; createdAt: string }> {
+}): Promise<{ id: string; status: "queued" | "contact_captured"; createdAt: string }> {
 	const response = await fetch(`${API_BASE}/customer/escalations`, {
 		method: "POST",
 		headers: {
@@ -105,7 +105,28 @@ export async function requestHumanHandoff(input: {
 		body: JSON.stringify({ conversationId: input.conversationId, reason: input.reason }),
 	})
 	if (!response.ok) throw await parseError(response)
-	return (await response.json()) as { id: string; status: "queued"; createdAt: string }
+	return (await response.json()) as {
+		id: string
+		status: "queued" | "contact_captured"
+		createdAt: string
+	}
+}
+
+export async function submitOfflineContact(input: {
+	conversationId: string
+	contact?: string
+	sessionToken: string
+}): Promise<{ status: "contact_captured"; contactProvided: boolean }> {
+	const response = await fetch(`${API_BASE}/customer/escalations/contact`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: input.sessionToken,
+		},
+		body: JSON.stringify({ conversationId: input.conversationId, contact: input.contact }),
+	})
+	if (!response.ok) throw await parseError(response)
+	return (await response.json()) as { status: "contact_captured"; contactProvided: boolean }
 }
 
 export async function sendScamReport(
@@ -144,7 +165,11 @@ export async function endConversation(input: {
 export interface AssistantStreamHandlers {
 	onToken: (delta: string) => void
 	onFinal: (final: CustomerAnswer) => void
-	onAgentMode?: (result: { conversationId: string; messageId: string }) => void
+	onAgentMode?: (result: {
+		conversationId: string
+		messageId: string
+		status?: "queued" | "contact_captured"
+	}) => void
 }
 
 export interface AgentMessageEvent {
@@ -251,7 +276,16 @@ export async function streamQuestion(
 		if (event === "token") {
 			handlers.onToken((JSON.parse(data) as { delta: string }).delta)
 		} else if (event === "final") {
-			handlers.onFinal(JSON.parse(data) as CustomerAnswer)
+			const payload = JSON.parse(data) as
+				| CustomerAnswer
+				| {
+						agentMode: true
+						conversationId: string
+						messageId: string
+						status?: "queued" | "contact_captured"
+				  }
+			if ("agentMode" in payload && payload.agentMode) handlers.onAgentMode?.(payload)
+			else handlers.onFinal(payload as CustomerAnswer)
 		}
 	}
 

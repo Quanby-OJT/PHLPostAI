@@ -282,13 +282,21 @@ export {
 export {
 	CreateInquiryCategoryRequestSchema,
 	AssistantSettingsSchema,
+	EscalationSettingsSchema,
+	EscalationRulesSchema,
+	EscalationBusinessHoursSchema,
 	InquiryCategorySchema,
+	UpdateEscalationSettingsRequestSchema,
 	UpdateAssistantSettingsRequestSchema,
 	UpdateInquiryCategoryRequestSchema,
 } from "./modules/v1/assistant/assistant.schema.js"
 export type {
 	CreateInquiryCategoryRequest,
 	AssistantSettings,
+	EscalationSettings,
+	EscalationBusinessHours,
+	EscalationRules,
+	UpdateEscalationSettingsRequest,
 	InquiryCategory,
 	UpdateAssistantSettingsRequest,
 	UpdateInquiryCategoryRequest,

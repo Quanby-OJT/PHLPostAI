@@ -1,3 +1,4 @@
+import Redis from "ioredis"
 import { Client } from "pg"
 
 import type {
@@ -9,6 +10,7 @@ import type {
 
 const API = "http://127.0.0.1:3020/api/v1"
 const ORIGIN = "http://127.0.0.1:3021"
+const ESCALATION_SETTINGS = ["escalation_rules", "escalation_business_hours"]
 const suite = process.env.SCM3_QA_PASSWORD ? describe : describe.skip
 jest.setTimeout(45_000)
 
@@ -72,6 +74,7 @@ suite("SCM-3 on isolated loopback PostgreSQL", () => {
 	let denied: Record<string, string>
 	let session: Record<string, string>
 	let otherSession: Record<string, string>
+	let savedSettings: Map<string, unknown> | undefined
 	const submissions: Assessment[] = []
 	const reports: ScamReportReceipt[] = []
 
@@ -89,6 +92,18 @@ suite("SCM-3 on isolated loopback PostgreSQL", () => {
 		expect((await database.query("select current_database() as name")).rows[0].name).toBe(
 			"phlpost_scm3_qa"
 		)
+		const settings = await database.query<{ key: string; value: unknown }>(
+			"select key, value from assistant_settings where key = any($1::text[])",
+			[ESCALATION_SETTINGS]
+		)
+		savedSettings = new Map(settings.rows.map(({ key, value }) => [key, value]))
+		await saveSetting("escalation_rules", {
+			topics: [],
+			keywords: [],
+			categories: [],
+			repeatedLowConfidenceCount: 2,
+		})
+		await setBusinessHours(true)
 		;[reviewer, reader, denied] = await Promise.all([
 			login("scm3.reviewer@example.test"),
 			login("scm3.reader@example.test"),
@@ -98,7 +113,46 @@ suite("SCM-3 on isolated loopback PostgreSQL", () => {
 		otherSession = await customer()
 	})
 
-	afterAll(async () => database?.end())
+	afterAll(async () => {
+		try {
+			if (savedSettings) {
+				for (const key of ESCALATION_SETTINGS) {
+					if (savedSettings.has(key)) {
+						await saveSetting(key, savedSettings.get(key))
+					} else {
+						await database.query("delete from assistant_settings where key = $1", [key])
+					}
+				}
+			}
+		} finally {
+			await database?.end()
+		}
+	})
+
+	function saveSetting(key: string, value: unknown) {
+		return database.query(
+			`insert into assistant_settings (key, value, updated_by)
+			 values ($1, $2, (select id from users where email='scm3.reviewer@example.test'))
+			 on conflict (key) do update set value = excluded.value`,
+			[key, JSON.stringify(value)]
+		)
+	}
+
+	function setBusinessHours(open: boolean) {
+		return saveSetting("escalation_business_hours", {
+			timezone: "Asia/Manila",
+			days: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map(
+				day => ({
+					day,
+					open,
+					start: "00:00",
+					end: "23:59",
+				})
+			),
+			holidays: [],
+			waitLimitSeconds: 3600,
+		})
+	}
 
 	function report(submissionId: string, headers = session, requestAgent = false) {
 		return call("/customer/scam-reports", "POST", { submissionId, requestAgent }, headers)
@@ -339,5 +393,110 @@ suite("SCM-3 on isolated loopback PostgreSQL", () => {
 			[reference]
 		)
 		expect(audited.rowCount).toBe(1)
+	})
+
+	it("moves an unclaimed SCM-3 handoff offline and records the ESC-3 missed event", async () => {
+		const waitingSession = await customer()
+		const answer = await assess("A parcel notice says pay a delivery fee.", waitingSession)
+		const response = await report(answer.scamSubmissionId, waitingSession, true)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toHaveProperty("handoff", "queued")
+		await database.query(
+			"update escalations set created_at = now() - interval '2 hours' where conversation_id=$1",
+			[answer.conversationId]
+		)
+		const events = async () =>
+			(
+				await database.query(
+					"select kind from interaction_events where conversation_id=$1 and kind in ('scam_reported', 'escalation_missed') order by kind",
+					[answer.conversationId]
+				)
+			).rows
+		let seen = await events()
+		for (let attempt = 0; attempt < 40 && seen.length < 2; attempt++) {
+			await new Promise(resolve => setTimeout(resolve, 500))
+			seen = await events()
+		}
+		expect(seen).toEqual([{ kind: "escalation_missed" }, { kind: "scam_reported" }])
+		const statuses = await database.query(
+			"select e.status as escalation, c.status as conversation from escalations e join conversations c on c.id=e.conversation_id where c.id=$1",
+			[answer.conversationId]
+		)
+		expect(statuses.rows).toEqual([
+			{ escalation: "contact_captured", conversation: "contact_captured" },
+		])
+	})
+
+	it("returns the offline handoff, publishes committed data and accepts an encrypted contact", async () => {
+		await setBusinessHours(false)
+		const offlineSession = await customer()
+		const answer = await assess("A parcel notice says pay a delivery fee.", offlineSession)
+		const topic = `conversation-live:${answer.conversationId}`
+		const subscriber = new Redis("redis://127.0.0.1:6380/14", {
+			lazyConnect: true,
+			retryStrategy: () => null,
+		})
+		const readEscalation = () =>
+			database.query(
+				`select e.id, e.status, e.contact, c.status as conversation_status,
+				 (select count(*)::int from scam_reports where submission_id=$1) as reports
+				 from escalations e join conversations c on c.id=e.conversation_id
+				 where e.conversation_id=$2`,
+				[answer.scamSubmissionId, answer.conversationId]
+			)
+		let notification: ReturnType<typeof readEscalation> | undefined
+		try {
+			subscriber.once("message", () => {
+				notification = readEscalation()
+			})
+			await subscriber.subscribe(topic)
+			const submissions = await Promise.all([
+				report(answer.scamSubmissionId, offlineSession, true),
+				report(answer.scamSubmissionId, offlineSession, true),
+			])
+			expect(submissions.map(response => response.status)).toEqual([200, 200])
+			const [first, retry] = (await Promise.all(
+				submissions.map(response => response.json())
+			)) as ScamReportReceipt[]
+			expect(first).toEqual(retry)
+			expect(first?.handoff).toBe("contact_captured")
+			for (let attempt = 0; attempt < 20 && !notification; attempt++) {
+				await new Promise(resolve => setTimeout(resolve, 100))
+			}
+			expect(notification).toBeDefined()
+			const rows = (await notification)?.rows
+			expect(rows).toEqual([
+				{
+					id: expect.any(String),
+					status: "contact_captured",
+					conversation_status: "contact_captured",
+					reports: 1,
+					contact: null,
+				},
+			])
+			const escalationId = rows![0].id
+			const audit = await database.query(
+				"select \"after\" from audit_log where action='escalations.requested' and resource_id=$1",
+				[escalationId]
+			)
+			expect(audit.rows).toEqual([{ after: expect.objectContaining({ offline: true }) }])
+			const contact = "scm3-callback@example.test"
+			const captured = await call(
+				"/customer/escalations/contact",
+				"POST",
+				{ conversationId: answer.conversationId, contact },
+				offlineSession
+			)
+			expect(captured.ok).toBe(true)
+			expect(await captured.json()).toEqual({ status: "contact_captured", contactProvided: true })
+			const stored = (await readEscalation()).rows[0].contact
+			expect(stored).toMatch(/^v1\./)
+			expect(stored).not.toContain(contact)
+			expect(
+				(await call(`/escalations/${escalationId}/contact`, "GET", undefined, reader)).status
+			).toBe(403)
+		} finally {
+			subscriber.disconnect()
+		}
 	})
 })

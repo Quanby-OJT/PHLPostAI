@@ -16,7 +16,7 @@ export const CreateScamReportSchema = z.strictObject({
 })
 export const ScamReportReceiptSchema = z.object({
 	reference: z.uuid(),
-	handoff: z.enum(["queued", "claimed"]).nullable(),
+	handoff: z.enum(["queued", "claimed", "contact_captured"]).nullable(),
 })
 export const ScamReportIdSchema = z.object({ id: z.uuid() })
 export const ScamReportPageSchema = z.object({

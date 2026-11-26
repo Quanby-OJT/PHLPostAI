@@ -21,6 +21,7 @@ import {
 	setSessionLanguage,
 	startSession,
 	streamQuestion,
+	submitOfflineContact,
 	watchAgentConversation,
 	type AssistantStreamHandlers,
 	type StoredSession,
@@ -63,6 +64,8 @@ interface StoredChat {
 	handoffDone?: boolean
 	agentJoined?: boolean
 	agentResolved?: boolean
+	contactCaptured?: boolean
+	contactSubmitted?: boolean
 	language?: CustomerLanguage
 }
 
@@ -132,6 +135,9 @@ export function AssistantChat() {
 	const [handoffDone, setHandoffDone] = useState(false)
 	const [agentJoined, setAgentJoined] = useState(false)
 	const [agentResolved, setAgentResolved] = useState(false)
+	const [contactCaptured, setContactCaptured] = useState(false)
+	const [contactSubmitted, setContactSubmitted] = useState(false)
+	const [offlineContact, setOfflineContact] = useState("")
 	const [handoffReason, setHandoffReason] = useState<HandoffReason>(HANDOFF_REASONS[0])
 	const [handoffBusy, setHandoffBusy] = useState(false)
 	const [ending, setEnding] = useState(false)
@@ -155,6 +161,8 @@ export function AssistantChat() {
 			setHandoffDone(stored.handoffDone ?? false)
 			setAgentJoined(stored.agentJoined ?? false)
 			setAgentResolved(stored.agentResolved ?? false)
+			setContactCaptured(stored.contactCaptured ?? false)
+			setContactSubmitted(stored.contactSubmitted ?? false)
 			if (isCustomerLanguage(stored.language)) setLanguage(stored.language)
 		}
 		setReady(true)
@@ -191,12 +199,16 @@ export function AssistantChat() {
 			handoffDone,
 			agentJoined,
 			agentResolved,
+			contactCaptured,
+			contactSubmitted,
 			language,
 		})
 	}, [
 		accepted,
 		agentJoined,
 		agentResolved,
+		contactCaptured,
+		contactSubmitted,
 		busy,
 		conversationId,
 		handoffDone,
@@ -227,6 +239,10 @@ export function AssistantChat() {
 							},
 							onStatus: status => {
 								if (status === "agent_active") setAgentJoined(true)
+								if (status === "contact_captured") {
+									resolved = true
+									setContactCaptured(true)
+								}
 								if (status === "resolved_by_agent") {
 									resolved = true
 									setAgentJoined(true)
@@ -346,6 +362,7 @@ export function AssistantChat() {
 			}
 			setHandoffDone(true)
 			if (receipt.handoff === "claimed") setAgentJoined(true)
+			if (receipt.handoff === "contact_captured") setContactCaptured(true)
 		}
 	}
 
@@ -360,6 +377,7 @@ export function AssistantChat() {
 				handoffBusy ||
 				waitSeconds > 0 ||
 				agentResolved ||
+				contactCaptured ||
 				!channelEnabled
 			)
 				return
@@ -387,6 +405,7 @@ export function AssistantChat() {
 				onAgentMode: result => {
 					setConversationId(result.conversationId)
 					setHandoffDone(true)
+					setContactCaptured(result.status === "contact_captured")
 					setTurns(previous => previous.filter(turn => !turn.streaming))
 				},
 			}
@@ -431,6 +450,7 @@ export function AssistantChat() {
 		[
 			accepted,
 			agentResolved,
+			contactCaptured,
 			appendFinal,
 			busy,
 			channelEnabled,
@@ -452,12 +472,17 @@ export function AssistantChat() {
 			setError(null)
 			try {
 				const sessionToken = await ensureSession()
-				await requestHumanHandoff({ conversationId, reason: handoffReason, sessionToken })
+				const result = await requestHumanHandoff({
+					conversationId,
+					reason: handoffReason,
+					sessionToken,
+				})
 				if (scamMode) {
 					setQuestion("")
 					setScamMode(false)
 				}
 				setHandoffDone(true)
+				setContactCaptured(result.status === "contact_captured")
 			} catch (caught) {
 				setError(
 					caught instanceof ApiError ? caught.message : ASSISTANT_COPY[language].handoffFailed
@@ -478,8 +503,36 @@ export function AssistantChat() {
 		]
 	)
 
+	const saveOfflineContact = useCallback(
+		async (event: React.FormEvent<HTMLFormElement>) => {
+			event.preventDefault()
+			if (!conversationId || contactSubmitted || handoffBusy) return
+			const submitter = (event.nativeEvent as SubmitEvent).submitter
+			const skipContact =
+				submitter instanceof HTMLButtonElement && submitter.name === "skip-contact"
+			setHandoffBusy(true)
+			setError(null)
+			try {
+				const sessionToken = await ensureSession()
+				await submitOfflineContact({
+					conversationId,
+					contact: skipContact ? undefined : offlineContact.trim() || undefined,
+					sessionToken,
+				})
+				setContactSubmitted(true)
+			} catch (caught) {
+				setError(
+					caught instanceof ApiError ? caught.message : ASSISTANT_COPY[language].contactFailed
+				)
+			} finally {
+				setHandoffBusy(false)
+			}
+		},
+		[contactSubmitted, conversationId, ensureSession, handoffBusy, language, offlineContact]
+	)
+
 	const endChat = useCallback(async () => {
-		if (!conversationId || busy || ending || handoffDone) return
+		if (!conversationId || busy || ending || handoffDone || contactCaptured) return
 		setEnding(true)
 		setError(null)
 		try {
@@ -494,7 +547,7 @@ export function AssistantChat() {
 		} finally {
 			setEnding(false)
 		}
-	}, [busy, conversationId, ending, ensureSession, handoffDone])
+	}, [busy, contactCaptured, conversationId, ending, ensureSession, handoffDone])
 
 	// Embedded in the widget iframe: Esc is delivered here, not to the host page, so ask the parent to close.
 	useEffect(() => {
@@ -657,13 +710,52 @@ export function AssistantChat() {
 					</div>
 
 					{handoffDone ? (
-						<p role="status" className="rounded-lg border p-3 text-sm">
-							{agentResolved
-								? copy.handoffResolved
-								: agentJoined
-									? copy.handoffJoined
-									: copy.handoffQueued}
-						</p>
+						contactCaptured ? (
+							<section role="status" className="rounded-lg border p-3 text-sm">
+								<p>{contactSubmitted ? copy.contactSaved : copy.handoffOffline}</p>
+								{!contactSubmitted && (
+									<form
+										onSubmit={saveOfflineContact}
+										className="mt-3 flex flex-wrap items-end gap-2"
+									>
+										<label className="min-w-0 flex-1">
+											<span className="mb-1 block">{copy.contactLabel}</span>
+											<input
+												value={offlineContact}
+												onChange={event => setOfflineContact(event.target.value)}
+												type="text"
+												maxLength={254}
+												autoComplete="email"
+												className="bg-background min-h-10 w-full rounded-lg border px-3"
+											/>
+										</label>
+										<button
+											type="submit"
+											disabled={handoffBusy}
+											className="bg-primary text-primary-foreground min-h-10 rounded-lg px-3 disabled:opacity-50"
+										>
+											{handoffBusy ? copy.requestingHandoff : copy.saveContact}
+										</button>
+										<button
+											type="submit"
+											name="skip-contact"
+											disabled={handoffBusy}
+											className="min-h-10 px-2 underline disabled:opacity-50"
+										>
+											{copy.skipContact}
+										</button>
+									</form>
+								)}
+							</section>
+						) : (
+							<p role="status" className="rounded-lg border p-3 text-sm">
+								{agentResolved
+									? copy.handoffResolved
+									: agentJoined
+										? copy.handoffJoined
+										: copy.handoffQueued}
+							</p>
+						)
 					) : conversationId && turns.length > 0 ? (
 						<form onSubmit={requestAgent} className="flex flex-wrap items-end gap-2 border-t pt-3">
 							<label className="min-w-0 flex-1 text-sm">
@@ -754,7 +846,12 @@ export function AssistantChat() {
 									rows={3}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 resize-none rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
 									disabled={
-										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+										busy ||
+										handoffBusy ||
+										waitSeconds > 0 ||
+										agentResolved ||
+										contactCaptured ||
+										!channelEnabled
 									}
 								/>
 							) : (
@@ -768,7 +865,12 @@ export function AssistantChat() {
 									maxLength={1000}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
 									disabled={
-										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+										busy ||
+										handoffBusy ||
+										waitSeconds > 0 ||
+										agentResolved ||
+										contactCaptured ||
+										!channelEnabled
 									}
 								/>
 							)}

@@ -2,23 +2,54 @@ import { oc } from "@orpc/contract"
 import { z } from "zod"
 
 import {
-	CreateInquiryCategoryRequestSchema,
-	InquiryCategorySchema,
-	UpdateInquiryCategoryRequestSchema,
 	AssistantSettingsSchema,
+	CreateInquiryCategoryRequestSchema,
+	EscalationSettingsSchema,
+	InquiryCategorySchema,
 	UpdateAssistantSettingsRequestSchema,
+	UpdateEscalationSettingsRequestSchema,
+	UpdateInquiryCategoryRequestSchema,
 } from "./assistant.schema.js"
 
 /** Assistant configuration (CNV-2). Requires settings.assistant.manage. */
 export const assistantContract = {
 	settings: {
 		get: oc
-			.route({ method: "GET", path: "/assistant/settings", summary: "Get assistant settings", tags: ["Assistant"] })
+			.route({
+				method: "GET",
+				path: "/assistant/settings",
+				summary: "Get assistant settings",
+				tags: ["Assistant"],
+			})
 			.output(AssistantSettingsSchema),
 		update: oc
-			.route({ method: "PUT", path: "/assistant/settings", summary: "Update assistant settings", tags: ["Assistant"] })
+			.route({
+				method: "PUT",
+				path: "/assistant/settings",
+				summary: "Update assistant settings",
+				tags: ["Assistant"],
+			})
 			.input(UpdateAssistantSettingsRequestSchema)
 			.output(AssistantSettingsSchema),
+	},
+	escalationSettings: {
+		get: oc
+			.route({
+				method: "GET",
+				path: "/assistant/escalation-settings",
+				summary: "Get escalation rules and hours",
+				tags: ["Assistant"],
+			})
+			.output(EscalationSettingsSchema),
+		update: oc
+			.route({
+				method: "PUT",
+				path: "/assistant/escalation-settings",
+				summary: "Update escalation rules and hours",
+				tags: ["Assistant"],
+			})
+			.input(UpdateEscalationSettingsRequestSchema)
+			.output(EscalationSettingsSchema),
 	},
 	categories: {
 		list: oc

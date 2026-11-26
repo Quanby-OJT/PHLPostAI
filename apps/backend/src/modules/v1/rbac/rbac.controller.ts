@@ -76,10 +76,12 @@ export class RbacController {
 		})
 	}
 
-	// ── F4: admin-provisioned accounts ───────────────────────────────────────
+	// ── F4 / ADM-1: admin-provisioned accounts ──────────────────────────────
+	// Account changes need users.accounts.manage; anything that sets roles also
+	// needs users.roles.manage. Every denial is audited by the RBAC guard.
 
 	@StrictThrottle()
-	@RequirePermissions("users.accounts.manage")
+	@RequirePermissions("users.accounts.manage", "users.roles.manage")
 	@Implement(v1.rbac.users.create)
 	async createUser(@Session() session: UserSession) {
 		return implement(v1.rbac.users.create).handler(async ({ input }) => {
@@ -97,7 +99,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users.roles.manage")
+	@RequirePermissions("users.accounts.manage", "users.roles.manage")
 	@Implement(v1.rbac.users.assignRole)
 	async assignRole(@Session() session: UserSession) {
 		return implement(v1.rbac.users.assignRole).handler(async ({ input }) => {
@@ -106,7 +108,7 @@ export class RbacController {
 	}
 
 	@StrictThrottle()
-	@RequirePermissions("users.roles.manage")
+	@RequirePermissions("users.accounts.manage", "users.roles.manage")
 	@Implement(v1.rbac.users.removeRole)
 	async removeRole(@Session() session: UserSession) {
 		return implement(v1.rbac.users.removeRole).handler(async ({ input }) => {

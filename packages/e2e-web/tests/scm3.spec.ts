@@ -53,7 +53,16 @@ test.describe("SCM-3 customer reporting and staff review", () => {
 			await page.getByRole("button", { name: "Send report", exact: true }).click()
 			const sent = await response
 			expect(sent.status()).toBe(200)
-			const { reference } = (await sent.json()) as { reference: string }
+			const { reference, handoff } = (await sent.json()) as {
+				reference: string
+				handoff: string | null
+			}
+			if (width === 1280 && process.env.SCM3_BROWSER_HANDOFF) {
+				expect(handoff).toBe(process.env.SCM3_BROWSER_HANDOFF)
+			}
+			if (handoff === "contact_captured") {
+				await expect(page.getByLabel("Email address or phone number (optional)")).toBeVisible()
+			}
 			const receipt = page.getByText(reference, { exact: true })
 			await expect(receipt).toBeInViewport()
 			await expect(page.getByRole("log")).toContainText("received your report for review")

@@ -11,6 +11,7 @@ import {
 } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
+import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { db, type DbTransaction } from "@/common/database/database.client"
 
 import { EventService } from "../analytics/event.service"
@@ -67,14 +68,15 @@ export class ScamReportsService {
 	constructor(
 		private readonly audit: AuditService,
 		private readonly events: EventService,
-		private readonly escalationsService: EscalationService
+		private readonly escalationsService: EscalationService,
+		private readonly conversationLiveService: ConversationLiveService
 	) {}
 
 	async create(
 		input: CreateScamReport,
 		session: Pick<CustomerSessionRow, "id" | "language">
 	): Promise<ScamReportReceipt> {
-		return db.transaction(async tx => {
+		const { receipt, notifyConversationId } = await db.transaction(async tx => {
 			const [conversation] = await tx
 				.select({
 					id: conversations.id,
@@ -134,47 +136,49 @@ export class ScamReportsService {
 				!existing ||
 				conversation.status === "ai_active" ||
 				conversation.status === "escalation_requested" ||
-				conversation.status === "agent_active"
+				conversation.status === "agent_active" ||
+				conversation.status === "contact_captured"
 			const handoff =
 				input.requestAgent && canRequestHandoff
-					? await this.requestHandoff(tx, conversation.id, session.id, actorId)
+					? await this.requestHandoff(tx, conversation.id, session.id)
 					: null
-			return { reference, handoff }
+			return {
+				receipt: { reference, handoff: handoff?.status ?? null },
+				notifyConversationId: handoff?.notifyAfterCommit ? conversation.id : null,
+			}
 		})
+		if (notifyConversationId) {
+			await this.conversationLiveService.publish(notifyConversationId)
+		}
+		return receipt
 	}
 
-	private async requestHandoff(
-		tx: DbTransaction,
-		conversationId: string,
-		sessionId: string,
-		actorId: string
-	) {
+	private async requestHandoff(tx: DbTransaction, conversationId: string, sessionId: string) {
 		const [existing] = await tx
 			.select({ status: escalations.status })
 			.from(escalations)
 			.where(eq(escalations.conversationId, conversationId))
 			.limit(1)
-		if (existing?.status === "queued" || existing?.status === "claimed") return existing.status
+		if (
+			existing?.status === "queued" ||
+			existing?.status === "claimed" ||
+			existing?.status === "contact_captured"
+		) {
+			return { status: existing.status, notifyAfterCommit: false }
+		}
 		const escalation = await this.escalationsService.request(
 			{
 				conversationId,
 				customerSessionId: sessionId,
 				reason: HANDOFF_REASON,
+				category: "scam",
 			},
 			tx
 		)
-		await this.audit.writeAudit(
-			{
-				actorId,
-				actorType: "system",
-				action: "escalations.requested",
-				resourceType: "escalation",
-				resourceId: escalation.id,
-				after: { conversationId, reason: HANDOFF_REASON },
-			},
-			tx
-		)
-		return escalation.status
+		return {
+			status: escalation.status,
+			notifyAfterCommit: escalation.status === "contact_captured",
+		}
 	}
 
 	async list(page: number) {

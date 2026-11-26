@@ -114,7 +114,11 @@ export class ConversationLiveService {
 					previousStatus = status
 					response.write(`event: status\ndata: ${JSON.stringify({ status })}\n\n`)
 				}
-				if (status === "resolved_by_agent" || status === "abandoned") {
+				if (
+					status === "resolved_by_agent" ||
+					status === "abandoned" ||
+					status === "contact_captured"
+				) {
 					response.end()
 				}
 			} catch {

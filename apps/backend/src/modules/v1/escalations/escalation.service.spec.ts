@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from "@nestjs/common"
 
+import { isWithinBusinessHours } from "./escalation-rules"
 import { EscalationService } from "./escalation.service"
 
 const mockSelect = jest.fn()
@@ -35,6 +36,11 @@ jest.mock("@/common/database/database.client", () => ({
 jest.mock("@/modules/v1/customer/conversation.service", () => ({
 	ConversationService: class ConversationService {},
 }))
+jest.mock("@/modules/v1/assistant/assistant-settings.service", () => ({
+	AssistantSettingsService: class AssistantSettingsService {},
+}))
+
+jest.mock("./escalation-rules", () => ({ isWithinBusinessHours: jest.fn() }))
 
 describe("EscalationService", () => {
 	let service: EscalationService
@@ -43,24 +49,30 @@ describe("EscalationService", () => {
 		activateAgent: jest.Mock
 		postAgentMessage: jest.Mock
 		resolveByAgent: jest.Mock
+		markContactCaptured: jest.Mock
 	}
 	let auditService: { writeAudit: jest.Mock }
 	let liveService: { publish: jest.Mock }
+	let settingsService: { getEscalationSettings: jest.Mock }
 
 	beforeEach(() => {
 		jest.clearAllMocks()
+		;(isWithinBusinessHours as jest.Mock).mockReturnValue(true)
 		conversationService = {
 			markEscalationRequested: jest.fn().mockResolvedValue(undefined),
 			activateAgent: jest.fn().mockResolvedValue(undefined),
 			postAgentMessage: jest.fn().mockResolvedValue({ id: "message-1", turnIndex: 2 }),
 			resolveByAgent: jest.fn().mockResolvedValue(undefined),
+			markContactCaptured: jest.fn().mockResolvedValue(undefined),
 		}
 		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
 		liveService = { publish: jest.fn().mockResolvedValue(undefined) }
+		settingsService = { getEscalationSettings: jest.fn().mockResolvedValue({}) }
 		service = new EscalationService(
 			conversationService as never,
 			auditService as never,
-			liveService as never
+			liveService as never,
+			settingsService as never
 		)
 		mockUpdate.mockReturnValue({ set: () => ({ where: async () => [] }) })
 		mockInsert.mockReturnValue({
@@ -202,8 +214,74 @@ describe("EscalationService", () => {
 		expect(mockInsert).toHaveBeenCalledTimes(1)
 		expect(conversationService.markEscalationRequested).toHaveBeenCalledWith(
 			mockTx,
-			"conversation-1"
+			"conversation-1",
+			undefined
 		)
+	})
+
+	it("marks an off-hours escalation contact_captured immediately", async () => {
+		;(isWithinBusinessHours as jest.Mock).mockReturnValue(false)
+		mockSelect
+			.mockReturnValueOnce({
+				from: () => ({
+					where: () => ({
+						for: async () => [
+							{ id: "conversation-1", status: "ai_active", customerSessionId: "session-1" },
+						],
+					}),
+				}),
+			})
+			.mockReturnValueOnce({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
+
+		const result = await service.request({
+			conversationId: "conversation-1",
+			customerSessionId: "session-1",
+			reason: "I want to speak with a person",
+		})
+
+		expect(result.status).toBe("contact_captured")
+		expect(conversationService.markContactCaptured).toHaveBeenCalledWith(mockTx, "conversation-1", {
+			missed: false,
+		})
+		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
+	})
+
+	it("uses the caller's transaction and leaves offline publication to its owner", async () => {
+		;(isWithinBusinessHours as jest.Mock).mockReturnValue(false)
+		mockSelect
+			.mockReturnValueOnce({
+				from: () => ({
+					where: () => ({ for: async () => [{ id: "conversation-1", status: "ai_active" }] }),
+				}),
+			})
+			.mockReturnValueOnce({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
+
+		const result = await service.request(
+			{
+				conversationId: "conversation-1",
+				customerSessionId: "session-1",
+				reason: "I want to speak with a person",
+				category: "scam",
+			},
+			mockTx as never
+		)
+
+		expect(result.status).toBe("contact_captured")
+		expect(mockTransaction).not.toHaveBeenCalled()
+		expect(settingsService.getEscalationSettings).toHaveBeenCalledWith(mockTx)
+		expect(conversationService.markEscalationRequested).toHaveBeenCalledWith(
+			mockTx,
+			"conversation-1",
+			"scam"
+		)
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "escalations.requested",
+				after: expect.objectContaining({ offline: true }),
+			}),
+			mockTx
+		)
+		expect(liveService.publish).not.toHaveBeenCalled()
 	})
 
 	it("rejects a conversation owned by another customer session", async () => {
