@@ -235,6 +235,13 @@ reported ──► under_review ──► confirmed_scam ──► closed
 
 Only a holder of `scam.reports.validate` sets a finding. The customer-facing assessment stays advisory in every state.
 
+#### SCM-3 implementation
+
+- The generated report UUID `id` is the customer reference. There is one report per `submission_id`; repeating a send returns that reference. The customer must own the assessed submission through its Conversation and Customer Session.
+- The widget offers reporting after each scam assessment. Confirming the report creates it. A customer who also asks for a person triggers the existing ESC-1 handoff in the same transaction and reuses any open handoff in the Conversation.
+- Queue and detail require `scam.reports.view`. Start review, save a finding, and close require both read and `scam.reports.validate`. The two grants are independent. A finding uses `confirmed_scam`, `legitimate`, or `inconclusive` and is recorded separately from status so it survives closure. `reviewer_id` identifies the reviewer who started review until a finding is saved, then identifies the staff member who saved the finding.
+- Report creation records the existing `scam_reported` Interaction Event with no free-text payload. The implementation-specific audit actions submitted for reviewer confirmation are `scam.report.created` and `scam.report.status_changed` on `scam_report`, keyed by report UUID. Review audits include the previous and resulting status, finding, and reviewer, with notes stored on the report only. Handoff and authorization denials use the existing audit actions.
+
 ## 6. Cross-epic ownership risks
 
 | Table                              | Written by                             | Extended by                                   | Ownership rule                                                                                                                                                       |

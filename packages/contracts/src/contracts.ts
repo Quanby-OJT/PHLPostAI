@@ -6,6 +6,8 @@
 // V1 contracts (routers)
 export { v1Contract } from "./modules/v1/v1.contract.js"
 export type { V1Contract } from "./modules/v1/v1.contract.js"
+export { scamReportsContract } from "./modules/v1/scam-reports/scam-reports.contract.js"
+export * from "./modules/v1/scam-reports/scam-reports.schema.js"
 
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"

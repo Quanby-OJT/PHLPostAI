@@ -8,6 +8,7 @@ import {
 } from "@repo/contracts"
 
 import { AuditService } from "@/common/audit/audit.service"
+import type { DbTransaction } from "@/common/database/database.client"
 
 import { AssistantSettingsRepository } from "./assistant-settings.repository"
 
@@ -129,8 +130,8 @@ export class AssistantSettingsService {
 		}
 	}
 
-	async getEscalationSettings(): Promise<EscalationSettings> {
-		const rows = await this.repository.list()
+	async getEscalationSettings(transaction?: DbTransaction): Promise<EscalationSettings> {
+		const rows = await this.repository.list(transaction)
 		const values = new Map(rows.map(row => [row.key, row.value]))
 		const parsed = parseEscalationSettings({
 			rules: values.get("escalation_rules"),
