@@ -20,17 +20,11 @@ import {
 	CardTitle,
 } from "@/core/components/ui/card"
 import { Checkbox } from "@/core/components/ui/checkbox"
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/core/components/ui/dialog"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Skeleton } from "@/core/components/ui/skeleton"
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/core/components/ui/table"
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/core/components/ui/table"
 import { Textarea } from "@/core/components/ui/textarea"
 import {
 	exportGoldenSet,
@@ -42,6 +36,7 @@ import {
 	useUpdateGoldenItemMutation,
 	type GoldenItemUi,
 } from "@/features/eval/api/eval.hooks"
+import { categoryLabel, LANGUAGE_LABELS } from "@/features/knowledge/lib/labels"
 
 function truncate(text: string, length = 120): string {
 	return text.length > length ? `${text.slice(0, length - 1)}…` : text
@@ -61,6 +56,62 @@ function itemBadges(item: GoldenItemUi) {
 	if (item.answerQuality)
 		badges.push({ label: item.approvalReference ? "Approved" : "Draft", variant: "secondary" })
 	return badges
+}
+
+function GoldenItemExpectations({ quality }: { quality: GoldenItemUi["answerQuality"] }) {
+	if (!quality) return <span className="text-muted-foreground text-xs">Retrieval only</span>
+
+	return (
+		<dl className="grid gap-1.5 text-xs leading-snug">
+			<div>
+				<dt className="text-muted-foreground">Language</dt>
+				<dd>
+					{LANGUAGE_LABELS[quality.language]}
+					{quality.codeSwitched ? " (code-switched)" : ""}
+				</dd>
+			</div>
+			<div>
+				<dt className="text-muted-foreground">Use case</dt>
+				<dd>{categoryLabel(quality.useCase)}</dd>
+			</div>
+			<div>
+				<dt className="text-muted-foreground">Expected behavior</dt>
+				<dd className="capitalize">{quality.expectedBehavior}</dd>
+			</div>
+		</dl>
+	)
+}
+
+function GoldenItemDetails({ item }: { item: GoldenItemUi }) {
+	return (
+		<Dialog>
+			<DialogTrigger
+				aria-label={`View full text for ${truncate(item.question, 60)}`}
+				render={<Button type="button" variant="outline" size="sm" />}
+			>
+				View full text
+			</DialogTrigger>
+			<DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-2xl">
+				<DialogTitle className="pr-8">Golden item</DialogTitle>
+				<div
+					role="region"
+					aria-label="Full question and ideal answer"
+					tabIndex={0}
+					className="focus-visible:outline-ring min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-2 focus-visible:-outline-offset-2"
+				>
+					<GoldenItemExpectations quality={item.answerQuality} />
+					<div className="space-y-1">
+						<h3 className="font-medium">Question</h3>
+						<p className="wrap-anywhere whitespace-pre-wrap">{item.question}</p>
+					</div>
+					<div className="space-y-1">
+						<h3 className="font-medium">Ideal answer</h3>
+						<p className="wrap-anywhere whitespace-pre-wrap">{item.idealAnswer}</p>
+					</div>
+				</div>
+			</DialogContent>
+		</Dialog>
+	)
 }
 
 /**
@@ -210,7 +261,7 @@ export function GoldenView() {
 	}
 
 	return (
-		<div className="flex flex-col gap-6 p-4 md:p-6">
+		<div className="flex min-w-0 flex-col gap-6 p-4 md:p-6">
 			<Card>
 				<CardHeader>
 					<CardTitle>{editingId ? "Edit golden item" : "Add golden item"}</CardTitle>
@@ -271,27 +322,31 @@ export function GoldenView() {
 								<legend className="px-1 text-sm font-medium">Answer quality expectations</legend>
 								{[
 									{
+										id: "golden-language",
 										label: "Language",
 										value: language,
 										set: setLanguage,
 										values: EvalLanguageSchema.options,
 									},
 									{
+										id: "golden-use-case",
 										label: "Use case",
 										value: useCase,
 										set: setUseCase,
 										values: EvalUseCaseSchema.options,
 									},
 									{
+										id: "golden-expected-behavior",
 										label: "Expected behavior",
 										value: expectedBehavior,
 										set: setBehavior,
 										values: EvalBehaviorSchema.options,
 									},
 								].map(field => (
-									<label key={field.label} className="grid gap-1 text-sm">
-										{field.label}
+									<div key={field.id} className="grid min-w-0 gap-1 text-sm">
+										<Label htmlFor={field.id}>{field.label}</Label>
 										<select
+											id={field.id}
 											className="border-input bg-background rounded-md border p-2"
 											value={field.value}
 											onChange={event => field.set(event.target.value)}
@@ -300,7 +355,7 @@ export function GoldenView() {
 												<option key={value}>{value}</option>
 											))}
 										</select>
-									</label>
+									</div>
 								))}
 								<label className="flex items-center gap-2 text-sm sm:col-span-3">
 									<input
@@ -428,15 +483,18 @@ export function GoldenView() {
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader className="flex flex-row items-start justify-between gap-2">
+			<Card className="min-w-0">
+				<CardHeader className="flex flex-wrap items-start justify-between gap-3">
 					<div className="flex flex-col gap-1.5">
-						<CardTitle>Golden set</CardTitle>
+						<CardTitle id="golden-set-title">Golden set</CardTitle>
 						<CardDescription>
 							Items with orphaned chunk hashes are flagged stale after re-chunking.
 						</CardDescription>
+						<p className="text-muted-foreground text-xs md:hidden">
+							Scroll horizontally to see all columns.
+						</p>
 					</div>
-					<div className="flex gap-2">
+					<div className="flex flex-wrap gap-2">
 						<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
 							Export JSON
 						</Button>
@@ -487,7 +545,7 @@ export function GoldenView() {
 								)
 							}}
 						>
-							<p className="text-sm">
+							<p className="text-sm wrap-anywhere">
 								Record external PHLPost approval for “{approvalItem.question}”
 							</p>
 							<label className="grid gap-1 text-sm">
@@ -547,92 +605,141 @@ export function GoldenView() {
 							No golden items yet. Seeding needs an ingested corpus.
 						</p>
 					) : (
-						<Table data-testid="golden-items-table">
-							<TableHeader>
-								<TableRow>
-									<TableHead>Question</TableHead>
-									<TableHead>Ideal answer</TableHead>
-									<TableHead>Chunks</TableHead>
-									<TableHead>Tags</TableHead>
-									<TableHead>Status</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{items.map(item => (
-									<TableRow key={item.id}>
-										<TableCell className="max-w-xs align-top font-medium">
-											{truncate(item.question, 80)}
-										</TableCell>
-										<TableCell className="text-muted-foreground max-w-xs align-top text-sm">
-											{truncate(item.idealAnswer, 80)}
-										</TableCell>
-										<TableCell className="align-top">
-											<span className="font-mono text-xs">{item.expectedChunkHashes.length}</span>
-										</TableCell>
-										<TableCell className="align-top">
-											<div className="flex max-w-40 flex-wrap gap-1">
-												{item.tags.map(tag => (
-													<Badge key={tag} variant="outline" className="text-[10px]">
-														{tag}
-													</Badge>
-												))}
-											</div>
-										</TableCell>
-										<TableCell className="align-top">
-											<div className="flex flex-wrap gap-1">
-												{itemBadges(item).map(badge => (
-													<Badge key={badge.label} variant={badge.variant}>
-														{badge.label}
-													</Badge>
-												))}
-											</div>
-										</TableCell>
-										<TableCell className="text-right align-top">
-											<Button
-												type="button"
-												variant="outline"
-												size="sm"
-												onClick={() => editItem(item)}
-											>
-												Edit
-											</Button>
-											{item.answerQuality &&
-												item.status === "active" &&
-												!item.approvalReference &&
-												!item.tags.includes("synthetic-review-candidate") && (
+						<div
+							role="region"
+							aria-labelledby="golden-set-title"
+							tabIndex={0}
+							className="focus-visible:outline-ring isolate w-full min-w-0 overflow-x-auto rounded-md border focus-visible:outline-2 focus-visible:-outline-offset-2"
+						>
+							<table
+								data-testid="golden-items-table"
+								className="w-full min-w-[55rem] table-fixed text-sm"
+							>
+								<colgroup>
+									<col className="w-[19%]" />
+									<col />
+									<col className="w-[8.25rem]" />
+									<col className="w-[4.25rem]" />
+									<col className="w-[7.25rem]" />
+									<col className="w-[5.5rem]" />
+									<col className="w-[8rem]" />
+								</colgroup>
+								<TableHeader>
+									<TableRow>
+										<TableHead scope="col" className="px-3">
+											Question
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Ideal answer
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Expectations
+										</TableHead>
+										<TableHead scope="col" className="px-3 text-center">
+											Chunks
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Tags
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Status
+										</TableHead>
+										<TableHead scope="col" className="bg-card sticky right-0 z-10 border-l px-3">
+											Actions
+										</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{items.map(item => (
+										<TableRow key={item.id}>
+											<TableCell className="p-3 align-top font-medium">
+												<p className="line-clamp-4 wrap-anywhere whitespace-pre-wrap">
+													{item.question}
+												</p>
+											</TableCell>
+											<TableCell className="text-muted-foreground p-3 align-top">
+												<p className="line-clamp-4 wrap-anywhere whitespace-pre-wrap">
+													{item.idealAnswer}
+												</p>
+											</TableCell>
+											<TableCell className="p-3 align-top whitespace-normal">
+												<GoldenItemExpectations quality={item.answerQuality} />
+											</TableCell>
+											<TableCell className="p-3 text-center align-top">
+												<span className="font-mono text-xs">{item.expectedChunkHashes.length}</span>
+											</TableCell>
+											<TableCell className="p-3 align-top">
+												<div className="flex flex-wrap gap-1">
+													{item.tags.map(tag => (
+														<Badge
+															key={tag}
+															variant="outline"
+															className="h-auto min-h-5 max-w-full justify-start text-left text-[10px] wrap-anywhere whitespace-normal"
+														>
+															{tag}
+														</Badge>
+													))}
+												</div>
+											</TableCell>
+											<TableCell className="p-3 align-top">
+												<div className="flex flex-wrap gap-1">
+													{itemBadges(item).map(badge => (
+														<Badge key={badge.label} variant={badge.variant}>
+															{badge.label}
+														</Badge>
+													))}
+												</div>
+											</TableCell>
+											<TableCell className="bg-card sticky right-0 z-10 border-l p-3 align-top">
+												<div className="grid gap-1.5">
+													<GoldenItemDetails item={item} />
 													<Button
 														type="button"
 														variant="outline"
 														size="sm"
-														onClick={() => {
-															recordApproval.reset()
-															setApprovalItem(item)
-														}}
+														onClick={() => editItem(item)}
 													>
-														Record external approval
+														Edit
 													</Button>
-												)}
-											<Button
-												type="button"
-												variant={item.status === "active" ? "destructive" : "outline"}
-												size="sm"
-												aria-label={`${item.status === "active" ? "Retire" : "Reactivate"} ${truncate(item.question, 40)}`}
-												disabled={updateItem.isPending}
-												onClick={() =>
-													updateItem.mutate({
-														id: item.id,
-														status: item.status === "active" ? "retired" : "active",
-													})
-												}
-											>
-												{item.status === "active" ? "Retire" : "Reactivate"}
-											</Button>
-										</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+													{item.answerQuality &&
+														item.status === "active" &&
+														!item.approvalReference &&
+														!item.tags.includes("synthetic-review-candidate") && (
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																className="h-auto min-h-7 py-1 whitespace-normal"
+																onClick={() => {
+																	recordApproval.reset()
+																	setApprovalItem(item)
+																}}
+															>
+																Record external approval
+															</Button>
+														)}
+													<Button
+														type="button"
+														variant={item.status === "active" ? "destructive" : "outline"}
+														size="sm"
+														aria-label={`${item.status === "active" ? "Retire" : "Reactivate"} ${truncate(item.question, 40)}`}
+														disabled={updateItem.isPending}
+														onClick={() =>
+															updateItem.mutate({
+																id: item.id,
+																status: item.status === "active" ? "retired" : "active",
+															})
+														}
+													>
+														{item.status === "active" ? "Retire" : "Reactivate"}
+													</Button>
+												</div>
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</table>
+						</div>
 					)}
 					{updateItem.error ? (
 						<p role="alert" className="text-destructive mt-2 text-sm">
