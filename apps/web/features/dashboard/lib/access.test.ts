@@ -194,6 +194,8 @@ describe("navItems", () => {
 			"Reports",
 			"Assistant Settings",
 			"Inquiry Categories",
+			"Risk Indicators",
+			"Official Contacts",
 			"Configuration",
 			"Channels",
 			"API Keys",
@@ -206,6 +208,16 @@ describe("navItems", () => {
 		expect(labels(["scam.reports.view"])).toContain("Scam Reports")
 		expect(labels(["scam.reports.validate"])).not.toContain("Scam Reports")
 		expect(labels([])).not.toContain("Scam Reports")
+	})
+
+	it("gates both SCM-2 destinations with the same permission", () => {
+		const scmPages = ["/risk-indicators", "/official-contacts"]
+		const visible = getAccessibleNavItems({
+			roles: [],
+			permissions: ["scam.indicators.manage"],
+		}).map(item => item.href)
+		expect(visible).toEqual(expect.arrayContaining(scmPages))
+		expect(getAccessibleNavItems(noAccess).some(item => scmPages.includes(item.href))).toBe(false)
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {

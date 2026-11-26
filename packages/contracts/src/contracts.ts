@@ -268,6 +268,18 @@ export type {
 
 export { assistantContract } from "./modules/v1/assistant/assistant.contract.js"
 export {
+	CreateOfficialContactSchema,
+	CreateRiskIndicatorSchema,
+	TestScamAssessmentRequestSchema,
+	UpdateRiskIndicatorSchema,
+	type CreateOfficialContact,
+	type CreateRiskIndicator,
+	type OfficialContact,
+	type RiskIndicator,
+	type TestScamAssessment,
+	type UpdateRiskIndicator,
+} from "./modules/v1/scam/scam.schema.js"
+export {
 	CreateInquiryCategoryRequestSchema,
 	AssistantSettingsSchema,
 	InquiryCategorySchema,

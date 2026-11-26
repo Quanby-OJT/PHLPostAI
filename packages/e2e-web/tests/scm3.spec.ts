@@ -79,7 +79,18 @@ test.describe("SCM-3 customer reporting and staff review", () => {
 				)
 				const detail = await staff.newPage()
 				await detail.goto(ORIGIN + "/scam-reports")
-				await detail.getByRole("link", { name: reference }).click()
+				const reportLink = detail.getByRole("link", { name: reference })
+				const nextPage = detail.getByRole("button", { name: "Next", exact: true })
+				await expect(detail.getByRole("table")).toBeVisible()
+				while (
+					!(await reportLink.isVisible()) &&
+					(await nextPage.isVisible()) &&
+					(await nextPage.isEnabled())
+				) {
+					await nextPage.click()
+					await expect(detail.getByRole("table")).toBeVisible()
+				}
+				await reportLink.click()
 				const evidence = detail.getByRole("region", { name: "Masked submission" })
 				await expect(evidence).toContainText("[PHONE]")
 				await expect(evidence).toContainText("[EMAIL]")

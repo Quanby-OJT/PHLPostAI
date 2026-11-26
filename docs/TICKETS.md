@@ -930,7 +930,7 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 - Known scam patterns (SCM-4)
 
-**Technical notes:** Flow D — Scam assessment, steps 3 and 4. Look-alike detection uses edit distance and homoglyph folding against `official_contacts`. Enforces `scam.indicators.manage`.
+**Technical notes:** Flow D — Scam assessment, steps 3 and 4. Look-alike detection uses edit distance and homoglyph folding against `official_contacts`. Enforces `scam.indicators.manage`. Use the names from `DOMAIN-MODEL.md` for `official_contacts` and `risk_indicators`, and document new domain names there first.
 
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 
