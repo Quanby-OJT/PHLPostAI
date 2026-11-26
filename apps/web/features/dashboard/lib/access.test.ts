@@ -51,7 +51,10 @@ describe("canAccess", () => {
 
 	it("denies wildcard grants outside the required prefix", () => {
 		expect(
-			canAccess({ roles: [], permissions: ["corpus.*"] }, { requiredPermission: "chat.query.submit" })
+			canAccess(
+				{ roles: [], permissions: ["corpus.*"] },
+				{ requiredPermission: "chat.query.submit" }
+			)
 		).toBe(false)
 		expect(
 			canAccess(
@@ -72,7 +75,10 @@ describe("canAccess", () => {
 
 	it("allows role requirements to match", () => {
 		expect(
-			canAccess({ roles: ["Knowledge Manager"], permissions: [] }, { requiredRole: "Knowledge Manager" })
+			canAccess(
+				{ roles: ["Knowledge Manager"], permissions: [] },
+				{ requiredRole: "Knowledge Manager" }
+			)
 		).toBe(true)
 	})
 
@@ -110,9 +116,7 @@ describe("navItems", () => {
 	})
 
 	it("filters visible items from the shared access helper", () => {
-		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual([
-			"Dashboard",
-		])
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual(["Dashboard"])
 
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["users.roles.manage"] }).map(
@@ -158,9 +162,7 @@ describe("navItems", () => {
 				getAccessibleNavItems({ roles: [], permissions: [key] }).map(item => item.label)
 			).toContain("Knowledge base")
 		}
-		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain(
-			"Knowledge base"
-		)
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain("Knowledge base")
 
 		// TRK-2: status explanations need tracking.explanations.manage.
 		expect(
@@ -191,10 +193,22 @@ describe("navItems", () => {
 			"Reports",
 			"Assistant Settings",
 			"Inquiry Categories",
+			"Risk Indicators",
+			"Official Contacts",
 			"Configuration",
 			"Channels",
 			"API Keys",
 		])
+	})
+
+	it("gates both SCM-2 destinations with the same permission", () => {
+		const scmPages = ["/risk-indicators", "/official-contacts"]
+		const visible = getAccessibleNavItems({
+			roles: [],
+			permissions: ["scam.indicators.manage"],
+		}).map(item => item.href)
+		expect(visible).toEqual(expect.arrayContaining(scmPages))
+		expect(getAccessibleNavItems(noAccess).some(item => scmPages.includes(item.href))).toBe(false)
 	})
 
 	it("resolves mobile header titles from dashboard routes", () => {

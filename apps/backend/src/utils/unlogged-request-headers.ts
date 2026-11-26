@@ -1,16 +1,15 @@
 /**
  * Inbound request headers this backend stores nowhere.
  *
- * These are not credentials. The shared deny-list in `@repo/observability` is
- * the credential set the web and mobile parity tests share, and this header is
- * not on it. `x-request-id` is only the caller's suggestion: the id on record
+ * `x-customer-session` grants access to an anonymous conversation.
+ * `x-request-id` is only the caller's suggestion: the id on record
  * is the one this server assigned (`req.id`, echoed on the response). An
  * inbound value that failed that check must not be kept beside it.
  *
  * Node lower-cases incoming header names. Callers still match case-insensitively,
  * because Sentry replays the header map in whatever case it captured.
  */
-export const UNLOGGED_REQUEST_HEADERS = ["x-request-id"] as const
+export const UNLOGGED_REQUEST_HEADERS = ["x-request-id", "x-customer-session"] as const
 
 const unloggedRequestHeaderNames = new Set<string>(UNLOGGED_REQUEST_HEADERS)
 

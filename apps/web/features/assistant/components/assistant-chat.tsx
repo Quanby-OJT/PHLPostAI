@@ -120,6 +120,7 @@ export function AssistantChat() {
 	const [accepted, setAccepted] = useState(false)
 	const [turns, setTurns] = useState<Turn[]>([])
 	const [question, setQuestion] = useState("")
+	const [scamMode, setScamMode] = useState(false)
 	const [conversationId, setConversationId] = useState<string | undefined>()
 	const [busy, setBusy] = useState(false)
 	const [error, setError] = useState<string | null>(null)
@@ -136,6 +137,7 @@ export function AssistantChat() {
 	const [language, setLanguage] = useState<CustomerLanguage>("en")
 	const endRef = useRef<HTMLDivElement>(null)
 	const inputRef = useRef<HTMLInputElement>(null)
+	const scamInputRef = useRef<HTMLTextAreaElement>(null)
 
 	// Restore this tab's chat after mount (not during render, to avoid a hydration mismatch).
 	useEffect(() => {
@@ -256,8 +258,11 @@ export function AssistantChat() {
 
 	// Keep keyboard focus in the box: after accepting, and after each answer.
 	useEffect(() => {
-		if (accepted && !busy && waitSeconds === 0) inputRef.current?.focus()
-	}, [accepted, busy, waitSeconds])
+		if (accepted && !busy && waitSeconds === 0 && !agentResolved && channelEnabled) {
+			const composer = scamMode ? scamInputRef : inputRef
+			composer.current?.focus()
+		}
+	}, [accepted, agentResolved, busy, channelEnabled, scamMode, waitSeconds])
 
 	/** The stored session, or a freshly opened one in the chosen language. */
 	const ensureSession = useCallback(
@@ -295,26 +300,45 @@ export function AssistantChat() {
 		}
 	}, [])
 
-	const appendFinal = useCallback((final: CustomerAnswer) => {
-		setConversationId(final.conversationId)
-		setTurns(previous => {
-			const next = [...previous]
-			next[next.length - 1] = {
-				sender: "assistant",
-				content: final.answer,
-				sources: final.sources,
-				answerKind: final.answerKind,
-				streaming: false,
-			}
-			return next
-		})
-	}, [])
+	const appendFinal = useCallback(
+		(final: CustomerAnswer) => {
+			setConversationId(final.conversationId)
+			setTurns(previous => {
+				const next = [...previous]
+				const questionIndex = next.length - 2
+				if (final.scamAssessment && next[questionIndex]?.sender === "customer") {
+					next[questionIndex] = {
+						sender: "customer",
+						content: ASSISTANT_COPY[language].scamSubmitted,
+					}
+				}
+				next[next.length - 1] = {
+					sender: "assistant",
+					content: final.answer,
+					sources: final.sources,
+					answerKind: final.answerKind,
+					streaming: false,
+				}
+				return next
+			})
+		},
+		[language]
+	)
 
 	const ask = useCallback(
 		async (event: React.FormEvent) => {
 			event.preventDefault()
 			const asked = question.trim()
-			if (!accepted || !asked || busy || waitSeconds > 0 || agentResolved || !channelEnabled) return
+			if (
+				!accepted ||
+				!asked ||
+				busy ||
+				handoffBusy ||
+				waitSeconds > 0 ||
+				agentResolved ||
+				!channelEnabled
+			)
+				return
 
 			setQuestion("")
 			setError(null)
@@ -322,9 +346,10 @@ export function AssistantChat() {
 			setBusy(true)
 			setTurns(previous => [
 				...previous,
-				{ sender: "customer", content: asked },
+				{ sender: "customer", content: scamMode ? ASSISTANT_COPY[language].scamSubmitted : asked },
 				{ sender: "assistant", content: "", streaming: true },
 			])
+			const input = { query: asked, ...(scamMode && { intent: "scam" as const }) }
 
 			const handlers: AssistantStreamHandlers = {
 				onToken: (delta: string) =>
@@ -338,7 +363,7 @@ export function AssistantChat() {
 				onAgentMode: result => {
 					setConversationId(result.conversationId)
 					setHandoffDone(true)
-					setTurns(previous => (previous.at(-1)?.streaming ? previous.slice(0, -1) : previous))
+					setTurns(previous => previous.filter(turn => !turn.streaming))
 				},
 			}
 
@@ -348,7 +373,7 @@ export function AssistantChat() {
 				if (!hadSession) setConversationId(undefined)
 				try {
 					await streamQuestion(
-						{ query: asked, conversationId: hadSession ? conversationId : undefined },
+						{ ...input, conversationId: hadSession ? conversationId : undefined },
 						token,
 						handlers
 					)
@@ -358,7 +383,7 @@ export function AssistantChat() {
 					if (streamError instanceof ApiError && streamError.status === 401) {
 						const freshToken = await ensureSession(true)
 						setConversationId(undefined)
-						await streamQuestion({ query: asked }, freshToken, handlers)
+						await streamQuestion(input, freshToken, handlers)
 					} else {
 						throw streamError
 					}
@@ -382,13 +407,15 @@ export function AssistantChat() {
 		[
 			accepted,
 			agentResolved,
-			channelEnabled,
 			appendFinal,
 			busy,
+			channelEnabled,
 			conversationId,
 			ensureSession,
+			handoffBusy,
 			language,
 			question,
+			scamMode,
 			waitSeconds,
 		]
 	)
@@ -396,12 +423,16 @@ export function AssistantChat() {
 	const requestAgent = useCallback(
 		async (event: React.FormEvent) => {
 			event.preventDefault()
-			if (!conversationId || handoffBusy || handoffDone) return
+			if (!conversationId || busy || handoffBusy || handoffDone) return
 			setHandoffBusy(true)
 			setError(null)
 			try {
 				const sessionToken = await ensureSession()
 				await requestHumanHandoff({ conversationId, reason: handoffReason, sessionToken })
+				if (scamMode) {
+					setQuestion("")
+					setScamMode(false)
+				}
 				setHandoffDone(true)
 			} catch (caught) {
 				setError(
@@ -411,7 +442,16 @@ export function AssistantChat() {
 				setHandoffBusy(false)
 			}
 		},
-		[conversationId, ensureSession, handoffBusy, handoffDone, handoffReason, language]
+		[
+			busy,
+			conversationId,
+			ensureSession,
+			handoffBusy,
+			handoffDone,
+			handoffReason,
+			language,
+			scamMode,
+		]
 	)
 
 	const endChat = useCallback(async () => {
@@ -646,35 +686,68 @@ export function AssistantChat() {
 						</p>
 					) : null}
 
-					<form onSubmit={ask} className="flex gap-2 border-t pt-3">
-						<label className="sr-only" htmlFor="assistant-question">
-							{copy.questionLabel}
-						</label>
-						<input
-							ref={inputRef}
-							id="assistant-question"
-							value={question}
-							onChange={event => setQuestion(event.target.value)}
-							placeholder={copy.questionPlaceholder}
-							autoComplete="off"
-							maxLength={1000}
-							className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
-							disabled={busy || waitSeconds > 0 || agentResolved || !channelEnabled}
-						/>
+					<div className="space-y-2 border-t pt-2">
 						<button
-							type="submit"
-							className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
-							disabled={
-								busy ||
-								waitSeconds > 0 ||
-								agentResolved ||
-								!channelEnabled ||
-								question.trim() === ""
-							}
+							type="button"
+							aria-pressed={scamMode}
+							onClick={() => {
+								setQuestion("")
+								setScamMode(mode => !mode)
+							}}
+							disabled={busy || handoffBusy || waitSeconds > 0 || handoffDone || !channelEnabled}
+							className="focus-visible:ring-ring aria-pressed:bg-secondary min-h-11 rounded-lg border px-3 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50"
 						>
-							{busy ? copy.asking : copy.ask}
+							{copy.scamEntry}
 						</button>
-					</form>
+						<form onSubmit={ask} className="flex items-end gap-2">
+							<label className="sr-only" htmlFor="assistant-question">
+								{scamMode ? copy.scamPlaceholder : copy.questionLabel}
+							</label>
+							{scamMode ? (
+								<textarea
+									ref={scamInputRef}
+									id="assistant-question"
+									value={question}
+									onChange={event => setQuestion(event.target.value)}
+									placeholder={copy.scamPlaceholder}
+									maxLength={4000}
+									rows={3}
+									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 resize-none rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
+									disabled={
+										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+									}
+								/>
+							) : (
+								<input
+									ref={inputRef}
+									id="assistant-question"
+									value={question}
+									onChange={event => setQuestion(event.target.value)}
+									placeholder={copy.questionPlaceholder}
+									autoComplete="off"
+									maxLength={1000}
+									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
+									disabled={
+										busy || handoffBusy || waitSeconds > 0 || agentResolved || !channelEnabled
+									}
+								/>
+							)}
+							<button
+								type="submit"
+								className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50"
+								disabled={
+									busy ||
+									handoffBusy ||
+									waitSeconds > 0 ||
+									agentResolved ||
+									!channelEnabled ||
+									question.trim() === ""
+								}
+							>
+								{busy ? copy.asking : scamMode ? copy.scamAsk : copy.ask}
+							</button>
+						</form>
+					</div>
 				</>
 			)}
 		</div>

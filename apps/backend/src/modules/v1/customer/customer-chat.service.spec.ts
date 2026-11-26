@@ -535,7 +535,7 @@ describe("CustomerChatService (CNV-1)", () => {
 
 		it.each([
 			["rates", "rates"],
-			["scam", "retrieval"],
+			["scam", "scam"],
 			["postal-id", "retrieval"],
 			["other", "retrieval"],
 		])("routes %s to %s", async (category, route) => {

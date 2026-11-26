@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common"
+import { Injectable, Logger, ServiceUnavailableException } from "@nestjs/common"
 
 import type {
 	CustomerAnswer,
@@ -20,6 +20,7 @@ import { validateCustomerAnswer } from "./answer-guardrail"
 import { ConversationService } from "./conversation.service"
 import { I_DONT_KNOW_REPLIES, replyLanguageFor, withLanguageNotice } from "./customer-language"
 import { routeForCategory, type InquiryRoute } from "./inquiry-routing"
+import { inspectScamLinks, isScamSubmission, maskScamInput } from "./scam-checks"
 
 /**
  * What the assistant says when screening refuses a question (AC4). Fixed text:
@@ -172,6 +173,7 @@ export class CustomerChatService {
 	 */
 	async classify(input: {
 		query: string
+		intent?: "scam"
 		principal: string
 		permissions: readonly string[]
 		correlationId: string
@@ -179,8 +181,27 @@ export class CustomerChatService {
 		conversationId?: string
 	}): Promise<InquiryClassification> {
 		const categories = await this.assistantService.listActiveCategories()
+		const active = new Set(categories.map(category => category.code))
+		if (input.intent === "scam" && !active.has("scam")) {
+			throw new ServiceUnavailableException("Suspicious-message assessment is unavailable")
+		}
+		// Flow D treats a paste as evidence. General chat screening can reject
+		// instructions, so do not run that refusal path on a deliberate submission.
+		if (active.has("scam") && (input.intent === "scam" || isScamSubmission(input.query))) {
+			return {
+				screenedQuery: "",
+				category: "scam",
+				language: null,
+				replyLanguage: replyLanguageFor(null, input.sessionLanguage),
+				route: routeForCategory("scam"),
+			}
+		}
+		// CNV-2 can still discover a scam in ordinary chat. The initial model
+		// call gets the same private-value and URL redaction as the scam tool.
+		const modelQuery = maskScamInput(inspectScamLinks(input.query, []).textWithoutLinks)
 		const result = await this.ragGatewayService.classifyInquiry({
 			query: input.query,
+			...(modelQuery !== input.query && { modelQuery }),
 			categories,
 			userId: input.principal,
 			permissions: input.permissions,
@@ -188,7 +209,6 @@ export class CustomerChatService {
 			traceId: input.correlationId,
 			actorType: "customer",
 		})
-		const active = new Set(categories.map(category => category.code))
 		const category = result.fallbackUsed
 			? this.fallbackCategory(result.screenedQuery, active)
 			: active.has(result.category)

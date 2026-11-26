@@ -41,6 +41,10 @@ export interface AssistantCopy {
 	tooQuick: (seconds: number) => string
 	questionLabel: string
 	questionPlaceholder: string
+	scamEntry: string
+	scamPlaceholder: string
+	scamSubmitted: string
+	scamAsk: string
 	ask: string
 	asking: string
 	unavailable: string
@@ -80,6 +84,10 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 			`You're sending messages too quickly. Please wait ${seconds} second${seconds === 1 ? "" : "s"} before sending another.`,
 		questionLabel: "Your question",
 		questionPlaceholder: "How do I send Express Mail?",
+		scamEntry: "Check a suspicious message",
+		scamPlaceholder: "Paste the message, email, or link",
+		scamSubmitted: "Suspicious message submitted",
+		scamAsk: "Check message",
 		ask: "Ask",
 		asking: "Asking…",
 		unavailable: "The assistant is unavailable. Please try again.",
@@ -119,6 +127,10 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 			`Masyadong mabilis ang pagpapadala mo ng mensahe. Maghintay ng ${seconds} segundo bago magpadala ulit.`,
 		questionLabel: "Ang iyong tanong",
 		questionPlaceholder: "Paano magpadala ng Express Mail?",
+		scamEntry: "Suriin ang kahina-hinalang mensahe",
+		scamPlaceholder: "I-paste ang mensahe, email, o link",
+		scamSubmitted: "Naipadala ang kahina-hinalang mensahe",
+		scamAsk: "Suriin",
 		ask: "Itanong",
 		asking: "Nagtatanong…",
 		unavailable: "Hindi available ang assistant ngayon. Pakisubukan ulit.",
@@ -157,6 +169,10 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 			`Paspas kaayo ang imong pagpadala og mensahe. Palihug paghulat og ${seconds} ka segundo sa dili pa magpadala pag-usab.`,
 		questionLabel: "Imong pangutana",
 		questionPlaceholder: "Unsaon pagpadala og Express Mail?",
+		scamEntry: "Susihon ang kadudahang mensahe",
+		scamPlaceholder: "I-paste ang mensahe, email, o link",
+		scamSubmitted: "Gipadala ang kadudahang mensahe",
+		scamAsk: "Susihon",
 		ask: "Pangutana",
 		asking: "Nangutana…",
 		unavailable: "Dili magamit ang assistant karon. Palihug sulayi pag-usab.",
@@ -194,6 +210,10 @@ export const ASSISTANT_COPY: Record<CustomerLanguage, AssistantCopy> = {
 		tooQuick: seconds =>
 			`Napardas unay ti panangipatulodmo kadagiti mensahe. Agurayka iti ${seconds} a segundo sakbay nga agipatulodka manen.`,
 		questionLabel: "Ti saludsodmo",
+		scamEntry: "Sukimatem ti makapagduda a mensahe",
+		scamPlaceholder: "Ipasta ti mensahe, email, wenno link",
+		scamSubmitted: "Naipatulod ti makapagduda a mensahe",
+		scamAsk: "Sukimaten",
 		questionPlaceholder: "Kasano ti agipatulod iti Express Mail?",
 		ask: "Agdamag",
 		asking: "Agdamdamag…",

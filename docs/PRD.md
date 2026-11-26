@@ -1,7 +1,7 @@
 # PHLPost AI Customer Support — Lean PRD
 
 AI-Backed Customer Support Solution for the Philippine Postal Corporation (PHLPost).
-Source: PHLPost Technical Specifications, source pages 90–127, Approved Budget for the Contract Php 7,000,000 ("TS"). Section numbers below (§) refer to the TS.
+Source: PHLPost Technical Specifications, source pages 90–127, Approved Budget for the Contract Php 7,000,000 ("TS"), as amended by Bid Bulletin Addendum No. 2026-17 dated 2026-11-06 ("Addendum"). Section numbers below (§) refer to the TS.
 Prepared 2026-11-14. Companion files: `DOMAIN-MODEL.md`, `TICKETS.md`.
 
 ## Problem
@@ -107,6 +107,7 @@ Code and tests merged · acceptance criteria pass · permission and audit checks
 | D10 | The deflection rate is computed from a versioned KPI definition, and each report cites the version | Auditable KPI reporting (§6.14) |
 | D11 | AI-drafted management summaries carry the figures they were built from and need a person's approval before they are shown as final | Traceability and human review (§3.2) |
 | D12 | Ticket blocks follow the format parsed by the template's `scripts/tickets-to-issues.mjs` and `scripts/tickets-to-linear.mjs` | `TICKETS.md` imports unchanged |
+| D13 | DOMAIN-MODEL table, column, setting-key, and event-kind names are binding. Every ticket that touches a table names it in its technical notes and points to DOMAIN-MODEL; a name a ticket needs is added to DOMAIN-MODEL first, in the same pull request (2026-11-17) | One vocabulary for the whole team and their AI assistants; prevents each pull request inventing its own names |
 
 ### Assumptions for items the TS leaves undefined
 

@@ -128,6 +128,20 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "settings.assistant.manage",
 	},
 	{
+		label: "Risk Indicators",
+		href: "/risk-indicators",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "scam.indicators.manage",
+	},
+	{
+		label: "Official Contacts",
+		href: "/official-contacts",
+		icon: CheckmarkBadge01Icon,
+		section: "Administration",
+		requiredPermission: "scam.indicators.manage",
+	},
+	{
 		// OB-5: read-only effective-config review (secrets masked server-side).
 		label: "Configuration",
 		href: "/ops-config",

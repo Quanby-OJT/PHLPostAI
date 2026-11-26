@@ -41,6 +41,7 @@ import {
 } from "./customer-chat.service"
 import { ragLanguageFields } from "./customer-language"
 import { CustomerSessionService, type CustomerSessionRow } from "./customer-session.service"
+import { ScamAssessmentService } from "./scam-assessment.service"
 import { formatSseFrame, readSseFrames } from "./sse-frames"
 
 /** Permissions the public turn's service JWT carries into the RAG service. */
@@ -71,7 +72,8 @@ export class CustomerController {
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly conversationLiveService: ConversationLiveService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
-		private readonly channelsService: ChannelsService
+		private readonly channelsService: ChannelsService,
+		private readonly scamAssessmentService: ScamAssessmentService
 	) {}
 
 	@AllowAnonymous()
@@ -159,19 +161,27 @@ export class CustomerController {
 				conversation.status === "escalation_requested" ||
 				conversation.status === "agent_active"
 			) {
-				const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
-				const saved = await this.conversationService.recordCustomerMessage({
-					conversationId: conversation.id,
-					customerSessionId: session.id,
-					maskedQuery,
-				})
-				await this.conversationLiveService.publish(conversation.id)
-				return { agentMode: true as const, conversationId: conversation.id, messageId: saved.id }
+				try {
+					return await this.sendAgentMessage(
+						session,
+						conversation.id,
+						message.text,
+						correlationId,
+						input.intent
+					)
+				} catch (error) {
+					return toORPCError(error)
+				}
 			}
 
 			let classification: InquiryClassification
 			try {
-				classification = await this.classify(session, conversation.id, message.text, correlationId)
+				classification = await this.classify(
+					session,
+					conversation.id,
+					{ query: message.text, intent: input.intent },
+					correlationId
+				)
 			} catch (error) {
 				const refusal = await this.refuseIfScreened(
 					error,
@@ -184,38 +194,18 @@ export class CustomerController {
 				return toORPCError(error)
 			}
 			const settings = await this.assistantSettingsService.get()
-
-			if (classification.route === "tracking") {
+			if (classification.route !== "retrieval") {
 				try {
 					return adapter.send(
-						await this.answerTracking(
+						await this.answerTool(
 							session,
 							conversation.id,
+							message.text,
 							classification,
 							correlationId,
 							startedAt,
-							settings.confidenceThreshold,
-							settings.blockedTopics
-						)
-					)
-				} catch (error) {
-					await this.conversationService.recordUnansweredInquiry({
-						conversationId: conversation.id,
-						category: classification.category,
-					})
-					return toORPCError(error)
-				}
-			}
-
-			if (classification.route === "rates") {
-				try {
-					return adapter.send(
-						await this.answerRates(
-							session,
-							conversation.id,
-							classification,
-							correlationId,
-							settings.blockedTopics
+							settings.blockedTopics,
+							settings.confidenceThreshold
 						)
 					)
 				} catch (error) {
@@ -236,7 +226,6 @@ export class CustomerController {
 					requestId: correlationId,
 					traceId: correlationId,
 					actorType: "customer",
-					// The public path's rows belong to ConversationService.
 					persist: false,
 					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
@@ -273,11 +262,9 @@ export class CustomerController {
 	 * SSE mode (AC1 asks for a streamed answer). A plain Nest route because
 	 * oRPC is JSON-only, same as the staff stream.
 	 *
-	 * `token` frames are forwarded verbatim as they arrive; the RAG service's
-	 * `final` frame is withheld and replaced with the public envelope, because
-	 * only this layer knows the conversation id, the stored message id, and the
-	 * article titles. The turn is persisted before that frame is written, so a
-	 * customer never sees an answer that was not recorded.
+	 * Hold draft tokens until the final confidence is known. Persist the selected
+	 * reply, then send its text and a final envelope with the conversation ID,
+	 * stored message ID, and article titles.
 	 */
 	@Post("v1/customer/chat/stream")
 	@AllowAnonymous()
@@ -303,23 +290,26 @@ export class CustomerController {
 		const conversation = await this.resolveConversation(session, message.conversationId)
 		const correlationId = String(request.id ?? crypto.randomUUID())
 		if (conversation.status === "escalation_requested" || conversation.status === "agent_active") {
-			const maskedQuery = await this.screenForAgent(message.text, session, correlationId)
-			const saved = await this.conversationService.recordCustomerMessage({
-				conversationId: conversation.id,
-				customerSessionId: session.id,
-				maskedQuery,
-			})
-			await this.conversationLiveService.publish(conversation.id)
-			response
-				.status(200)
-				.json({ agentMode: true, conversationId: conversation.id, messageId: saved.id })
+			const result = await this.sendAgentMessage(
+				session,
+				conversation.id,
+				message.text,
+				correlationId,
+				parsed.data.intent
+			)
+			response.status(200).json(result)
 			return
 		}
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
 		try {
-			classification = await this.classify(session, conversation.id, message.text, correlationId)
+			classification = await this.classify(
+				session,
+				conversation.id,
+				{ query: message.text, intent: parsed.data.intent },
+				correlationId
+			)
 		} catch (error) {
 			const refusal = await this.refuseIfScreened(
 				error,
@@ -335,29 +325,20 @@ export class CustomerController {
 			}
 			return
 		}
+		// Tool results arrive as one completed turn after persistence.
 		const assistantSettings = await this.assistantSettingsService.get()
-
-		// Tool turns (tracking, rates) are answered by their tool, not streamed.
-		if (classification.route === "tracking" || classification.route === "rates") {
+		if (classification.route !== "retrieval") {
 			try {
-				const turn =
-					classification.route === "tracking"
-						? await this.answerTracking(
-								session,
-								conversation.id,
-								classification,
-								correlationId,
-								startedAt,
-								assistantSettings.confidenceThreshold,
-								assistantSettings.blockedTopics
-							)
-						: await this.answerRates(
-								session,
-								conversation.id,
-								classification,
-								correlationId,
-								assistantSettings.blockedTopics
-							)
+				const turn = await this.answerTool(
+					session,
+					conversation.id,
+					message.text,
+					classification,
+					correlationId,
+					startedAt,
+					assistantSettings.blockedTopics,
+					assistantSettings.confidenceThreshold
+				)
 				response.status(200).json(adapter.send(turn))
 			} catch {
 				await this.conversationService.recordUnansweredInquiry({
@@ -537,11 +518,11 @@ export class CustomerController {
 	private classify(
 		session: CustomerSessionRow,
 		conversationId: string,
-		query: string,
+		input: { query: string; intent?: "scam" },
 		correlationId: string
 	): Promise<InquiryClassification> {
 		return this.customerChatService.classify({
-			query,
+			...input,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
@@ -550,44 +531,44 @@ export class CustomerController {
 		})
 	}
 
-	/** KB-2: answer from the rate table through the lookup tool. Already screened. */
-	private async answerRates(
+	private async answerTool(
 		session: CustomerSessionRow,
 		conversationId: string,
+		query: string,
 		classification: InquiryClassification,
 		correlationId: string,
-		blockedTopics: readonly string[]
+		requestStartedAt: number,
+		blockedTopics: readonly string[],
+		confidenceThreshold: number
 	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerRates({
+		const context = {
 			conversationId,
 			classification,
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
 			blockedTopics,
-		})
-		return { ...turn, conversationId }
-	}
-
-	/** TRK-1: answer from the tracking connector. The question is already screened. */
-	private async answerTracking(
-		session: CustomerSessionRow,
-		conversationId: string,
-		classification: InquiryClassification,
-		correlationId: string,
-		requestStartedAt: number,
-		confidenceThreshold = 0.7,
-		blockedTopics: readonly string[] = []
-	): Promise<CustomerAnswer> {
-		const turn = await this.customerChatService.answerTracking({
-			conversationId,
-			classification,
-			correlationId,
-			requestStartedAt,
-			explanationLanguage: session.language,
-			confidenceThreshold,
-			blockedTopics,
-		})
+		}
+		if (classification.route === "scam") {
+			return this.scamAssessmentService.answer({
+				...context,
+				query,
+				sessionLanguage: session.language,
+				requestStartedAt,
+			})
+		}
+		const turn =
+			classification.route === "tracking"
+				? await this.customerChatService.answerTracking({
+						conversationId,
+						classification,
+						correlationId,
+						requestStartedAt,
+						explanationLanguage: session.language,
+						confidenceThreshold,
+						blockedTopics,
+					})
+				: await this.customerChatService.answerRates(context)
 		return { ...turn, conversationId }
 	}
 
@@ -651,7 +632,16 @@ export class CustomerController {
 		throw error
 	}
 
-	private async screenForAgent(query: string, session: CustomerSessionRow, correlationId: string) {
+	private async sendAgentMessage(
+		session: CustomerSessionRow,
+		conversationId: string,
+		query: string,
+		correlationId: string,
+		intent?: "scam"
+	) {
+		if (intent === "scam") {
+			throw new ConflictException("Start a new chat to check a suspicious message.")
+		}
 		const screened = await this.ragGatewayService.screenQuery({
 			query,
 			userId: this.principalFor(session),
@@ -660,7 +650,13 @@ export class CustomerController {
 			traceId: correlationId,
 			actorType: "customer",
 		})
-		return screened.screenedQuery
+		const saved = await this.conversationService.recordCustomerMessage({
+			conversationId,
+			customerSessionId: session.id,
+			maskedQuery: screened.screenedQuery,
+		})
+		await this.conversationLiveService.publish(conversationId)
+		return { agentMode: true as const, conversationId, messageId: saved.id }
 	}
 
 	/** Turn a screening 400 from the gateway into a recorded refusal (AC4). */

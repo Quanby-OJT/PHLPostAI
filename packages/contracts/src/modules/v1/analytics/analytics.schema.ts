@@ -9,6 +9,7 @@ export const InteractionEventKindSchema = z.enum([
 	"answer_classified",
 	"answer_blocked",
 	"tracking_lookup",
+	"scam_assessed",
 	"escalated",
 	"conversation_closed",
 ])

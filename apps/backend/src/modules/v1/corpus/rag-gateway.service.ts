@@ -552,6 +552,7 @@ export class RagGatewayService {
 	 */
 	async classifyInquiry(input: {
 		query: string
+		modelQuery?: string
 		categories: readonly { code: string; name: string }[]
 		userId: string
 		permissions: readonly string[]
@@ -577,7 +578,11 @@ export class RagGatewayService {
 				"content-type": "application/json",
 				"x-request-id": input.requestId,
 			},
-			body: JSON.stringify({ query: input.query, categories: input.categories }),
+			body: JSON.stringify({
+				query: input.query,
+				modelQuery: input.modelQuery,
+				categories: input.categories,
+			}),
 			failureMessage: "Inquiry classification failed",
 		})) as {
 			screenedQuery?: unknown
@@ -594,6 +599,40 @@ export class RagGatewayService {
 			language: typeof body.language === "string" ? body.language : null,
 			fallbackUsed: body.fallbackUsed === true,
 		}
+	}
+
+	/** SCM-1: assess a link-redacted submission using the internal provider. */
+	async assessScam(input: {
+		query: string
+		approvedIndicators: readonly string[]
+		customIndicators: readonly { code: string; name: string }[]
+		deterministicIndicators: readonly string[]
+		userId: string
+		permissions: readonly string[]
+		requestId: string
+		actorType: "user" | "customer"
+	}): Promise<unknown> {
+		const token = this.mintServiceToken({
+			sub: input.userId,
+			permissions: input.permissions,
+			requestId: input.requestId,
+			traceId: input.requestId,
+			actorType: input.actorType,
+		})
+		return this.forward("/internal/scam/assess", {
+			headers: {
+				"authorization": `Bearer ${token}`,
+				"content-type": "application/json",
+				"x-request-id": input.requestId,
+			},
+			body: JSON.stringify({
+				query: input.query,
+				approvedIndicators: input.approvedIndicators,
+				customIndicators: input.customIndicators,
+				deterministicIndicators: input.deterministicIndicators,
+			}),
+			failureMessage: "Scam assessment failed",
+		})
 	}
 
 	/** KB-2: read service, zone and weight from a screened rates question. */
