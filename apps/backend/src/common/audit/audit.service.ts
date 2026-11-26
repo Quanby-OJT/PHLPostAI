@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common"
 
+import { setAuthAuditSink } from "@repo/auth/audit-sink"
 import { auditLog } from "@repo/db/schema"
 
 import { db, type DbTransaction } from "@/common/database/database.client"
@@ -21,6 +22,11 @@ export interface AuditEntry {
 
 @Injectable()
 export class AuditService {
+	constructor() {
+		// ADM-2: @repo/auth writes its own audit rows (recovery-code sign-ins) through this service.
+		setAuthAuditSink(entry => this.writeAudit(entry))
+	}
+
 	/**
 	 * Append one entry to the audit_log spine. INSERT-only by design: the DB
 	 * rejects any UPDATE or DELETE on audit_log via a trigger, so this is the

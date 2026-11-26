@@ -26,6 +26,8 @@ export {
 	AssignRoleRequestSchema,
 	RemoveRoleRequestSchema,
 	UserRoleMutationResponseSchema,
+	ResetSecondFactorRequestSchema,
+	ResetSecondFactorResponseSchema,
 } from "./modules/v1/rbac/rbac.schema.js"
 export type {
 	Role,
@@ -39,6 +41,7 @@ export type {
 	CreateUserRequest,
 	CreateUserResponse,
 	SetUserDisabledRequest,
+	ResetSecondFactorRequest,
 } from "./modules/v1/rbac/rbac.schema.js"
 
 // Corpus (ingestion) contract + schemas

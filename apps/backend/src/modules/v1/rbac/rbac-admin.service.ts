@@ -14,13 +14,22 @@ import {
 	type PermissionCatalogEntry,
 	type PermissionName,
 	type RemoveRoleRequest,
+	type ResetSecondFactorRequest,
 	type Role,
 	type SetRolePermissionsRequest,
 	type SetUserDisabledRequest,
 	type UpdateRoleRequest,
 	type UserWithRoles,
 } from "@repo/contracts"
-import { permissions, rolePermissions, roles, sessions, userRoles, users } from "@repo/db/schema"
+import {
+	permissions,
+	rolePermissions,
+	roles,
+	sessions,
+	twoFactor,
+	userRoles,
+	users,
+} from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
@@ -413,6 +422,39 @@ export class RbacAdminService {
 
 		await this.invalidateAfterCommit(payload.userId)
 		return { success: true, userId: payload.userId, roleName: payload.roleName }
+	}
+
+	/**
+	 * ADM-2: admin reset of a second factor. Removes the authenticator app and recovery
+	 * codes, ends every session so the change takes effect at once, and requires
+	 * enrolment at next sign-in. Permission (users.accounts.manage) is enforced by the
+	 * route's RbacGuard, which also audits a denial. The reset is audited in the same
+	 * transaction.
+	 */
+	async resetSecondFactor(payload: ResetSecondFactorRequest, actorId: string) {
+		await db.transaction(async tx => {
+			const user = await this.getUserOrThrow(tx, payload.userId)
+			await tx.delete(twoFactor).where(eq(twoFactor.userId, user.id))
+			await tx
+				.update(users)
+				.set({ twoFactorEnabled: false, updatedAt: new Date() })
+				.where(eq(users.id, user.id))
+			await tx.delete(sessions).where(eq(sessions.userId, user.id))
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: "users.mfa.reset",
+					resourceType: "user",
+					resourceId: user.id,
+					before: { twoFactorEnabled: user.twoFactorEnabled },
+					after: { twoFactorEnabled: false },
+				},
+				tx
+			)
+		})
+
+		return { id: payload.userId, twoFactorEnabled: false as const }
 	}
 
 	// -------------------------------------------------------------- helpers

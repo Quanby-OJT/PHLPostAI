@@ -95,6 +95,16 @@ export const SetUserDisabledRequestSchema = z.object({
 	disabled: z.boolean(),
 })
 
+/** ADM-2: admin reset of a user's second factor. The user enrols again at next sign-in. */
+export const ResetSecondFactorRequestSchema = z.object({
+	userId: z.string().min(1),
+})
+
+export const ResetSecondFactorResponseSchema = z.object({
+	id: z.string(),
+	twoFactorEnabled: z.literal(false),
+})
+
 /** Assign route input: userId from path + roleName from body */
 export const AssignRoleRequestSchema = z.object({
 	userId: z.string().min(1),
@@ -125,5 +135,6 @@ export type UserWithRoles = z.infer<typeof UserWithRolesSchema>
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>
 export type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>
 export type SetUserDisabledRequest = z.infer<typeof SetUserDisabledRequestSchema>
+export type ResetSecondFactorRequest = z.infer<typeof ResetSecondFactorRequestSchema>
 export type AssignRoleRequest = z.infer<typeof AssignRoleRequestSchema>
 export type RemoveRoleRequest = z.infer<typeof RemoveRoleRequestSchema>

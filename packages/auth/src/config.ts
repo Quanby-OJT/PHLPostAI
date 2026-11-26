@@ -6,7 +6,7 @@ import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 
 import { createDBClient } from "@repo/db/client"
-import { accounts, sessions, users, verifications } from "@repo/db/schema"
+import { accounts, sessions, twoFactor, users, verifications } from "@repo/db/schema"
 
 import { isApiDocsEnabled } from "./api-docs.js"
 import { authLogger } from "./auth-logger.js"
@@ -18,6 +18,8 @@ import { sendMail } from "./mailer/send-mail.js"
 import { buildResetPasswordEmail } from "./mailer/templates/reset-password-email.js"
 import { buildVerificationEmail } from "./mailer/templates/verification-email.js"
 import { createTransport } from "./mailer/transport-factory.js"
+import { createMfaAfterHook } from "./mfa-audit.js"
+import { MFA_ENROLMENT_SESSION_SECONDS, mfaTrustDeviceBlockHandler, STAFF_SESSION_SECONDS } from "./mfa.js"
 import { parseOriginList } from "./origin-list.js"
 import { rateLimitStorage } from "./rate-limit-storage.js"
 import { withSafeDatabaseErrors } from "./safe-database-errors.js"
@@ -176,11 +178,18 @@ export function createAuth() {
 						sessions,
 						accounts,
 						verifications,
+						// ADM-2: usePlural looks the plugin model up as `twoFactors`.
+						twoFactors: twoFactor,
 					},
 					usePlural: true,
 				})(options)
 			),
 		basePath: AUTH_BASE_PATH,
+		// ADM-2: audit recovery-code sign-ins and extend the session once enrolment is confirmed.
+		hooks: {
+			before: mfaTrustDeviceBlockHandler,
+			after: createMfaAfterHook(db),
+		},
 		logger: authLogger,
 		baseURL: resolveAuthBaseURL(),
 		secret: authEnv.BETTER_AUTH_SECRET,
@@ -342,13 +351,24 @@ export function createAuth() {
 				create: {
 					before: async session => {
 						const [account] = await db
-							.select({ disabled: users.disabled })
+							.select({ disabled: users.disabled, twoFactorEnabled: users.twoFactorEnabled })
 							.from(users)
 							.where(eq(users.id, session.userId))
 						if (account?.disabled) {
 							throw new APIError("FORBIDDEN", {
 								message: "This account has been disabled. Contact an administrator.",
 							})
+						}
+						// ADM-2: an account without a confirmed second factor gets a short
+						// enrolment session. Confirming the first code extends the current session to
+						// the normal lifetime (see createMfaAfterHook).
+						if (account && !account.twoFactorEnabled) {
+							return {
+								data: {
+									...session,
+									expiresAt: new Date(Date.now() + MFA_ENROLMENT_SESSION_SECONDS * 1000),
+								},
+							}
 						}
 						return { data: session }
 					},
@@ -366,7 +386,7 @@ export function createAuth() {
 		 */
 		session: {
 			// Absolute lifetime of a session record.
-			expiresIn: 60 * 60 * 24 * 7, // 7 days
+			expiresIn: STAFF_SESSION_SECONDS, // 7 days
 			// Sliding renewal: an active session is extended once a day.
 			updateAge: 60 * 60 * 24, // 1 day
 			// Cookie cache is deliberately OFF: a signed-cookie cache keeps a
