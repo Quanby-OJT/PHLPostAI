@@ -11,11 +11,17 @@ const NEGATION =
 const DECLINING = /\b(?:cannot|can't|cant|unable|diak)\b/i
 /**
  * CNV-6: telling this customer they are eligible, qualify, or will be approved
- * or rejected decides their case. A rule ("if you are 18, you can apply") does not.
+ * or rejected decides their case, even with a condition attached.
  */
 const INDIVIDUAL_DECISION =
-	/\byou(?:'re|\s+are)\s+(?:(?:definitely|likely|probably|already|now)\s+)?(?:not\s+)?(?:eligible|ineligible|qualified|approved|rejected|denied|disqualified)\b|\byou\s+(?:definitely\s+|likely\s+|probably\s+)?(?:qualify|meet\s+(?:all\s+)?(?:the\s+)?(?:requirements|criteria))\b|\byou\s+(?:will|would|should)\s+(?:definitely\s+|likely\s+|probably\s+)?(?:not\s+)?(?:be\s+)?(?:approved|rejected|denied|eligible|qualify|accepted)\b|\byour\s+(?:postal\s+id\s+)?application\s+(?:is|has\s+been|was|will\s+be|would\s+be)\s+(?:not\s+)?(?:approved|rejected|denied|accepted)\b|\b(?:kwalipikado|kuwalipikado|eligible|qualified)\s+ka\b|\b(?:maaa?prubahan|aaprubahan|aprubado|maaprobahan|aprobado|maaprobaran)\s+(?:ka|na\s+ka|ang\s+(?:iyong|inyong)\s+aplikasyon|imong\s+aplikasyon)\b|\bmaikarika\b/i
-const CONDITIONAL = /\b(?:if|unless|as\s+long\s+as|provided|kung|kapag|pag|kon|basta)\b/i
+	/\byou(?:'re|\s+are)\s+(?:(?:definitely|likely|probably|already|now)\s+)?(?:not\s+)?(?:eligible|ineligible|qualified|approved|rejected|denied|disqualified)\b|\byou\s+(?:definitely\s+|likely\s+|probably\s+)?(?:qualify|meet\s+(?:all\s+)?(?:the\s+)?(?:requirements|criteria))\b|\byou\s+(?:will|would|should|won't|wouldn't)\s+(?:definitely\s+|likely\s+|probably\s+)?(?:not\s+)?(?:be\s+)?(?:approved|rejected|denied|eligible|qualify|accepted)\b|\byour\s+(?:postal\s+id\s+)?application\s+(?:is|has\s+been|was|will\s+be|would\s+be|won't\s+be)\s+(?:not\s+)?(?:approved|rejected|denied|accepted)\b|\b(?:kwalipikado|kuwalipikado|eligible|qualified)\s+ka\b|\b(?:hindi|di|dili)\s+ka\s+(?:kwalipikado|kuwalipikado|eligible|qualified|maaa?prubahan|maaprobahan)\b|\b(?:maaa?prubahan|aaprubahan|aprubado|maaprobahan|aprobado|maaprobaran)\s+(?:ka|na\s+ka|ang\s+(?:iyong|inyong)\s+aplikasyon|imong\s+aplikasyon)\b|\bmaikarika\b|\bsaanka\s+a\s+maikari\b/i
+/** "whether you are eligible" asks the question instead of answering it. */
+const EMBEDDED_QUESTION = new RegExp(
+	`\\b(?:whether|if|kung|kon)\\s+(?:or\\s+not\\s+)?(?:${INDIVIDUAL_DECISION.source})`,
+	"gi"
+)
+const CLAUSE_BREAK =
+	/[,;:]|\b(?:but|however|though|although|yet|pero|ngunit|subalit|apan|piro|ngem)\b/i
 const AMOUNT = /(?:₱|PHP\s*)\s?\d[\d,]*(?:\.\d{1,2})?|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:PHP|pesos?)\b/gi
 const BARE_AMOUNT =
 	/\b(?:fee|cost|price|rate|postage|amount(?:\s+due)?|total|balance)\b[^.!?]{0,30}?\b(\d[\d,]*(?:\.\d{1,2})?)\b/gi
@@ -41,6 +47,13 @@ function sentences(text: string): string[] {
 	return text.split(/(?<=[.!?])\s+|\n+/).filter(Boolean)
 }
 
+/** Each clause is checked, so "I can't decide, but you are eligible" is still caught. */
+function decidesTheCase(answer: string): boolean {
+	return sentences(answer)
+		.flatMap(sentence => sentence.replace(EMBEDDED_QUESTION, " ").split(CLAUSE_BREAK))
+		.some(clause => INDIVIDUAL_DECISION.test(clause) && !DECLINING.test(clause))
+}
+
 function numericValue(text: string): number | null {
 	const digits = text.match(NUMBER)?.[0]?.replace(/,/g, "")
 	if (digits === undefined) return null
@@ -58,12 +71,8 @@ export function validateCustomerAnswer(
 	if (statements.some(sentence => PAYMENT_OR_SECRET_REQUEST.test(sentence))) {
 		return { blocked: true, reason: "payment_or_credential_request" }
 	}
+	if (decidesTheCase(answer)) return { blocked: true, reason: "individual_decision" }
 	const claims = statements.filter(sentence => !DECLINING.test(sentence))
-	if (
-		claims.some(sentence => INDIVIDUAL_DECISION.test(sentence) && !CONDITIONAL.test(sentence))
-	) {
-		return { blocked: true, reason: "individual_decision" }
-	}
 	const folded = answer.toLocaleLowerCase()
 	if (
 		blockedTopics.some(topic => topic.trim() && folded.includes(topic.trim().toLocaleLowerCase()))

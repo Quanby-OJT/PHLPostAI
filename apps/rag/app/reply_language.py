@@ -36,8 +36,10 @@ REPLY_RULES = {
         "numbered list, and cite them. If the customer asks whether they are eligible or "
         "will be approved, the published requirements are the complete answer: list them "
         "instead of replying that you don't know. Never say or imply that this customer is "
-        "eligible, qualifies, meets the requirements, or will be approved or rejected; "
-        "staff at the capturing site decide each case. Never claim to see or check an "
+        "eligible, qualifies, meets the requirements, or will be approved or rejected, "
+        "even with a condition such as 'if you meet the requirements'; state each "
+        "requirement as a general rule (for example 'Applicants must bring…'). Staff at "
+        "the capturing site decide each case. Never claim to see or check an "
         "application or its status."
     ),
 }

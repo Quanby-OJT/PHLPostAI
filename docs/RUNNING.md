@@ -737,13 +737,21 @@ Questions in the `postal-id` category are split by what they ask
 
 The CNV-5 guardrail also blocks any draft that tells the customer they are
 eligible, qualify, meet the requirements, or will be approved or rejected
-(`individual_decision`); a rule such as "if you are 18, you can apply" passes.
+(`individual_decision`), even with a condition ("You are eligible if…") or after
+a refusal ("I can't decide, but you are eligible"). Each clause is checked. A
+general rule ("If you are 18, you can apply"), a refusal ("I can't tell whether
+you are eligible") and "staff check whether you are eligible" pass.
 Postal ID searches add "Postal ID application requirements" to the retrieval
 query, so a question that names no topic ("Am I eligible?") still finds the
 Postal ID articles; the model still sees the customer's own question.
-A Postal ID or PRN number is masked as `[ID_NUMBER]` before storage, like the
-other ID formats, and any reply to a question with masked personal details
-reminds the customer not to share them in chat. All fixed text comes in English,
+Personal details are masked by the RAG screen before anything is stored:
+emails, phone numbers, PhilSys (grouped or 16 digits), TIN, SSS, UMID CRN,
+driver's licence and passport formats, and any number the customer labels as an
+ID ("Postal ID no.", "PRN", "UMID", "passport", "ID number"…). Other unlabelled
+digit runs are kept, since a deployment may use numeric tracking numbers. Any
+reply to a question with masked details reminds the customer not to share them
+in chat. The customer chat takes text only (no uploads); screenshot upload is
+SCM-5's scam entry. All fixed text comes in English,
 Filipino, Cebuano and Ilocano.
 
 `pnpm db:seed` adds five draft articles (apply, renew, requirements, fees, where

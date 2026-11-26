@@ -1061,6 +1061,55 @@ describe("CustomerChatService (CNV-1)", () => {
 			)
 		})
 
+		it.each(["[EMAIL]", "[PHONE]", "[PH_ID]", "[PH_TIN]", "[PH_SSS]", "[ID_NUMBER]"])(
+			"stores the masked question and reminds the customer about %s (AC3)",
+			async placeholder => {
+				const screenedQuery = `My details are ${placeholder}, how do I renew my Postal ID?`
+				const turn = await service.completeTurn({
+					conversationId: "conversation-1",
+					envelope: {
+						answer: `${ARTICLE_TEXT} [1]`,
+						citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+						retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+						confidence: 0.9,
+						screenedQuery,
+					},
+					classification: {
+						category: "postal-id",
+						language: "en",
+						replyLanguage: "en",
+						postalId: "guidance",
+					},
+				})
+
+				expect(turn.answer).toContain("please don't share ID numbers")
+				expect(conversationService.recordTurn).toHaveBeenCalledWith(
+					expect.objectContaining({ maskedQuery: screenedQuery })
+				)
+			}
+		)
+
+		it("adds no reminder when nothing was masked", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: `${ARTICLE_TEXT} [1]`,
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+					confidence: 0.9,
+					screenedQuery: "How do I renew my Postal ID?",
+				},
+				classification: {
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					postalId: "guidance",
+				},
+			})
+
+			expect(turn.answer).not.toContain("please don't share ID numbers")
+		})
+
 		it("says it has no access to application records (AC4)", async () => {
 			const turn = await service.answerPostalIdStatus({
 				conversationId: "conversation-1",

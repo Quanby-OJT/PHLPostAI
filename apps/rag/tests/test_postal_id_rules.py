@@ -17,9 +17,16 @@ from app.security_screen import mask_pii
         ),
         ("PRN: 100141234567P status?", "PRN: [ID_NUMBER] status?"),
         ("My postal ID no. 0012345678", "My postal ID no. [ID_NUMBER]"),
+        ("my UMID is 0111-2345678-9", "my UMID is [ID_NUMBER]"),
+        ("Passport P1234567A, can I renew?", "Passport [ID_NUMBER], can I renew?"),
+        ("License N01-23-456789 ok?", "License [ID_NUMBER] ok?"),
+        ("ID number: AB12345", "ID number: [ID_NUMBER]"),
+        ("PhilSys 1234567890123456", "PhilSys [PH_ID]"),
+        ("1234 5678 9012 3456 ang PhilSys ko", "[PH_ID] ang PhilSys ko"),
+        ("email ko juan@example.com", "email ko [EMAIL]"),
     ],
 )
-def test_postal_id_numbers_are_masked(text, masked):
+def test_id_numbers_and_personal_details_are_masked(text, masked):
     assert mask_pii(text)[0] == masked
 
 
@@ -31,6 +38,9 @@ def test_postal_id_numbers_are_masked(text, masked):
         "Postal ID renewal 2026",
         "The fee is 504 pesos",
         "Track 1234567890123",
+        "tracking id RR123456789PH",
+        "Is a valid ID enough for the 2026 renewal?",
+        "I paid 150000 for shipping",
     ],
 )
 def test_ordinary_questions_are_left_alone(text):

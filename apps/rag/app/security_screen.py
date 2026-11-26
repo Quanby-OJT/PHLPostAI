@@ -68,14 +68,22 @@ _PII_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ("ph-tin", "[PH_TIN]", re.compile(r"(?<!\d)\d{3}-\d{3}-\d{3}(?:-\d{3})?(?!\d)")),
     # SSS: 2-7-1.
     ("ph-sss", "[PH_SSS]", re.compile(r"(?<!\d)\d{2}-\d{7}-\d(?!\d)")),
-    # CNV-6: a Postal ID or PRN number the customer labels as such. Bare digit runs
-    # are left alone, since a deployment may use numeric tracking numbers.
-    # The label is kept so the question still reads as a Postal ID question.
+    # CNV-6: PhilSys number written without separators.
+    ("ph-national-id", "[PH_ID]", re.compile(r"(?<!\d)\d{16}(?!\d)")),
+    # CNV-6: other PH ID formats: UMID CRN (4-7-1), driver's licence, passport.
+    ("id-number", "[ID_NUMBER]", re.compile(r"(?<!\d)\d{4}-\d{7}-\d(?!\d)")),
+    ("id-number", "[ID_NUMBER]", re.compile(r"\b[A-Z]\d{2}-\d{2}-\d{6}\b", re.IGNORECASE)),
+    ("id-number", "[ID_NUMBER]", re.compile(r"\b[A-Z]\d{7}[A-Z]\b")),
+    # CNV-6: any number the customer labels as an ID. Unlabelled digit runs are left
+    # alone, since a deployment may use numeric tracking numbers. The label is kept
+    # so the question still reads the same.
     (
-        "postal-id-number",
+        "id-number",
         r"\g<label>[ID_NUMBER]",
         re.compile(
-            r"(?P<label>\b(?:postal\s*id|prn)\s*(?:no\.?|number|num|#)?\s*(?:is\s+)?[:#]?\s*)"
+            r"(?P<label>(?<!tracking\s)\b(?:postal\s*id|prn|philsys|psn|pcn|umid|crn|passport"
+            r"|driver'?s?\s+licen[cs]e|licen[cs]e|national\s+id|id|tin|sss|gsis|philhealth"
+            r"|pag-?ibig)\s*(?:card\s*)?(?:no\.?|number|num|#)?\s*(?:is\s+)?[:#]?\s*)"
             r"(?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{5,}",
             re.IGNORECASE,
         ),
