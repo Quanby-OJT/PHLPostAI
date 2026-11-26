@@ -81,6 +81,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "escalations.queue.view",
 	},
 	{
+		// ADM-3: transcript search and per-answer provenance (read-only; every open is audited).
+		label: "Transcripts",
+		href: "/transcripts",
+		icon: BubbleChatIcon,
+		requiredPermission: "conversations.transcripts.view",
+	},
+	{
 		label: "Scam Reports",
 		href: "/scam-reports",
 		icon: CheckmarkBadge01Icon,

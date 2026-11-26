@@ -5,6 +5,7 @@ import { apiKeysContract } from "./apikeys/apikeys.contract.js"
 import { assistantContract } from "./assistant/assistant.contract.js"
 import { channelsContract } from "./channels/channels.contract.js"
 import { chatContract } from "./chat/chat.contract.js"
+import { conversationsContract } from "./conversations/conversations.contract.js"
 import { corpusContract } from "./corpus/corpus.contract.js"
 import { customerContract } from "./customer/customer.contract.js"
 import { evalContract } from "./eval/eval.contract.js"
@@ -30,6 +31,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		rbac: rbacContract,
 		corpus: corpusContract,
 		chat: chatContract,
+		conversations: conversationsContract,
 		apikeys: apiKeysContract,
 		eval: evalContract,
 		ops: opsContract,
