@@ -724,6 +724,44 @@ Each migration directory includes its SQL and Drizzle snapshot.
 | `packages/e2e-web` | `tests/scm1.spec.ts` | |
 | `docs` | `evidence/scm-1/scam1.png`, `evidence/scm-1/scam2.png` | `PRD.md`, `DOMAIN-MODEL.md`, `TICKETS.md`, `RUNNING.md` |
 
+## Postal ID guidance (CNV-6)
+
+Questions in the `postal-id` category are split by what they ask
+(`apps/backend/src/modules/v1/customer/postal-id-guidance.ts`):
+
+| Question | Reply |
+| --- | --- |
+| How to apply, renew, requirements, fees, where | Answered from approved Postal ID articles with their citations; the RAG prompt adds Postal ID rules (`replyRules: "postal-id"`) |
+| "Am I eligible?", "Will my application be approved?" | The published requirements, then a fixed notice that the assistant can't decide individual cases and points to the capturing site or a person |
+| The status of one application ("Where is my Postal ID?") | A fixed reply: no access to application records, contact the post office or capturing site, or ask for a person. Nothing is retrieved; it is stored as a certain `tool` answer, so it does not count toward ESC-3's repeated low-confidence handoff |
+
+The CNV-5 guardrail also blocks any draft that tells the customer they are
+eligible, qualify, meet the requirements, or will be approved or rejected
+(`individual_decision`); a rule such as "if you are 18, you can apply" passes.
+Postal ID searches add "Postal ID application requirements" to the retrieval
+query, so a question that names no topic ("Am I eligible?") still finds the
+Postal ID articles; the model still sees the customer's own question.
+A Postal ID or PRN number is masked as `[ID_NUMBER]` before storage, like the
+other ID formats, and any reply to a question with masked personal details
+reminds the customer not to share them in chat. All fixed text comes in English,
+Filipino, Cebuano and Ilocano.
+
+`pnpm db:seed` adds five draft articles (apply, renew, requirements, fees, where
+to apply) titled "Postal ID: … (template)". They have no approved version, so
+they are never quoted; a Knowledge Manager replaces the bracketed items with
+PHLPost-approved text and submits them for review. Re-seeding skips titles that
+already exist.
+
+Evaluation cases: `postal-id-guidance.cases.ts` (which questions count as
+status, eligibility or guidance) and the `individual_decision` cases in
+`answer-guardrail.cases.ts`. Both run in CI with `pnpm test`.
+
+Try it at `/assistant` with an approved Postal ID article: "How do I renew my
+Postal ID?" (steps with the article as source), "Am I eligible for a Postal
+ID?" (requirements plus the notice), "Where is my Postal ID?" (the no-records
+reply), and "My Postal ID number is 1234-5678-9012P, what do I bring?" (the
+number is masked in the stored message and the reply adds the reminder).
+
 ## Troubleshooting
 
 - **Port 3001 already in use** — stale Next dev server from a previous

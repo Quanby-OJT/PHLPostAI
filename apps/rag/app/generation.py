@@ -571,7 +571,9 @@ class GenerationService:
         # single-shot retrieve — never an error, never a lost answer.
         agentic_trace: dict[str, Any] | None = None
         chunks: list[dict[str, Any]] | None = None
-        retrieval_query = await self._translate_for_retrieval(query=query, language=language)
+        retrieval_query = language.with_retrieval_hint(
+            await self._translate_for_retrieval(query=query, language=language)
+        )
         if self._agentic is not None:
             try:
                 chunks, agentic_trace = await self._agentic.retrieve(
@@ -1613,11 +1615,15 @@ class ChatRequest(BaseModel):
     glossary: list[Annotated[str, Field(max_length=80)]] | None = Field(
         default=None, max_length=100
     )
+    # CNV-6: category reply rules added to the grounded prompt.
+    reply_rules: Literal["postal-id"] | None = Field(default=None, alias="replyRules")
 
     model_config = {"populate_by_name": True}
 
     def language_context(self) -> LanguageContext:
-        return LanguageContext.build(self.language, self.query_language, self.glossary)
+        return LanguageContext.build(
+            self.language, self.query_language, self.glossary, self.reply_rules
+        )
 
 
 def get_response_cache(request: Request) -> "ResponseCache | None":

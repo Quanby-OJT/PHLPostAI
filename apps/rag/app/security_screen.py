@@ -68,6 +68,18 @@ _PII_PATTERNS: list[tuple[str, str, re.Pattern[str]]] = [
     ("ph-tin", "[PH_TIN]", re.compile(r"(?<!\d)\d{3}-\d{3}-\d{3}(?:-\d{3})?(?!\d)")),
     # SSS: 2-7-1.
     ("ph-sss", "[PH_SSS]", re.compile(r"(?<!\d)\d{2}-\d{7}-\d(?!\d)")),
+    # CNV-6: a Postal ID or PRN number the customer labels as such. Bare digit runs
+    # are left alone, since a deployment may use numeric tracking numbers.
+    # The label is kept so the question still reads as a Postal ID question.
+    (
+        "postal-id-number",
+        r"\g<label>[ID_NUMBER]",
+        re.compile(
+            r"(?P<label>\b(?:postal\s*id|prn)\s*(?:no\.?|number|num|#)?\s*(?:is\s+)?[:#]?\s*)"
+            r"(?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{5,}",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")

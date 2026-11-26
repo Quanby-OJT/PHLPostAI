@@ -7,6 +7,15 @@ const PAYMENT_MENTION = /\b(?:pay|paid|payment)\b/i
 /** A warning such as "Never share your password" is advice, not a request. */
 const NEGATION =
 	/\b(?:never|do\s+not|don't|dont|should\s+not|shouldn't|will\s+not|won't|huwag|hindi|ayaw|dili|saan|di)\b/i
+/** CNV-6: "I can't tell whether you are eligible" declines a decision; not used for payment checks. */
+const DECLINING = /\b(?:cannot|can't|cant|unable|diak)\b/i
+/**
+ * CNV-6: telling this customer they are eligible, qualify, or will be approved
+ * or rejected decides their case. A rule ("if you are 18, you can apply") does not.
+ */
+const INDIVIDUAL_DECISION =
+	/\byou(?:'re|\s+are)\s+(?:(?:definitely|likely|probably|already|now)\s+)?(?:not\s+)?(?:eligible|ineligible|qualified|approved|rejected|denied|disqualified)\b|\byou\s+(?:definitely\s+|likely\s+|probably\s+)?(?:qualify|meet\s+(?:all\s+)?(?:the\s+)?(?:requirements|criteria))\b|\byou\s+(?:will|would|should)\s+(?:definitely\s+|likely\s+|probably\s+)?(?:not\s+)?(?:be\s+)?(?:approved|rejected|denied|eligible|qualify|accepted)\b|\byour\s+(?:postal\s+id\s+)?application\s+(?:is|has\s+been|was|will\s+be|would\s+be)\s+(?:not\s+)?(?:approved|rejected|denied|accepted)\b|\b(?:kwalipikado|kuwalipikado|eligible|qualified)\s+ka\b|\b(?:maaa?prubahan|aaprubahan|aprubado|maaprobahan|aprobado|maaprobaran)\s+(?:ka|na\s+ka|ang\s+(?:iyong|inyong)\s+aplikasyon|imong\s+aplikasyon)\b|\bmaikarika\b/i
+const CONDITIONAL = /\b(?:if|unless|as\s+long\s+as|provided|kung|kapag|pag|kon|basta)\b/i
 const AMOUNT = /(?:₱|PHP\s*)\s?\d[\d,]*(?:\.\d{1,2})?|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:PHP|pesos?)\b/gi
 const BARE_AMOUNT =
 	/\b(?:fee|cost|price|rate|postage|amount(?:\s+due)?|total|balance)\b[^.!?]{0,30}?\b(\d[\d,]*(?:\.\d{1,2})?)\b/gi
@@ -24,6 +33,7 @@ export interface AnswerGuardrailResult {
 		| "unsupported_amount"
 		| "unsupported_status"
 		| "unsupported_payment_instruction"
+		| "individual_decision"
 		| null
 }
 
@@ -47,6 +57,12 @@ export function validateCustomerAnswer(
 	const statements = sentences(answer).filter(sentence => !NEGATION.test(sentence))
 	if (statements.some(sentence => PAYMENT_OR_SECRET_REQUEST.test(sentence))) {
 		return { blocked: true, reason: "payment_or_credential_request" }
+	}
+	const claims = statements.filter(sentence => !DECLINING.test(sentence))
+	if (
+		claims.some(sentence => INDIVIDUAL_DECISION.test(sentence) && !CONDITIONAL.test(sentence))
+	) {
+		return { blocked: true, reason: "individual_decision" }
 	}
 	const folded = answer.toLocaleLowerCase()
 	if (
@@ -76,7 +92,7 @@ export function validateCustomerAnswer(
 			return { blocked: true, reason: "unsupported_amount" }
 		}
 	}
-	for (const status of answer.match(STATUS) ?? []) {
+	for (const status of claims.join(" ").match(STATUS) ?? []) {
 		if (!sourceText.includes(status.toLocaleLowerCase()))
 			return { blocked: true, reason: "unsupported_status" }
 	}
