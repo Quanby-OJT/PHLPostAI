@@ -150,11 +150,7 @@ def calculate_answer_confidence(
     if retrieval_strength == 0.0:
         return 0.0
     explicit_groundedness = grounding.get("grounded") if grounding else None
-    grounded = (
-        explicit_groundedness
-        if isinstance(explicit_groundedness, bool)
-        else bool(citations)
-    )
+    grounded = explicit_groundedness if isinstance(explicit_groundedness, bool) else bool(citations)
     grounded = grounded and not degraded and not is_i_dont_know
     return round(retrieval_strength * int(grounded), 4)
 
@@ -196,6 +192,8 @@ def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "retrievalScore",
             "groundednessResult",
             "outputTokens",
+            # CNV-5: the source text the backend checks a replayed answer against.
+            "retrievedChunks",
         )
         if key in payload
     }
@@ -401,6 +399,7 @@ class GenerationService:
                 for key in ("retrievalScore", "groundednessResult", "outputTokens")
                 if key in cached
             },
+            "retrievedChunks": cached.get("retrievedChunks", []),
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -589,6 +588,8 @@ class GenerationService:
                 "id": chunk["id"],
                 "documentId": chunk["document_id"],
                 "similarity": chunk["similarity"],
+                # CNV-5 validates factual claims against the exact approved source text.
+                "content": chunk["content"],
                 **(
                     {"rerankScore": chunk["rerank_score"]}
                     if isinstance(chunk.get("rerank_score"), (int, float))
@@ -701,9 +702,7 @@ class GenerationService:
         if on_regenerating is not None:
             await on_regenerating()
         marker["regenerated"] = True
-        regenerated = await self._regenerate_strict(
-            client, messages, max_tokens=max_output_tokens
-        )
+        regenerated = await self._regenerate_strict(client, messages, max_tokens=max_output_tokens)
         if regenerated is None:
             marker["outcome"] = "regenerate-failed-draft-kept"
             return answer_text, citations, marker
@@ -1012,7 +1011,10 @@ class GenerationService:
                 query=query,
                 answer=answer_text,
                 citations=citations,
-                retrieved_chunks=retrieved_record,
+                retrieved_chunks=[
+                    {key: value for key, value in chunk.items() if key != "content"}
+                    for chunk in retrieved_record
+                ],
                 used_chunks=used_record,
                 token_usage=token_usage,
                 trace_id=trace_id,
@@ -1427,7 +1429,10 @@ class GenerationService:
                 query=query,
                 answer=answer_text,
                 citations=citations,
-                retrieved_chunks=prep["retrieved_record"],
+                retrieved_chunks=[
+                    {key: value for key, value in chunk.items() if key != "content"}
+                    for chunk in prep["retrieved_record"]
+                ],
                 used_chunks=prep["used_record"],
                 token_usage=token_usage,
                 trace_id=trace_id,

@@ -47,7 +47,7 @@ type GoldenRow = Pick<
 	| "approvedAt"
 >
 type Settings = Awaited<ReturnType<AssistantSettingsService["get"]>>
-const workflowVersion = "evl1-1"
+const workflowVersion = "evl1-2"
 const customerPermissions = ["chat.query.submit", "corpus.read", "eval.runs.execute"] as const
 
 function object(value: unknown): Record<string, unknown> {
@@ -352,32 +352,42 @@ export class AnswerQualityService {
 					classification.replyLanguage
 				)
 				const unavailable = outcome.lookup?.outcome === "unavailable"
-				result.answer = withLanguageNotice(
-					unavailable && settings.confidenceThreshold > 0
-						? this.chat.lowConfidenceReply(classification, [])
-						: outcome.reply,
-					classification.language,
-					classification.replyLanguage
-				)
+				const belowThreshold = unavailable && settings.confidenceThreshold > 0
+				const preview = await this.chat.previewAnswer({
+					envelope: { answer: outcome.reply },
+					answerKind: "tool",
+					classification,
+					blockedTopics: settings.blockedTopics,
+					...(belowThreshold && {
+						answerOverride: withLanguageNotice(
+							this.chat.lowConfidenceReply(classification, []),
+							classification.language,
+							classification.replyLanguage
+						),
+					}),
+				})
+				result.answer = preview.answer
 				quality.toolResult = {
 					outcome: outcome.lookup?.outcome ?? "no_lookup",
 					facts: { ...outcome.event },
 				}
-				quality.actualBehavior =
-					unavailable && settings.confidenceThreshold > 0
-						? "escalate"
-						: outcome.lookup?.outcome === "found"
-							? "answer"
-							: "uncertain"
+				quality.actualBehavior = belowThreshold
+					? "escalate"
+					: !preview.guardrail.blocked && outcome.lookup?.outcome === "found"
+						? "answer"
+						: "uncertain"
 			} else if (classification.route === "rates") {
 				const outcome = await this.rates.answer(classification.screenedQuery, context)
-				result.answer = withLanguageNotice(
-					outcome.reply,
-					classification.language,
-					classification.replyLanguage
-				)
+				const preview = await this.chat.previewAnswer({
+					envelope: { answer: outcome.reply },
+					answerKind: "tool",
+					classification,
+					blockedTopics: settings.blockedTopics,
+				})
+				result.answer = preview.answer
 				quality.toolResult = { outcome: outcome.outcome, facts: outcome.facts ?? {} }
-				quality.actualBehavior = outcome.outcome === "quoted" ? "answer" : "uncertain"
+				quality.actualBehavior =
+					!preview.guardrail.blocked && outcome.outcome === "quoted" ? "answer" : "uncertain"
 			} else if (classification.route === "retrieval") {
 				const envelope = (await this.rag.submitChatQuery({
 					query: row.question,
@@ -395,6 +405,7 @@ export class AnswerQualityService {
 					envelope,
 					classification,
 					confidenceThreshold: settings.confidenceThreshold,
+					blockedTopics: settings.blockedTopics,
 				})
 				result.answer = preview.answer
 				quality.actualBehavior = preview.answerKind === "uncertain" ? "uncertain" : "answer"

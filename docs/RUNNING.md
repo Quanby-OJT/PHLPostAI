@@ -157,7 +157,7 @@ curl http://localhost:8000/health          # rag: database + redis "up"
 5. **Public chat (Flow A, CNV-1)** — open http://localhost:3001/assistant with
    no account. A question covered by an approved article streams an answer and
    names the articles under it; an uncovered question answers "I don't have
-   that information" with no sources. See *Public customer chat* below for the
+   that information" with no sources. See _Public customer chat_ below for the
    masking and refusal checks.
 6. **Audit** —
 
@@ -166,6 +166,7 @@ curl http://localhost:8000/health          # rag: database + redis "up"
    ```
 
    Expect `corpus.document.upload`, `chat.query.submit`, `rbac.denied` rows.
+
 7. **Tracing** — self-hosted Langfuse at http://localhost:3100 (login
    `admin@phlpost-assist.local` / `password123` from the root `.env`), project
    `PHLPost Assist` shows one trace per chat and ingestion request.
@@ -213,13 +214,13 @@ for answers.
 
 To try the flow locally you need two different users (the submitter cannot
 approve their own version). On **User Management**, give one user the
-*Knowledge Manager* role and another the *Knowledge Approver* role, then:
+_Knowledge Manager_ role and another the _Knowledge Approver_ role, then:
 
 1. As the manager, open **Knowledge base → Articles → New article**, write
    the text (or **Start from a file**: DOCX, PDF, HTML) and **Submit for review**.
 2. As the approver, open **Knowledge base → Review queue** and **Approve**.
-   The version shows *Indexing…* while the ingestion job runs and becomes
-   *Approved* when it finishes (the RAG worker must be running). If indexing
+   The version shows _Indexing…_ while the ingestion job runs and becomes
+   _Approved_ when it finishes (the RAG worker must be running). If indexing
    fails, the version stays in review with the reason, and the previous
    approved version keeps serving.
 3. **Deactivate** removes the article from answers at once and clears the
@@ -240,11 +241,11 @@ the page transparently opens a new one.
 
 Endpoints (no permission key; `x-customer-session` instead of a staff session):
 
-| Endpoint | Purpose |
-| --- | --- |
-| `POST /api/v1/customer/session` | Open a session; returns the token once |
-| `POST /api/v1/customer/chat/message` | Ask a question, non-streamed JSON |
-| `POST /api/v1/customer/chat/stream` | Ask a question, SSE `token` + `final` |
+| Endpoint                             | Purpose                                |
+| ------------------------------------ | -------------------------------------- |
+| `POST /api/v1/customer/session`      | Open a session; returns the token once |
+| `POST /api/v1/customer/chat/message` | Ask a question, non-streamed JSON      |
+| `POST /api/v1/customer/chat/stream`  | Ask a question, SSE `token` + `final`  |
 
 Exercising it from a terminal:
 
@@ -298,14 +299,14 @@ a tracking question when it contains a valid tracking number or one of
 The `mock` connector (`apps/backend/src/modules/v1/tracking/connectors/mock/`)
 has these seed records:
 
-| Tracking number | Result |
-| --- | --- |
-| `RR123456789PH` | In transit, Manila Central Post Office |
-| `EE987654321PH` | Out for delivery, Quezon City Post Office |
-| `CP111222333PH` | Delivered, Cebu City Post Office |
-| `CE444555666PH` | Held by the Bureau of Customs (`HELD_AT_CUSTOMS`) |
-| `RR000000000PH` | Never answers (tests the timeout) |
-| any other valid number | No record found |
+| Tracking number        | Result                                            |
+| ---------------------- | ------------------------------------------------- |
+| `RR123456789PH`        | In transit, Manila Central Post Office            |
+| `EE987654321PH`        | Out for delivery, Quezon City Post Office         |
+| `CP111222333PH`        | Delivered, Cebu City Post Office                  |
+| `CE444555666PH`        | Held by the Bureau of Customs (`HELD_AT_CUSTOMS`) |
+| `RR000000000PH`        | Never answers (tests the timeout)                 |
+| any other valid number | No record found                                   |
 
 Try it at http://localhost:3001/assistant:
 
@@ -323,14 +324,14 @@ message has the number replaced with `[TRACKING_NUMBER]`. Check with:
 
 Settings (`apps/backend/.env`, all optional):
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `TRACKING_CONNECTOR` | `mock` | Which registered connector answers lookups |
-| `TRACKING_LOOKUP_TIMEOUT_MS` | `5000` | Hard timeout for one lookup |
-| `TRACKING_NUMBER_PATTERN` | `^[A-Z]{2}[0-9]{9}[A-Z]{2}$` | Valid tracking-number format (UPU S10) |
-| `TRACKING_KEYWORDS` | `track,tracking,trace,where is my,…` | Words that mark a tracking question |
-| `TRACKING_NUMBER_HASH_SECRET` | `BETTER_AUTH_SECRET` | Key for the tracking-number hash |
-| `TRACKING_CUSTOMS_STATUS_CODES` | `HELD_AT_CUSTOMS` | Status codes that mean the item is held by Customs (TRK-2) |
+| Variable                        | Default                              | Purpose                                                    |
+| ------------------------------- | ------------------------------------ | ---------------------------------------------------------- |
+| `TRACKING_CONNECTOR`            | `mock`                               | Which registered connector answers lookups                 |
+| `TRACKING_LOOKUP_TIMEOUT_MS`    | `5000`                               | Hard timeout for one lookup                                |
+| `TRACKING_NUMBER_PATTERN`       | `^[A-Z]{2}[0-9]{9}[A-Z]{2}$`         | Valid tracking-number format (UPU S10)                     |
+| `TRACKING_KEYWORDS`             | `track,tracking,trace,where is my,…` | Words that mark a tracking question                        |
+| `TRACKING_NUMBER_HASH_SECRET`   | `BETTER_AUTH_SECRET`                 | Key for the tracking-number hash                           |
+| `TRACKING_CUSTOMS_STATUS_CODES` | `HELD_AT_CUSTOMS`                    | Status codes that mean the item is held by Customs (TRK-2) |
 
 ### Status explanations (TRK-2)
 
@@ -439,11 +440,11 @@ no published rate.
 The language from the CNV-2 call decides the reply language
 (`apps/backend/src/modules/v1/customer/customer-language.ts`):
 
-| Message | Reply | Stored `messages.language` |
-| --- | --- | --- |
-| Filipino/Taglish, Cebuano or Ilocano | that language | the detected code |
-| English, or not detected | the session language (widget menu, default English) | `en`, or the session's |
-| Any other language | English, plus a note naming the four supported languages | `unsupported` |
+| Message                              | Reply                                                    | Stored `messages.language` |
+| ------------------------------------ | -------------------------------------------------------- | -------------------------- |
+| Filipino/Taglish, Cebuano or Ilocano | that language                                            | the detected code          |
+| English, or not detected             | the session language (widget menu, default English)      | `en`, or the session's     |
+| Any other language                   | English, plus a note naming the four supported languages | `unsupported`              |
 
 For knowledge answers the backend sends the reply language, the detected
 question language and the glossary (`UNTRANSLATED_POSTAL_TERMS` from
@@ -467,9 +468,10 @@ reply with the supported-languages note).
 ## Confidence and answer length (CNV-3)
 
 **Assistant Settings** (`/assistant-settings`, needs `settings.assistant.manage`)
-holds two values, read and written only through `AssistantSettingsService`
+holds three values, read and written only through `AssistantSettingsService`
 (`assistant_settings` keys `confidence_threshold`, default 0.7, and
-`max_output_tokens`, default and ceiling 200). Every save is audited
+`max_output_tokens`, default and ceiling 200, plus `blocked_topics`, a list of
+phrases managed on the same page). Every save is audited
 (`assistant.settings.update`) with the old and new values, and the next
 customer message uses them.
 
@@ -488,6 +490,19 @@ details when something was cut. Each assistant Message stores `confidence`,
 `retrieval_score`, `groundedness_result` and `output_tokens` (from the
 provider's usage figures), and the Agent Inbox transcript shows them. Cached
 answers are kept per limit.
+
+CNV-5 checks every draft before it is delivered
+(`apps/backend/src/modules/v1/customer/answer-guardrail.ts`). Amounts, common
+tracking/transaction statuses and payment instructions (such as "pay the fee at
+the counter") must appear in the tool result or the cited source text; amounts
+are compared by value and citation markers like `[1]` are ignored. A request to
+pay now or through a channel (GCash, a bank, a link) or to share a password,
+one-time code or card number is always blocked, while a warning such as "Never
+share your OTP" is allowed. A blocked draft is replaced with the uncertainty
+reply, recorded as `answer_blocked`, and logged with its reason only
+(`answer_blocked reason=…`); source text is used only for validation and is not
+copied into the message metadata. The cases in `answer-guardrail.cases.ts` run
+in CI, so one escape fails the build.
 
 Try it: set the threshold to 0.95 and ask a question with an approved article
 (the "not sure" reply with the article title), set it back to 0.5 (a normal

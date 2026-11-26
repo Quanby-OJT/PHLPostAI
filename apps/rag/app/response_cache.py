@@ -247,6 +247,7 @@ class ResponseCache:
                     "retrievalScore",
                     "groundednessResult",
                     "outputTokens",
+                    "retrievedChunks",
                 )
                 if key in payload
             }
