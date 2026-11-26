@@ -99,6 +99,7 @@ export class ScamAssessmentService {
 			detected
 		)
 		const maskedQuery = screened?.maskedQuery || UNAVAILABLE_MASKED_QUERY
+		const scamSubmissionId = crypto.randomUUID()
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery,
@@ -111,19 +112,16 @@ export class ScamAssessmentService {
 			requestStartedAt: input.requestStartedAt,
 			additionalEventKinds: ["scam_assessed"],
 			onRecorded: async tx => {
-				const [submission] = await tx
-					.insert(scamSubmissions)
-					.values({
-						conversationId: input.conversationId,
-						kind: links.kind,
-						contentMasked: maskedQuery,
-						extractedUrls: links.extractedUrls,
-					})
-					.returning({ id: scamSubmissions.id })
-				if (!submission) throw new Error("Could not record scam submission")
+				await tx.insert(scamSubmissions).values({
+					id: scamSubmissionId,
+					conversationId: input.conversationId,
+					kind: links.kind,
+					contentMasked: maskedQuery,
+					extractedUrls: links.extractedUrls,
+				})
 				await tx.insert(scamAssessments).values({
 					...assessment,
-					submissionId: submission.id,
+					submissionId: scamSubmissionId,
 					guidanceKey: assessment.riskLevel,
 				})
 			},
@@ -137,6 +135,7 @@ export class ScamAssessmentService {
 			answerKind: "tool",
 			isIDontKnow: isUncertain,
 			scamAssessment: assessment,
+			scamSubmissionId,
 		}
 	}
 }

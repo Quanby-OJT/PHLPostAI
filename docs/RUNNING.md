@@ -4,6 +4,8 @@ Daily-use guide for starting, testing, and troubleshooting the stack.
 First-time setup (installs, `.env` copies, first migration) lives in the
 [README Quick Start](../README.md#quick-start).
 
+[SCM-3 setup and manual acceptance guide](SCM-3.md) covers the isolated report and review stack.
+
 ## Option B — Native dev (recommended for development)
 
 Only the database and Redis run in Docker; apps run natively with hot reload.

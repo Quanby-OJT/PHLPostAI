@@ -81,6 +81,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "escalations.queue.view",
 	},
 	{
+		label: "Scam Reports",
+		href: "/scam-reports",
+		icon: CheckmarkBadge01Icon,
+		section: "Administration",
+		requiredPermission: "scam.reports.view",
+	},
+	{
 		label: "Deflection KPI",
 		href: "/analytics/deflection",
 		icon: ChartLineData01Icon,

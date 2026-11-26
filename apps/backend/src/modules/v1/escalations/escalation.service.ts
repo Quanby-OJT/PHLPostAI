@@ -5,7 +5,7 @@ import { conversations, customerSessions, escalations, messages } from "@repo/db
 
 import { AuditService } from "@/common/audit/audit.service"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
-import { db } from "@/common/database/database.client"
+import { db, type DbTransaction } from "@/common/database/database.client"
 import { ConversationService } from "@/modules/v1/customer/conversation.service"
 
 @Injectable()
@@ -120,8 +120,11 @@ export class EscalationService {
 	}
 
 	/** Creates the queued escalation and conversation transition atomically. */
-	async request(input: { conversationId: string; customerSessionId: string; reason: string }) {
-		return db.transaction(async tx => {
+	async request(
+		input: { conversationId: string; customerSessionId: string; reason: string },
+		transaction?: DbTransaction
+	) {
+		const create = async (tx: DbTransaction) => {
 			const [conversation] = await tx
 				.select()
 				.from(conversations)
@@ -152,7 +155,8 @@ export class EscalationService {
 			if (!row) throw new Error("Failed to create escalation")
 			await this.conversationService.markEscalationRequested(tx, conversation.id)
 			return { id: row.id, status: "queued" as const, createdAt: row.createdAt }
-		})
+		}
+		return transaction ? create(transaction) : db.transaction(create)
 	}
 
 	/** Queue view. Sort by the original request time, oldest first. */
@@ -275,8 +279,7 @@ export class EscalationService {
 				citations: message.citations ?? [],
 				confidence: message.role === "assistant" ? message.confidence : null,
 				retrievalScore: message.role === "assistant" ? message.retrievalScore : null,
-				groundednessResult:
-					message.role === "assistant" ? message.groundednessResult : null,
+				groundednessResult: message.role === "assistant" ? message.groundednessResult : null,
 				outputTokens: message.role === "assistant" ? message.outputTokens : null,
 				createdAt: message.createdAt,
 				turnIndex: message.turnIndex,

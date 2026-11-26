@@ -1,6 +1,12 @@
 "use client"
 
-import type { CustomerAnswer, CustomerLanguage, CustomerSession } from "@repo/contracts"
+import {
+	ScamReportReceiptSchema,
+	type CustomerAnswer,
+	type CustomerLanguage,
+	type CustomerSession,
+	type ScamReportReceipt,
+} from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
 import { env } from "@/env"
@@ -100,6 +106,23 @@ export async function requestHumanHandoff(input: {
 	})
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as { id: string; status: "queued"; createdAt: string }
+}
+
+export async function sendScamReport(
+	submissionId: string,
+	requestAgent: boolean,
+	sessionToken: string
+): Promise<ScamReportReceipt> {
+	const response = await fetch(`${API_BASE}/customer/scam-reports`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+			[CUSTOMER_SESSION_HEADER]: sessionToken,
+		},
+		body: JSON.stringify({ submissionId, requestAgent }),
+	})
+	if (!response.ok) throw await parseError(response)
+	return ScamReportReceiptSchema.parse(await response.json())
 }
 
 export async function endConversation(input: {

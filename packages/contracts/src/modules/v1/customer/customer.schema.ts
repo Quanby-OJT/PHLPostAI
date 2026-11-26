@@ -79,7 +79,7 @@ export const CustomerAnswerSourceSchema = z.object({
 	title: z.string(),
 })
 
-const ScamRiskLevelSchema = z.enum(["low", "medium", "high", "uncertain"])
+export const ScamRiskLevelSchema = z.enum(["low", "medium", "high", "uncertain"])
 
 export const CustomerAnswerSchema = z.object({
 	answer: z.string(),
@@ -98,6 +98,7 @@ export const CustomerAnswerSchema = z.object({
 			confidence: z.number().min(0).max(1),
 		})
 		.optional(),
+	scamSubmissionId: z.uuid().optional(),
 })
 
 export const AgentModeResultSchema = z.object({

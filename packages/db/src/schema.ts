@@ -1173,6 +1173,49 @@ export const scamAssessments = createTable(
 	]
 )
 
+export const scamReports = createTable(
+	"scam_reports",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		submissionId: t
+			.uuid("submission_id")
+			.notNull()
+			.unique()
+			.references(() => scamSubmissions.id, { onDelete: "cascade" }),
+		status: t
+			.text("status", {
+				enum: [
+					"reported",
+					"under_review",
+					"confirmed_scam",
+					"legitimate",
+					"inconclusive",
+					"closed",
+				],
+			})
+			.notNull()
+			.default("reported"),
+		reviewerId: t.text("reviewer_id").references(() => users.id, { onDelete: "set null" }),
+		finding: t.text("finding", { enum: ["confirmed_scam", "legitimate", "inconclusive"] }),
+		notes: t.text("notes"),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("scam_reports_queue_idx").on(t.createdAt, t.id),
+		check(
+			"scam_reports_state_check",
+			sql`(
+				(${t.status} in ('reported', 'under_review') and ${t.finding} is null and ${t.notes} is null)
+				or
+				(${t.finding} is not null and ${t.finding} in ('confirmed_scam', 'legitimate', 'inconclusive')
+					and (${t.status} = ${t.finding} or ${t.status} = 'closed')
+					and ${t.notes} is not null and length(trim(${t.notes})) > 0)
+			)`
+		),
+	]
+)
+
 export const riskIndicators = createTable("risk_indicators", t => ({
 	id: t.uuid("id").primaryKey().defaultRandom(),
 	code: t.text("code").notNull().unique(),
@@ -1242,6 +1285,7 @@ export const schema = Object.assign(
 		inquiryCategories,
 		scamSubmissions,
 		scamAssessments,
+		scamReports,
 		riskIndicators,
 		officialContacts,
 		kpiDefinitions,

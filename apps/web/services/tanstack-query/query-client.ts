@@ -45,7 +45,7 @@ export function shouldDehydrateMutation(mutation: { state: { isPaused: boolean }
  * roots must be added here, and anything unrecognised stays out by falling
  * through to the SSR predicate only when its root is not listed.
  */
-export const NON_PERSISTED_QUERY_ROOTS = ["session", "rbac"] as const
+export const NON_PERSISTED_QUERY_ROOTS = ["session", "rbac", "scam-reports"] as const
 
 /**
  * The string labels in a query key's first segment. Handles both plain keys

@@ -7,6 +7,7 @@ import {
 	type CustomerAnswer,
 	type CustomerAnswerSource,
 	type CustomerLanguage,
+	type ScamReportReceipt,
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
@@ -21,7 +22,6 @@ import {
 	startSession,
 	streamQuestion,
 	watchAgentConversation,
-	type AgentMessageEvent,
 	type AssistantStreamHandlers,
 	type StoredSession,
 } from "../api/assistant.client"
@@ -31,6 +31,7 @@ import {
 	LANGUAGE_LABELS,
 	type HandoffReason,
 } from "../lib/assistant-copy"
+import { ScamReportAction } from "./scam-report-action"
 
 /** TODO(CHN-1): replace with PHLPost's real privacy notice URL. */
 const PRIVACY_NOTICE_URL = "/privacy"
@@ -50,6 +51,9 @@ interface Turn {
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
 	answerKind?: CustomerAnswer["answerKind"]
 	streaming?: boolean
+	scamSubmissionId?: string
+	scamConversationId?: string
+	scamReportReceipt?: ScamReportReceipt
 }
 
 interface StoredChat {
@@ -318,12 +322,32 @@ export function AssistantChat() {
 					sources: final.sources,
 					answerKind: final.answerKind,
 					streaming: false,
+					scamSubmissionId: final.scamSubmissionId,
+					scamConversationId: final.scamSubmissionId ? final.conversationId : undefined,
 				}
 				return next
 			})
 		},
 		[language]
 	)
+
+	function rememberScamReport(turn: Turn, receipt: ScamReportReceipt) {
+		setTurns(previous =>
+			previous.map(item =>
+				item.scamSubmissionId === turn.scamSubmissionId
+					? { ...item, scamReportReceipt: receipt }
+					: item
+			)
+		)
+		if (receipt.handoff && turn.scamConversationId === conversationId) {
+			if (scamMode) {
+				setQuestion("")
+				setScamMode(false)
+			}
+			setHandoffDone(true)
+			if (receipt.handoff === "claimed") setAgentJoined(true)
+		}
+	}
 
 	const ask = useCallback(
 		async (event: React.FormEvent) => {
@@ -609,6 +633,22 @@ export function AssistantChat() {
 												</ul>
 											</div>
 										) : null}
+										{turn.scamSubmissionId && (
+											<ScamReportAction
+												key={turn.scamSubmissionId}
+												submissionId={turn.scamSubmissionId}
+												language={language}
+												receipt={turn.scamReportReceipt}
+												canRequestAgent={
+													!!conversationId &&
+													turn.scamConversationId === conversationId &&
+													!handoffDone &&
+													!agentResolved
+												}
+												onReported={receipt => rememberScamReport(turn, receipt)}
+												getToken={() => readStoredSession()?.sessionToken}
+											/>
+										)}
 									</div>
 								</div>
 							))

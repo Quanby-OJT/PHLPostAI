@@ -51,7 +51,10 @@ describe("canAccess", () => {
 
 	it("denies wildcard grants outside the required prefix", () => {
 		expect(
-			canAccess({ roles: [], permissions: ["corpus.*"] }, { requiredPermission: "chat.query.submit" })
+			canAccess(
+				{ roles: [], permissions: ["corpus.*"] },
+				{ requiredPermission: "chat.query.submit" }
+			)
 		).toBe(false)
 		expect(
 			canAccess(
@@ -72,7 +75,10 @@ describe("canAccess", () => {
 
 	it("allows role requirements to match", () => {
 		expect(
-			canAccess({ roles: ["Knowledge Manager"], permissions: [] }, { requiredRole: "Knowledge Manager" })
+			canAccess(
+				{ roles: ["Knowledge Manager"], permissions: [] },
+				{ requiredRole: "Knowledge Manager" }
+			)
 		).toBe(true)
 	})
 
@@ -110,9 +116,7 @@ describe("navItems", () => {
 	})
 
 	it("filters visible items from the shared access helper", () => {
-		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual([
-			"Dashboard",
-		])
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).toEqual(["Dashboard"])
 
 		expect(
 			getAccessibleNavItems({ roles: [], permissions: ["users.roles.manage"] }).map(
@@ -158,9 +162,7 @@ describe("navItems", () => {
 				getAccessibleNavItems({ roles: [], permissions: [key] }).map(item => item.label)
 			).toContain("Knowledge base")
 		}
-		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain(
-			"Knowledge base"
-		)
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain("Knowledge base")
 
 		// TRK-2: status explanations need tracking.explanations.manage.
 		expect(
@@ -185,6 +187,7 @@ describe("navItems", () => {
 			"Status explanations",
 			"Chat",
 			"Agent inbox",
+			"Scam Reports",
 			"Deflection KPI",
 			"User Management",
 			"Evaluation",
@@ -197,11 +200,20 @@ describe("navItems", () => {
 		])
 	})
 
+	it("shows Scam Reports for the read grant independently of the validation grant", () => {
+		const labels = (permissions: string[]) =>
+			getAccessibleNavItems({ roles: [], permissions }).map(item => item.label)
+		expect(labels(["scam.reports.view"])).toContain("Scam Reports")
+		expect(labels(["scam.reports.validate"])).not.toContain("Scam Reports")
+		expect(labels([])).not.toContain("Scam Reports")
+	})
+
 	it("resolves mobile header titles from dashboard routes", () => {
 		expect(getDashboardRouteTitle("/dashboard")).toBe("Dashboard")
 		expect(getDashboardRouteTitle("/corpus")).toBe("Corpus")
 		expect(getDashboardRouteTitle("/chat")).toBe("Chat")
 		expect(getDashboardRouteTitle("/escalations")).toBe("Agent inbox")
+		expect(getDashboardRouteTitle("/scam-reports")).toBe("Scam Reports")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})

@@ -9,5 +9,6 @@ import { EscalationsController } from "./escalations.controller"
 	imports: [CustomerModule],
 	controllers: [EscalationsController],
 	providers: [EscalationService],
+	exports: [EscalationService],
 })
 export class EscalationsModule {}
