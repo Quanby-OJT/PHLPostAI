@@ -3,12 +3,12 @@ import { eq } from "drizzle-orm"
 
 import { agentPresence, assistantSettings } from "@repo/db/schema"
 
-import { db } from "@/common/database/database.client"
+import { db, type DbTransaction } from "@/common/database/database.client"
 
 @Injectable()
 export class AssistantSettingsRepository {
-	async list(): Promise<Array<typeof assistantSettings.$inferSelect>> {
-		return db.select().from(assistantSettings)
+	async list(transaction?: DbTransaction): Promise<Array<typeof assistantSettings.$inferSelect>> {
+		return (transaction ?? db).select().from(assistantSettings)
 	}
 
 	/** Saves several settings in one transaction, so a save never applies halfway. */

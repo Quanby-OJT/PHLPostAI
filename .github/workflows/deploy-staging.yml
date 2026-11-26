@@ -37,9 +37,17 @@ jobs:
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  answer-quality:
+    uses: ./.github/workflows/answer-quality-gate.yml
+    secrets:
+      EVAL_DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+      EVAL_REDIS_URL: ${{ secrets.EVAL_REDIS_URL }}
+      EVAL_OPENAI_API_KEY: ${{ secrets.EVAL_OPENAI_API_KEY }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   deploy-staging:
     name: Deploy to Staging (EC2 + Elastic IP)
-    needs: ci
+    needs: [ci, answer-quality]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: staging

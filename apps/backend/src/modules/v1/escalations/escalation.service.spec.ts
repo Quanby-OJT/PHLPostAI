@@ -320,6 +320,44 @@ describe("EscalationService", () => {
 		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
 	})
 
+	it("uses the caller's transaction and leaves offline publication to its owner", async () => {
+		;(isWithinBusinessHours as jest.Mock).mockReturnValue(false)
+		mockSelect
+			.mockReturnValueOnce({
+				from: () => ({
+					where: () => ({ for: async () => [{ id: "conversation-1", status: "ai_active" }] }),
+				}),
+			})
+			.mockReturnValueOnce({ from: () => ({ where: () => ({ limit: async () => [] }) }) })
+
+		const result = await service.request(
+			{
+				conversationId: "conversation-1",
+				customerSessionId: "session-1",
+				reason: "I want to speak with a person",
+				category: "scam",
+			},
+			mockTx as never
+		)
+
+		expect(result.status).toBe("contact_captured")
+		expect(mockTransaction).not.toHaveBeenCalled()
+		expect(settingsService.getEscalationSettings).toHaveBeenCalledWith(mockTx)
+		expect(conversationService.markEscalationRequested).toHaveBeenCalledWith(
+			mockTx,
+			"conversation-1",
+			"scam"
+		)
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "escalations.requested",
+				after: expect.objectContaining({ offline: true }),
+			}),
+			mockTx
+		)
+		expect(liveService.publish).not.toHaveBeenCalled()
+	})
+
 	it("rejects a conversation owned by another customer session", async () => {
 		mockSelect.mockReturnValueOnce({
 			from: () => ({ where: () => ({ for: async () => [] }) }),

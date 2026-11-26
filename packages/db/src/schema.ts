@@ -9,6 +9,8 @@ import {
 	type AnyPgColumn,
 } from "drizzle-orm/pg-core"
 
+import type { GoldenAnswerQuality } from "@repo/contracts"
+
 import { createTable } from "./utils/table.js"
 
 /**
@@ -51,9 +53,34 @@ export const users = createTable("users", t => ({
 	// F4: admin-disabled accounts cannot sign in (enforced by the Better Auth
 	// session-create hook in packages/auth) and their sessions are revoked.
 	disabled: t.boolean("disabled").default(false).notNull(),
+	// ADM-2: set by the Better Auth two-factor plugin once an authenticator app is
+	// confirmed. Staff accounts without it are held at enrolment by the API gate.
+	twoFactorEnabled: t.boolean("two_factor_enabled").default(false).notNull(),
 	createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 }))
+
+/**
+ * ADM-2: authenticator-app secret, encrypted recovery codes and the account-level
+ * failed-verification counter used for the lockout. Table and column names follow
+ * the Better Auth two-factor plugin's schema.
+ */
+export const twoFactor = createTable(
+	"two_factor",
+	t => ({
+		id: t.text("id").primaryKey(),
+		secret: t.text("secret").notNull(),
+		backupCodes: t.text("backup_codes").notNull(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		verified: t.boolean("verified").default(true).notNull(),
+		failedVerificationCount: t.integer("failed_verification_count").default(0).notNull(),
+		lockedUntil: t.timestamp("locked_until"),
+	}),
+	t => [index("two_factor_user_id_idx").on(t.userId)]
+)
 
 export const sessions = createTable("sessions", t => ({
 	id: t.text("id").primaryKey(),
@@ -769,6 +796,10 @@ export const goldenItems = createTable(
 		idealAnswer: t.text("ideal_answer").notNull(),
 		// chunks.content_hash values expected in retrieval results.
 		expectedChunkHashes: t.jsonb("expected_chunk_hashes").$type<string[]>().notNull(),
+		answerQuality: t.jsonb("answer_quality").$type<GoldenAnswerQuality>(),
+		approvalReference: t.text("approval_reference"),
+		externalApprover: t.text("external_approver"),
+		approvedAt: t.timestamp("approved_at", { withTimezone: true }),
 		tags: t.jsonb("tags").$type<string[]>().notNull().default([]),
 		status: t
 			.text("status", { enum: ["active", "retired"] })
@@ -1207,6 +1238,49 @@ export const scamAssessments = createTable(
 	]
 )
 
+export const scamReports = createTable(
+	"scam_reports",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		submissionId: t
+			.uuid("submission_id")
+			.notNull()
+			.unique()
+			.references(() => scamSubmissions.id, { onDelete: "cascade" }),
+		status: t
+			.text("status", {
+				enum: [
+					"reported",
+					"under_review",
+					"confirmed_scam",
+					"legitimate",
+					"inconclusive",
+					"closed",
+				],
+			})
+			.notNull()
+			.default("reported"),
+		reviewerId: t.text("reviewer_id").references(() => users.id, { onDelete: "set null" }),
+		finding: t.text("finding", { enum: ["confirmed_scam", "legitimate", "inconclusive"] }),
+		notes: t.text("notes"),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [
+		index("scam_reports_queue_idx").on(t.createdAt, t.id),
+		check(
+			"scam_reports_state_check",
+			sql`(
+				(${t.status} in ('reported', 'under_review') and ${t.finding} is null and ${t.notes} is null)
+				or
+				(${t.finding} is not null and ${t.finding} in ('confirmed_scam', 'legitimate', 'inconclusive')
+					and (${t.status} = ${t.finding} or ${t.status} = 'closed')
+					and ${t.notes} is not null and length(trim(${t.notes})) > 0)
+			)`
+		),
+	]
+)
+
 export const riskIndicators = createTable("risk_indicators", t => ({
 	id: t.uuid("id").primaryKey().defaultRandom(),
 	code: t.text("code").notNull().unique(),
@@ -1278,6 +1352,7 @@ export const schema = Object.assign(
 		inquiryCategories,
 		scamSubmissions,
 		scamAssessments,
+		scamReports,
 		riskIndicators,
 		officialContacts,
 		kpiDefinitions,

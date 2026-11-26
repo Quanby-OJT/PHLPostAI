@@ -42,9 +42,17 @@ jobs:
     secrets:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  answer-quality:
+    uses: ./.github/workflows/answer-quality-gate.yml
+    secrets:
+      EVAL_DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+      EVAL_REDIS_URL: ${{ secrets.EVAL_REDIS_URL }}
+      EVAL_OPENAI_API_KEY: ${{ secrets.EVAL_OPENAI_API_KEY }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
   deploy-production:
     name: Deploy to Production (EC2 + ALB + ASG)
-    needs: ci
+    needs: [ci, answer-quality]
     runs-on: ubuntu-latest
     # Build + ECR push + launch-template + instance refresh (20-min poll ceiling)
     # + ALB verify. 60 caps a hung AWS poll without cutting a real refresh.

@@ -125,6 +125,10 @@ export const env = createEnv({
 		// Service JWT lifetime (seconds) — short-lived by design.
 		RAG_SERVICE_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(120),
 
+		// ADM-3: optional trace viewer link template. `{traceId}` is replaced with a
+		// message's trace id. Unset means transcripts show the id without a link.
+		TRACE_VIEWER_URL: z.string().url().optional(),
+
 		// RP-4: Prometheus (OB-2) range API for the cache & performance report.
 		PROMETHEUS_URL: z.string().url().default("http://localhost:9090"),
 

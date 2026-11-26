@@ -14,6 +14,7 @@ import {
 	type RoleName,
 } from "@repo/contracts"
 
+import { POSTAL_ID_TEMPLATES } from "./postal-id-templates.js"
 import {
 	accounts,
 	permissions,
@@ -23,6 +24,8 @@ import {
 	userRoles,
 	users,
 	inquiryCategories,
+	knowledgeArticles,
+	knowledgeArticleVersions,
 } from "./schema.js"
 import {
 	ALLOW_REMOTE_SEED_ENV,
@@ -299,6 +302,7 @@ async function seedDatabase() {
 
 	let rolePermissionCount = 0
 	let userRoleCount = 0
+	let postalIdTemplateCount = 0
 	let passwordsWritten = false
 
 	try {
@@ -447,6 +451,33 @@ async function seedDatabase() {
 			]) {
 				await tx.insert(inquiryCategories).values(c).onConflictDoNothing({ target: inquiryCategories.code })
 			}
+
+			// CNV-6: Postal ID article templates, as drafts only. A title that
+			// already exists is left alone, so re-seeding never overwrites edits.
+			const existingTitles = new Set(
+				(
+					await tx
+						.select({ title: knowledgeArticles.title })
+						.from(knowledgeArticles)
+						.where(eq(knowledgeArticles.category, "postal-id"))
+				).map(row => row.title)
+			)
+			for (const template of POSTAL_ID_TEMPLATES) {
+				if (existingTitles.has(template.title)) continue
+				const [article] = await tx
+					.insert(knowledgeArticles)
+					.values({ title: template.title, category: "postal-id", languages: ["en"] })
+					.returning({ id: knowledgeArticles.id })
+				if (!article) continue
+				await tx.insert(knowledgeArticleVersions).values({
+					articleId: article.id,
+					version: 1,
+					body: template.body,
+					language: "en",
+					status: "draft",
+				})
+				postalIdTemplateCount += 1
+			}
 		})
 
 		// The password is printed ONLY when this run generated it AND actually
@@ -460,7 +491,8 @@ async function seedDatabase() {
 
 		console.log(
 			`Seeded ${seedUsers.length} users and ${seedCredentialAccounts.length} credential accounts.\n` +
-				`RBAC: ${seedRoles.length} roles, ${seedPermissions.length} permissions, ${rolePermissionCount} default grants written (existing roles keep their grants), ${userRoleCount} user-role assignments.\n${
+				`RBAC: ${seedRoles.length} roles, ${seedPermissions.length} permissions, ${rolePermissionCount} default grants written (existing roles keep their grants), ${userRoleCount} user-role assignments.\n` +
+				`Postal ID article templates: ${postalIdTemplateCount} new drafts (existing titles left untouched).\n${
 					credentialNote
 				}`
 		)

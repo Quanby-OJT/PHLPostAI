@@ -7,6 +7,7 @@ import { ApiKeysV1Module } from "./apikeys/apikeys.module"
 import { AssistantModule } from "./assistant/assistant.module"
 import { ChannelsModule } from "./channels/channels.module"
 import { ChatModule } from "./chat/chat.module"
+import { ConversationTranscriptsModule } from "./conversations/conversation-transcripts.module"
 import { CorpusModule } from "./corpus/corpus.module"
 import { CustomerModule } from "./customer/customer.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
@@ -19,6 +20,7 @@ import { OpsModule } from "./ops/ops.module"
 import { RatesModule } from "./rates/rates.module"
 import { RbacAdminModule } from "./rbac/rbac.module"
 import { ReportsModule } from "./reports/reports.module"
+import { ScamReportsModule } from "./scam-reports/scam-reports.module"
 import { ScamModule } from "./scam/scam.module"
 
 @Module({
@@ -27,6 +29,7 @@ import { ScamModule } from "./scam/scam.module"
 		ApiKeysV1Module,
 		AnalyticsModule,
 		ChatModule,
+		ConversationTranscriptsModule,
 		ChannelsModule,
 		CorpusModule,
 		CustomerModule,
@@ -38,6 +41,7 @@ import { ScamModule } from "./scam/scam.module"
 		MeModule,
 		OpsModule,
 		ReportsModule,
+		ScamReportsModule,
 		ScamModule,
 		RbacAdminModule,
 		// Sentry diagnostics exist ONLY in development. Conditional import rather

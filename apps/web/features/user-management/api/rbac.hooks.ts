@@ -123,10 +123,13 @@ export function useAssignRoleMutation() {
 	const queryClient = useQueryClient()
 	return useMutation({
 		mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
-			apiFetch(`/rbac/users/${userId}/roles`, {
-				method: "POST",
-				body: JSON.stringify({ roleName }),
-			}),
+			apiFetch<{ success: boolean; userId: string; roleName: string }>(
+				`/rbac/users/${userId}/roles`,
+				{
+					method: "POST",
+					body: JSON.stringify({ roleName }),
+				}
+			),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
 			queryClient.invalidateQueries({ queryKey: rbacKeys.roles })
@@ -138,9 +141,12 @@ export function useRemoveRoleMutation() {
 	const queryClient = useQueryClient()
 	return useMutation({
 		mutationFn: ({ userId, roleName }: { userId: string; roleName: string }) =>
-			apiFetch(`/rbac/users/${userId}/roles/${encodeURIComponent(roleName)}`, {
-				method: "DELETE",
-			}),
+			apiFetch<{ success: boolean; userId: string; roleName: string }>(
+				`/rbac/users/${userId}/roles/${encodeURIComponent(roleName)}`,
+				{
+					method: "DELETE",
+				}
+			),
 		onSuccess: () => {
 			queryClient.invalidateQueries({ queryKey: rbacKeys.users })
 			queryClient.invalidateQueries({ queryKey: rbacKeys.roles })
@@ -153,8 +159,8 @@ export function useRemoveRoleMutation() {
 export function useCreateUserMutation() {
 	const queryClient = useQueryClient()
 	return useMutation({
-		mutationFn: (input: { name: string; email: string; temporaryPassword: string }) =>
-			apiFetch<{ id: string; name: string; email: string }>("/rbac/users", {
+		mutationFn: (input: { name: string; email: string; roleNames: string[] }) =>
+			apiFetch<{ id: string; name: string; email: string; roles: string[] }>("/rbac/users", {
 				method: "POST",
 				body: JSON.stringify(input),
 			}),

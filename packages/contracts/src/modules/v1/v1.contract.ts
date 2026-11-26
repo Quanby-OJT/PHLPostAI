@@ -5,6 +5,7 @@ import { apiKeysContract } from "./apikeys/apikeys.contract.js"
 import { assistantContract } from "./assistant/assistant.contract.js"
 import { channelsContract } from "./channels/channels.contract.js"
 import { chatContract } from "./chat/chat.contract.js"
+import { conversationsContract } from "./conversations/conversations.contract.js"
 import { corpusContract } from "./corpus/corpus.contract.js"
 import { customerContract } from "./customer/customer.contract.js"
 import { evalContract } from "./eval/eval.contract.js"
@@ -15,6 +16,7 @@ import { opsContract } from "./ops/ops.contract.js"
 import { ratesContract } from "./rates/rates.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
 import { reportsContract } from "./reports/reports.contract.js"
+import { scamReportsContract } from "./scam-reports/scam-reports.contract.js"
 import { scamContract } from "./scam/scam.contract.js"
 import { trackingContract } from "./tracking/tracking.contract.js"
 
@@ -29,6 +31,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		rbac: rbacContract,
 		corpus: corpusContract,
 		chat: chatContract,
+		conversations: conversationsContract,
 		apikeys: apiKeysContract,
 		eval: evalContract,
 		ops: opsContract,
@@ -40,6 +43,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		tracking: trackingContract,
 		assistant: assistantContract,
 		rates: ratesContract,
+		scamReports: scamReportsContract,
 		scam: scamContract,
 	})
 )

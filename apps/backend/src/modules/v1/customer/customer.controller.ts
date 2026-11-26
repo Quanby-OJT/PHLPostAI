@@ -208,7 +208,7 @@ export class CustomerController {
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
-if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
+			if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
 				return adapter.send(
 					await this.routeToAgent(
 						session,
@@ -231,7 +231,9 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 							message.text,
 							classification,
 							correlationId,
-							startedAt
+							startedAt,
+							settings.blockedTopics,
+							settings.confidenceThreshold
 						)
 					)
 				} catch (error) {
@@ -244,10 +246,7 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 			}
 
 			let envelope: RagAnswerEnvelope
-			let confidenceThreshold: number
 			try {
-				const settings = await this.assistantSettingsService.get()
-				confidenceThreshold = settings.confidenceThreshold
 				envelope = (await this.ragGatewayService.submitChatQuery({
 					query: message.text,
 					userId: this.principalFor(session),
@@ -255,7 +254,6 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 					requestId: correlationId,
 					traceId: correlationId,
 					actorType: "customer",
-					// The public path's rows belong to ConversationService.
 					persist: false,
 					...(classification.eligible && { maxOutputTokens: settings.maxOutputTokens }),
 					...ragLanguageFields(classification),
@@ -303,8 +301,9 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 				conversationId: conversation.id,
 				envelope,
 				classification,
-				confidenceThreshold,
 				requestStartedAt: startedAt,
+				confidenceThreshold: settings.confidenceThreshold,
+				blockedTopics: settings.blockedTopics,
 			})
 			return adapter.send({ ...turn, conversationId: conversation.id } satisfies CustomerAnswer)
 		})
@@ -389,7 +388,7 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 			}
 			return
 		}
-if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
+		if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
 			const result = await this.routeToAgent(
 				session,
 				conversation.id,
@@ -401,9 +400,8 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 			response.status(200).json(result)
 			return
 		}
-		const assistantSettings = await this.assistantSettingsService.get()
-
 		// Tool results arrive as one completed turn after persistence.
+		const assistantSettings = await this.assistantSettingsService.get()
 		if (classification.route !== "retrieval") {
 			try {
 				const turn = await this.answerTool(
@@ -412,7 +410,9 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 					message.text,
 					classification,
 					correlationId,
-					startedAt
+					startedAt,
+					assistantSettings.blockedTopics,
+					assistantSettings.confidenceThreshold
 				)
 				response.status(200).json(adapter.send(turn))
 			} catch {
@@ -438,10 +438,7 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 		response.on("close", () => abort.abort())
 
 		let upstream: globalThis.Response
-		let confidenceThreshold: number
 		try {
-			const assistantSettings = await this.assistantSettingsService.get()
-			confidenceThreshold = assistantSettings.confidenceThreshold
 			upstream = await fetch(`${env.RAG_SERVICE_URL}/internal/chat/stream`, {
 				method: "POST",
 				headers: {
@@ -547,8 +544,9 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 				conversationId: conversation.id,
 				envelope,
 				classification,
-				confidenceThreshold,
 				requestStartedAt: startedAt,
+				confidenceThreshold: assistantSettings.confidenceThreshold,
+				blockedTopics: assistantSettings.blockedTopics,
 			})
 			turnRecorded = true
 			response.write(formatSseFrame("token", { delta: turn.answer }))
@@ -698,7 +696,9 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 		query: string,
 		classification: InquiryClassification,
 		correlationId: string,
-		requestStartedAt: number
+		requestStartedAt: number,
+		blockedTopics: readonly string[],
+		confidenceThreshold: number
 	): Promise<CustomerAnswer> {
 		const context = {
 			conversationId,
@@ -706,6 +706,7 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 			principal: this.principalFor(session),
 			permissions: CUSTOMER_SERVICE_PERMISSIONS,
 			correlationId,
+			blockedTopics,
 		}
 		if (classification.route === "scam") {
 			return this.scamAssessmentService.answer({
@@ -715,6 +716,15 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 				requestStartedAt,
 			})
 		}
+		if (classification.route === "postal-id-status") {
+			const turn = await this.customerChatService.answerPostalIdStatus({
+				conversationId,
+				classification,
+				correlationId,
+				blockedTopics,
+			})
+			return { ...turn, conversationId }
+		}
 		const turn =
 			classification.route === "tracking"
 				? await this.customerChatService.answerTracking({
@@ -723,7 +733,8 @@ if (matchesEscalationRule(message.text, classification.category, escalationSetti
 						correlationId,
 						requestStartedAt,
 						explanationLanguage: session.language,
-						confidenceThreshold: (await this.assistantSettingsService.get()).confidenceThreshold,
+						confidenceThreshold,
+						blockedTopics,
 					})
 				: await this.customerChatService.answerRates(context)
 		return { ...turn, conversationId }

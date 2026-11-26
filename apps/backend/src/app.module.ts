@@ -18,6 +18,7 @@ import { V1Module } from "@/modules/v1/v1.module"
 import { sessionTracker, skipSessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { skipStrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 import { ApiKeyAuthGuard } from "@/shared/guards/api-key-auth.guard"
+import { MfaEnrolmentGuard } from "@/shared/guards/mfa-enrolment.guard"
 import { RbacGuard } from "@/shared/guards/rbac.guard"
 import { ThrottlerProxyGuard } from "@/shared/guards/throttler-proxy.guard"
 import { TelemetryLifecycle } from "@/telemetry/telemetry.lifecycle"
@@ -173,6 +174,11 @@ import { env } from "./config/env.config"
 		{
 			provide: APP_GUARD,
 			useClass: ApiKeyAuthGuard,
+		},
+		// ADM-2: staff sessions without a confirmed second factor reach no route. Before RbacGuard.
+		{
+			provide: APP_GUARD,
+			useClass: MfaEnrolmentGuard,
 		},
 		{
 			provide: APP_GUARD,

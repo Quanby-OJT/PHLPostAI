@@ -41,6 +41,8 @@ const LABELED_VALUE =
 	/\b(full name|recipient name|address|account(?: number| id)?|acct|card(?: number)?|password|one[- ]time password|otp)\s*[:=]\s*[^\n,;]+/gi
 const GREETING_NAME =
 	/^(\s*(?:dear|hi|hello|mahal na|ginoo|ginang)\s+)\p{L}+(?:[ -]\p{L}+){1,4}(?=\s*[,!:\r\n]|$)/gimu
+const DELIVERY_RECIPIENT =
+	/\b((?:[Dd]elivery|[Pp]arcel|[Pp]ackage)[ \t]+(?:notice|update)[ \t]+for[ \t]+)\p{Lu}[\p{L}\p{M}’'-]*(?:[ \t]+\p{Lu}[\p{L}\p{M}’'-]*){1,4}(?=[ \t]*[,.;!:\r\n]|$)/gu
 
 function linkAddress(candidate: string): string {
 	return candidate.replace(/[.,;!?)]+$/u, "")
@@ -58,6 +60,7 @@ export function maskScamInput(text: string): string {
 		.replace(EMAIL_ADDRESS, "[EMAIL]")
 		.replace(LABELED_VALUE, "$1: [PRIVATE_DETAIL]")
 		.replace(GREETING_NAME, "$1[NAME]")
+		.replace(DELIVERY_RECIPIENT, "$1[NAME]")
 		.replace(LONG_IDENTIFIER, "[ACCOUNT_OR_IDENTIFIER]")
 }
 

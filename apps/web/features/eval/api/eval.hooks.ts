@@ -10,6 +10,7 @@ import type {
 	GoldenChunkSearchRequest,
 	GoldenItem,
 	GoldenSetExport,
+	RecordGoldenApprovalRequest,
 	UpdateGoldenItemRequest,
 } from "@repo/contracts"
 
@@ -47,9 +48,24 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Wire shape: dates arrive as ISO strings over JSON. */
-export type GoldenItemUi = Omit<GoldenItem, "createdAt" | "updatedAt"> & {
+export type GoldenItemUi = Omit<GoldenItem, "createdAt" | "updatedAt" | "approvedAt"> & {
 	createdAt: string
 	updatedAt: string
+	approvedAt?: string | null
+}
+
+export function useRecordGoldenApprovalMutation() {
+	const queryClient = useQueryClient()
+	return useMutation({
+		mutationFn: ({ id, ...input }: RecordGoldenApprovalRequest) =>
+			apiFetch<GoldenItemUi>(`/eval/golden/${id}/external-approval`, {
+				method: "POST",
+				body: JSON.stringify(input),
+			}),
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: evalKeys.golden })
+		},
+	})
 }
 
 export interface GoldenChunkCandidateUi {
@@ -152,6 +168,8 @@ export function useEvalRunsQuery() {
 	return useQuery({
 		queryKey: evalRunKeys.list,
 		queryFn: () => apiFetch<EvalRunSummaryUi[]>("/eval/runs"),
+		refetchInterval: query =>
+			query.state.data?.some(run => run.status === "running") ? 1500 : false,
 	})
 }
 
@@ -173,8 +191,7 @@ export function useExecuteEvalRunMutation() {
 export function useEvalRunComparisonQuery(baseId: string | null, candidateId: string | null) {
 	return useQuery({
 		queryKey: evalRunKeys.compare(baseId ?? "-", candidateId ?? "-"),
-		queryFn: () =>
-			apiFetch<EvalRunComparisonUi>(`/eval/runs/${baseId}/compare/${candidateId}`),
+		queryFn: () => apiFetch<EvalRunComparisonUi>(`/eval/runs/${baseId}/compare/${candidateId}`),
 		enabled: Boolean(baseId && candidateId && baseId !== candidateId),
 	})
 }
@@ -187,10 +204,27 @@ export const evalBaselineKeys = {
 	current: ["eval", "baseline"] as const,
 }
 
-export function useEvalBaselineQuery() {
+export function useEvalBaselineQuery(profile?: "evl1" | "evl1-local") {
 	return useQuery({
-		queryKey: evalBaselineKeys.current,
-		queryFn: () => apiFetch<EvalBaselineUi | null>("/eval/baseline"),
+		queryKey: [...evalBaselineKeys.current, profile],
+		queryFn: () =>
+			apiFetch<EvalBaselineUi | null>(`/eval/baseline${profile ? `?profile=${profile}` : ""}`),
+	})
+}
+
+export function useEvalRunDetail(id: string | null) {
+	return useQuery({
+		queryKey: evalRunKeys.detail(id ?? ""),
+		queryFn: () => apiFetch<EvalRunUi>(`/eval/runs/${id}`),
+		enabled: Boolean(id),
+		refetchInterval: query => (query.state.data?.status === "running" ? 1500 : false),
+	})
+}
+
+export function useApprovalOptions() {
+	return useQuery({
+		queryKey: ["eval", "approvals"],
+		queryFn: () => apiFetch<EvalRunSummaryUi[]>("/eval/approvals"),
 	})
 }
 

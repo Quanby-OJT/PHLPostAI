@@ -4,18 +4,20 @@ import { z } from "zod"
 import {
 	AssignRoleRequestSchema,
 	CreateRoleSchema,
+	CreateUserRequestSchema,
+	CreateUserResponseSchema,
 	DeleteRoleResponseSchema,
 	PermissionSchema,
 	RemoveRoleRequestSchema,
+	ResetSecondFactorRequestSchema,
+	ResetSecondFactorResponseSchema,
 	RoleIdSchema,
 	RoleSchema,
 	SetRolePermissionsRequestSchema,
+	SetUserDisabledRequestSchema,
 	UpdateRoleRequestSchema,
 	UserRoleMutationResponseSchema,
 	UserWithRolesSchema,
-	CreateUserRequestSchema,
-	CreateUserResponseSchema,
-	SetUserDisabledRequestSchema,
 } from "./rbac.schema.js"
 
 /**
@@ -111,7 +113,8 @@ export const rbacContract = {
 				method: "POST",
 				path: "/rbac/users/{userId}/roles",
 				summary: "Assign role to user",
-				description: "Assign a role to a user by role name.",
+				description:
+					"Assign a role to a user by role name. Requires users.accounts.manage and users.roles.manage. Audited with old and new roles.",
 				tags: ["RBAC"],
 			})
 			.input(AssignRoleRequestSchema)
@@ -122,7 +125,8 @@ export const rbacContract = {
 				method: "DELETE",
 				path: "/rbac/users/{userId}/roles/{roleName}",
 				summary: "Remove role from user",
-				description: "Remove a role from a user by role name.",
+				description:
+					"Remove a role from a user by role name. Requires users.accounts.manage and users.roles.manage. Refused when it would leave no active System Administrator or leave the account with no role. Audited with old and new roles.",
 				tags: ["RBAC"],
 			})
 			.input(RemoveRoleRequestSchema)
@@ -134,7 +138,7 @@ export const rbacContract = {
 				path: "/rbac/users",
 				summary: "Create a user (admin-provisioned)",
 				description:
-					"F4: create an account with a temporary password. The user can sign in immediately; there is no public registration.",
+					"ADM-1: create an account with one or more roles and email the person an invitation to set a password. There is no public registration. Requires users.accounts.manage and users.roles.manage.",
 				tags: ["RBAC"],
 			})
 			.input(CreateUserRequestSchema)
@@ -151,5 +155,21 @@ export const rbacContract = {
 			})
 			.input(SetUserDisabledRequestSchema)
 			.output(UserWithRolesSchema.pick({ id: true, disabled: true })),
+
+		/**
+		 * ADM-2: remove a user's authenticator app and recovery codes, end their sessions,
+		 * and require enrolment again at next sign-in. Requires users.accounts.manage. Audited.
+		 */
+		resetSecondFactor: oc
+			.route({
+				method: "POST",
+				path: "/rbac/users/{userId}/mfa/reset",
+				summary: "Reset a user's second factor",
+				description:
+					"ADM-2: removes the authenticator app and recovery codes, ends the user's sessions, and requires enrolment again at next sign-in. Requires users.accounts.manage. Audited.",
+				tags: ["RBAC"],
+			})
+			.input(ResetSecondFactorRequestSchema)
+			.output(ResetSecondFactorResponseSchema),
 	},
 }

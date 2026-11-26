@@ -6,6 +6,8 @@
 // V1 contracts (routers)
 export { v1Contract } from "./modules/v1/v1.contract.js"
 export type { V1Contract } from "./modules/v1/v1.contract.js"
+export { scamReportsContract } from "./modules/v1/scam-reports/scam-reports.contract.js"
+export * from "./modules/v1/scam-reports/scam-reports.schema.js"
 
 // RBAC catalog (shared constants, enums, types)
 export * from "./modules/v1/rbac/rbac.catalog.js"
@@ -24,6 +26,8 @@ export {
 	AssignRoleRequestSchema,
 	RemoveRoleRequestSchema,
 	UserRoleMutationResponseSchema,
+	ResetSecondFactorRequestSchema,
+	ResetSecondFactorResponseSchema,
 } from "./modules/v1/rbac/rbac.schema.js"
 export type {
 	Role,
@@ -37,6 +41,7 @@ export type {
 	CreateUserRequest,
 	CreateUserResponse,
 	SetUserDisabledRequest,
+	ResetSecondFactorRequest,
 } from "./modules/v1/rbac/rbac.schema.js"
 
 // Corpus (ingestion) contract + schemas
@@ -93,6 +98,27 @@ export type {
 export { RetrievalFiltersSchema } from "./modules/v1/chat/chat.schema.js"
 export type { RetrievalFilters } from "./modules/v1/chat/chat.schema.js"
 
+export { conversationsContract } from "./modules/v1/conversations/conversations.contract.js"
+export {
+	AnswerProvenanceSchema,
+	TRANSCRIPT_LANGUAGES,
+	TRANSCRIPT_OUTCOMES,
+	ToolResultSchema,
+	TranscriptDetailSchema,
+	TranscriptMessageSchema,
+	TranscriptPageSchema,
+	TranscriptRowSchema,
+	TranscriptSearchSchema,
+} from "./modules/v1/conversations/conversations.schema.js"
+export type {
+	AnswerProvenance,
+	TranscriptDetail,
+	TranscriptMessage,
+	TranscriptPage,
+	TranscriptRow,
+	TranscriptSearch,
+} from "./modules/v1/conversations/conversations.schema.js"
+
 export { apiKeysContract } from "./modules/v1/apikeys/apikeys.contract.js"
 export {
 	ApiKeySchema,
@@ -108,6 +134,10 @@ export type {
 export { evalContract } from "./modules/v1/eval/eval.contract.js"
 export {
 	GoldenItemSchema,
+	GoldenAnswerQualitySchema,
+	EvalLanguageSchema,
+	EvalUseCaseSchema,
+	EvalBehaviorSchema,
 	GoldenItemStatusSchema,
 	CreateGoldenItemRequestSchema,
 	UpdateGoldenItemRequestSchema,
@@ -124,6 +154,8 @@ export {
 } from "./modules/v1/eval/eval.schema.js"
 export type {
 	GoldenItem,
+	GoldenAnswerQuality,
+	RecordGoldenApprovalRequest,
 	GoldenItemStatus,
 	CreateGoldenItemRequest,
 	UpdateGoldenItemRequest,

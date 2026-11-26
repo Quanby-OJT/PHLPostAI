@@ -186,6 +186,120 @@ describe("CustomerChatService (CNV-1)", () => {
 	})
 
 	describe("AC2: an uncovered question is answered, not invented", () => {
+		it("accepts official amounts and statuses only from cited source chunks", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "The fee is ₱320 and the parcel is in transit.",
+					retrievedChunks: [{ id: "chunk-1", content: "Fee: ₱320. Parcel status: in transit." }],
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					confidence: 0.95,
+					screenedQuery: "q",
+				},
+				classification: { category: "tracking", language: "en", replyLanguage: "en" },
+			})
+
+			expect(turn.answer).toContain("₱320")
+			expect(turn.answerKind).toBe("answer")
+		})
+
+		it("withholds unsupported official claims and records answer_blocked", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "The package is delivered and the fee is ₱500.",
+					retrievedChunks: [{ id: "chunk-1", text: "The package status is in transit." }],
+					confidence: 0.95,
+					screenedQuery: "q",
+				},
+				classification: { category: "service-info", language: "en", replyLanguage: "en" },
+				blockedTopics: [],
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.isIDontKnow).toBe(true)
+			expect(turn.answer).toContain("I'm not sure enough to answer")
+			expect(turn.answer).not.toContain("delivered")
+			expect(turn.answer).not.toContain("₱500")
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					answerKind: "uncertain",
+					maskedQuery: "q",
+					retrievedChunks: [{ id: "chunk-1" }],
+					additionalEventKinds: ["answer_blocked"],
+				})
+			)
+		})
+
+		it("evaluates overrides without writing a customer turn and still applies blocked topics", async () => {
+			const groundednessResult = { grounded: false, outcome: "idk" }
+			const input = {
+				envelope: { confidence: 0.4, retrievalScore: 0.6, groundednessResult },
+				confidenceThreshold: 0.7,
+				blockedTopics: ["customs clearance"],
+			}
+
+			await expect(
+				service.previewAnswer({ ...input, answerOverride: "Check the official postal website." })
+			).resolves.toMatchObject({
+				answer: "Check the official postal website.",
+				answerKind: "answer",
+				confidence: 0.4,
+				retrievalScore: 0.6,
+				groundednessResult,
+				isIDontKnow: false,
+				guardrail: { blocked: false },
+			})
+			await expect(
+				service.previewAnswer({ ...input, answerOverride: "Customs clearance is available." })
+			).resolves.toMatchObject({
+				answerKind: "uncertain",
+				isIDontKnow: true,
+				guardrail: { blocked: true },
+			})
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
+		})
+
+		it("checks blocked topics in the draft even when confidence is below threshold", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "Customs clearance requires the customer to provide documents.",
+					confidence: 0.42,
+					screenedQuery: "What is customs clearance?",
+				},
+				classification: { category: "service-info", language: "en", replyLanguage: "en" },
+				confidenceThreshold: 0.7,
+				blockedTopics: ["customs clearance"],
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.answer).not.toContain("Customs clearance")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+			)
+		})
+
+		it("always blocks requests for payment or credentials even when cited", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "Please pay ₱320 now and share your password.",
+					retrievedChunks: [{ text: "Please pay ₱320 now and share your password." }],
+					confidence: 0.99,
+					screenedQuery: "q",
+				},
+				classification: { category: "rates", language: "en", replyLanguage: "en" },
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.answer).not.toContain("password")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+			)
+		})
+
 		it("replaces a below-threshold draft with a localized uncertainty and handoff offer", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
@@ -243,7 +357,12 @@ describe("CustomerChatService (CNV-1)", () => {
 		it("sends an answer whose confidence equals the configured threshold normally", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Grounded answer [1].", confidence: 0.7, citations: [], screenedQuery: "q" },
+				envelope: {
+					answer: "Grounded answer [1].",
+					confidence: 0.7,
+					citations: [],
+					screenedQuery: "q",
+				},
 				confidenceThreshold: 0.7,
 			})
 
@@ -806,14 +925,22 @@ describe("CustomerChatService (CNV-1)", () => {
 				answerKind: "uncertain",
 			})
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
-				expect.objectContaining({ answer: expect.stringContaining("Hindi ako sapat na sigurado"), language: "fil" })
+				expect.objectContaining({
+					answer: expect.stringContaining("Hindi ako sapat na sigurado"),
+					language: "fil",
+				})
 			)
 		})
 
 		it("answers an unsupported language in English and names the supported ones", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Express Mail is next-day [1].", confidence: 0.9, screenedQuery: "q", citations: [] },
+				envelope: {
+					answer: "Express Mail is next-day [1].",
+					confidence: 0.9,
+					screenedQuery: "q",
+					citations: [],
+				},
 				classification: { category: "service-info", language: "unsupported", replyLanguage: "en" },
 			})
 
@@ -854,6 +981,251 @@ describe("CustomerChatService (CNV-1)", () => {
 			})
 
 			expect(turn.answer).toBe("Oo, puwede [1].")
+		})
+	})
+
+	describe("CNV-6: Postal ID questions", () => {
+		const INPUT = {
+			query: "a Postal ID question",
+			principal: "customer-session:session-1",
+			permissions: ["chat.query.submit"],
+			correlationId: "req-1",
+			sessionLanguage: "en",
+		}
+		const ARTICLE_TEXT =
+			"Bring one valid government-issued ID or your PSA birth certificate, plus proof of address."
+
+		function classifiedAs(screenedQuery: string) {
+			ragGatewayService.classifyInquiry.mockResolvedValue({
+				screenedQuery,
+				category: "postal-id",
+				language: "en",
+				fallbackUsed: false,
+			})
+		}
+
+		it("routes a question about one application to the fixed no-records reply", async () => {
+			classifiedAs("What is the status of my Postal ID application?")
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ postalId: "status", route: "postal-id-status" })
+			)
+		})
+
+		it("answers an eligibility question from the articles", async () => {
+			classifiedAs("Am I eligible for a Postal ID?")
+
+			await expect(service.classify(INPUT)).resolves.toEqual(
+				expect.objectContaining({ postalId: "eligibility", route: "retrieval" })
+			)
+		})
+
+		it("gives the requirements and says it can't decide the case (AC2)", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: `${ARTICLE_TEXT} [1]`,
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+					confidence: 0.9,
+					screenedQuery: "Am I eligible for a Postal ID?",
+				},
+				classification: {
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					postalId: "eligibility",
+				},
+			})
+
+			expect(turn.answer).toContain(ARTICLE_TEXT)
+			expect(turn.answer).toContain("I can't decide individual cases")
+			expect(turn.answer).toContain("capturing site")
+		})
+
+		it("withholds a draft that decides the customer's case", async () => {
+			const input = {
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "Based on your documents, you are eligible and will be approved [1].",
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+					confidence: 0.9,
+					screenedQuery: "Am I eligible for a Postal ID? My ID is [PH_ID].",
+				},
+				classification: {
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					postalId: "eligibility",
+				},
+			} satisfies Parameters<CustomerChatService["completeTurn"]>[0]
+			const preview = await service.previewAnswer(input)
+			expect(preview).toMatchObject({ answerKind: "uncertain", isIDontKnow: true })
+			expect(preview.answer).toContain("I can't decide individual cases")
+			expect(preview.answer).toContain("please don't share ID numbers")
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
+
+			const turn = await service.completeTurn(input)
+
+			expect(turn.answer).not.toContain("you are eligible")
+			expect(turn.answer).toBe(preview.answer)
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					answer: preview.answer,
+					maskedQuery: input.envelope.screenedQuery,
+					additionalEventKinds: ["answer_blocked"],
+				})
+			)
+		})
+
+		it("reminds the customer not to share personal details (AC3)", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: `${ARTICLE_TEXT} [1]`,
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+					confidence: 0.9,
+					screenedQuery: "My Postal ID number is [ID_NUMBER], what do I bring to renew?",
+				},
+				classification: {
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					postalId: "guidance",
+				},
+			})
+
+			expect(turn.answer).toContain("please don't share ID numbers")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					maskedQuery: "My Postal ID number is [ID_NUMBER], what do I bring to renew?",
+				})
+			)
+		})
+
+		it.each(["[EMAIL]", "[PHONE]", "[PH_ID]", "[PH_TIN]", "[PH_SSS]", "[ID_NUMBER]"])(
+			"stores the masked question and reminds the customer about %s (AC3)",
+			async placeholder => {
+				const screenedQuery = `My details are ${placeholder}, how do I renew my Postal ID?`
+				const turn = await service.completeTurn({
+					conversationId: "conversation-1",
+					envelope: {
+						answer: `${ARTICLE_TEXT} [1]`,
+						citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+						retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+						confidence: 0.9,
+						screenedQuery,
+					},
+					classification: {
+						category: "postal-id",
+						language: "en",
+						replyLanguage: "en",
+						postalId: "guidance",
+					},
+				})
+
+				expect(turn.answer).toContain("please don't share ID numbers")
+				expect(conversationService.recordTurn).toHaveBeenCalledWith(
+					expect.objectContaining({ maskedQuery: screenedQuery })
+				)
+			}
+		)
+
+		it("adds no reminder when nothing was masked", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: `${ARTICLE_TEXT} [1]`,
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
+					confidence: 0.9,
+					screenedQuery: "How do I renew my Postal ID?",
+				},
+				classification: {
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					postalId: "guidance",
+				},
+			})
+
+			expect(turn.answer).not.toContain("please don't share ID numbers")
+		})
+
+		it("says it has no access to application records (AC4)", async () => {
+			const input = {
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "Nasaan na ang Postal ID ko?",
+					category: "postal-id",
+					language: "fil",
+					replyLanguage: "fil",
+					route: "postal-id-status",
+					postalId: "status",
+				},
+				correlationId: "req-1",
+			} satisfies Parameters<CustomerChatService["answerPostalIdStatus"]>[0]
+			const preview = service.previewPostalIdStatus(input.classification)
+			expect(preview.answer).toContain("Wala akong access sa mga rekord ng aplikasyon")
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
+
+			const turn = await service.answerPostalIdStatus(input)
+			expect(turn.answer).toBe(preview.answer)
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
+			expect(turn).toMatchObject({ answerKind: "tool", sources: [], citations: [] })
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					maskedQuery: "Nasaan na ang Postal ID ko?",
+					inquiryCategory: "postal-id",
+					answerKind: "tool",
+					confidence: 1,
+					category: "postal-id",
+					additionalEventKinds: [],
+				})
+			)
+		})
+
+		it("adds the personal-details reminder to the status reply", async () => {
+			const turn = await service.answerPostalIdStatus({
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "Where is my Postal ID? PRN: [ID_NUMBER]",
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					route: "postal-id-status",
+					postalId: "status",
+				},
+				correlationId: "req-1",
+			})
+
+			expect(turn.answer).toContain("I don't have access to Postal ID application records")
+			expect(turn.answer).toContain("please don't share ID numbers")
+		})
+
+		it("respects a blocked topic on the status reply", async () => {
+			const turn = await service.answerPostalIdStatus({
+				conversationId: "conversation-1",
+				classification: {
+					screenedQuery: "Where is my Postal ID?",
+					category: "postal-id",
+					language: "en",
+					replyLanguage: "en",
+					route: "postal-id-status",
+					postalId: "status",
+				},
+				correlationId: "req-1",
+				blockedTopics: ["Postal ID"],
+			})
+
+			expect(turn.answer).toContain("I'm not sure enough to answer")
+			expect(turn.answerKind).toBe("uncertain")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+			)
 		})
 	})
 })

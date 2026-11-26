@@ -81,6 +81,20 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "escalations.queue.view",
 	},
 	{
+		// ADM-3: transcript search and per-answer provenance (read-only; every open is audited).
+		label: "Transcripts",
+		href: "/transcripts",
+		icon: BubbleChatIcon,
+		requiredPermission: "conversations.transcripts.view",
+	},
+	{
+		label: "Scam Reports",
+		href: "/scam-reports",
+		icon: CheckmarkBadge01Icon,
+		section: "Administration",
+		requiredPermission: "scam.reports.view",
+	},
+	{
 		label: "Deflection KPI",
 		href: "/analytics/deflection",
 		icon: ChartLineData01Icon,
@@ -101,7 +115,7 @@ export const navItems: readonly DashboardNavItem[] = [
 		href: "/eval",
 		icon: CheckmarkBadge01Icon,
 		section: "Administration",
-		requiredPermission: ["eval.golden.manage", "eval.runs.execute"],
+		requiredPermission: ["eval.golden.manage", "eval.runs.execute", "eval.gate.approve"],
 	},
 	{
 		// RP-1 reporting console: audit trail now, RP-2..5 reports plug into

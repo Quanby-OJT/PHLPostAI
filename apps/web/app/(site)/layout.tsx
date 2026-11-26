@@ -3,6 +3,7 @@ import { redirect } from "next/navigation"
 import { SidebarInset, SidebarProvider } from "@/core/components/ui/sidebar"
 import { getSession } from "@/services/better-auth/auth-server"
 import { CacheIdentity } from "@/services/tanstack-query/cache-identity"
+import { hasConfirmedSecondFactor } from "@/features/auth/two-factor/lib/second-factor"
 import { AppSidebar } from "@/features/dashboard/components/app-sidebar"
 import { SiteHeader } from "@/features/dashboard/components/site-header"
 import { getAccess } from "@/features/dashboard/server/get-access"
@@ -16,6 +17,11 @@ export default async function SiteLayout({
 
 	if (!session) {
 		redirect("/login")
+	}
+	// ADM-2: the server refuses every route to an unenrolled session. This is the same
+	// rule in the UI, so the person lands on enrolment instead of an error page.
+	if (!hasConfirmedSecondFactor(session.user)) {
+		redirect("/mfa-setup")
 	}
 
 	const access = await getAccess()

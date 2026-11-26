@@ -7,6 +7,7 @@ import {
 	type CustomerAnswer,
 	type CustomerAnswerSource,
 	type CustomerLanguage,
+	type ScamReportReceipt,
 } from "@repo/contracts"
 
 import { ApiError } from "@/core/lib/api-error"
@@ -22,7 +23,6 @@ import {
 	streamQuestion,
 	submitOfflineContact,
 	watchAgentConversation,
-	type AgentMessageEvent,
 	type AssistantStreamHandlers,
 	type StoredSession,
 } from "../api/assistant.client"
@@ -32,6 +32,7 @@ import {
 	LANGUAGE_LABELS,
 	type HandoffReason,
 } from "../lib/assistant-copy"
+import { ScamReportAction } from "./scam-report-action"
 
 /** TODO(CHN-1): replace with PHLPost's real privacy notice URL. */
 const PRIVACY_NOTICE_URL = "/privacy"
@@ -51,6 +52,9 @@ interface Turn {
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
 	answerKind?: CustomerAnswer["answerKind"]
 	streaming?: boolean
+	scamSubmissionId?: string
+	scamConversationId?: string
+	scamReportReceipt?: ScamReportReceipt
 }
 
 interface StoredChat {
@@ -334,12 +338,33 @@ export function AssistantChat() {
 					sources: final.sources,
 					answerKind: final.answerKind,
 					streaming: false,
+					scamSubmissionId: final.scamSubmissionId,
+					scamConversationId: final.scamSubmissionId ? final.conversationId : undefined,
 				}
 				return next
 			})
 		},
 		[language]
 	)
+
+	function rememberScamReport(turn: Turn, receipt: ScamReportReceipt) {
+		setTurns(previous =>
+			previous.map(item =>
+				item.scamSubmissionId === turn.scamSubmissionId
+					? { ...item, scamReportReceipt: receipt }
+					: item
+			)
+		)
+		if (receipt.handoff && turn.scamConversationId === conversationId) {
+			if (scamMode) {
+				setQuestion("")
+				setScamMode(false)
+			}
+			setHandoffDone(true)
+			if (receipt.handoff === "claimed") setAgentJoined(true)
+			if (receipt.handoff === "contact_captured") setContactCaptured(true)
+		}
+	}
 
 	const ask = useCallback(
 		async (event: React.FormEvent) => {
@@ -606,7 +631,7 @@ export function AssistantChat() {
 					<button
 						type="button"
 						onClick={() => setAccepted(true)}
-						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+						className="bg-primary text-primary-foreground focus-visible:ring-ring min-h-11 rounded-lg px-5 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
 					>
 						{copy.accept}
 					</button>
@@ -667,6 +692,22 @@ export function AssistantChat() {
 												</ul>
 											</div>
 										) : null}
+										{turn.scamSubmissionId && (
+											<ScamReportAction
+												key={turn.scamSubmissionId}
+												submissionId={turn.scamSubmissionId}
+												language={language}
+												receipt={turn.scamReportReceipt}
+												canRequestAgent={
+													!!conversationId &&
+													turn.scamConversationId === conversationId &&
+													!handoffDone &&
+													!agentResolved
+												}
+												onReported={receipt => rememberScamReport(turn, receipt)}
+												getToken={() => readStoredSession()?.sessionToken}
+											/>
+										)}
 									</div>
 								</div>
 							))
@@ -811,7 +852,12 @@ export function AssistantChat() {
 									rows={3}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 resize-none rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
 									disabled={
-										busy || handoffBusy || waitSeconds > 0 || agentResolved || contactCaptured || !channelEnabled
+										busy ||
+										handoffBusy ||
+										waitSeconds > 0 ||
+										agentResolved ||
+										contactCaptured ||
+										!channelEnabled
 									}
 								/>
 							) : (
@@ -825,7 +871,12 @@ export function AssistantChat() {
 									maxLength={1000}
 									className="focus-visible:ring-ring min-h-11 min-w-0 flex-1 rounded-lg border px-4 py-2 text-base focus-visible:outline-none focus-visible:ring-2 sm:text-sm"
 									disabled={
-										busy || handoffBusy || waitSeconds > 0 || agentResolved || contactCaptured || !channelEnabled
+										busy ||
+										handoffBusy ||
+										waitSeconds > 0 ||
+										agentResolved ||
+										contactCaptured ||
+										!channelEnabled
 									}
 								/>
 							)}

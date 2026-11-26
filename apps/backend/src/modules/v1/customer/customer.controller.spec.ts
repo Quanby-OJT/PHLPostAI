@@ -173,6 +173,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		classify: jest.Mock
 		answerTracking: jest.Mock
 		answerRates: jest.Mock
+		answerPostalIdStatus: jest.Mock
 	}
 	let ragGatewayService: {
 		mintServiceToken: jest.Mock
@@ -227,6 +228,14 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			}),
 			answerTracking: jest.fn().mockResolvedValue({
 				answer: "Here is the latest status from the PHLPost tracking system:",
+				messageId: "message-2",
+				sources: [],
+				citations: [],
+				answerKind: "tool",
+				isIDontKnow: false,
+			}),
+			answerPostalIdStatus: jest.fn().mockResolvedValue({
+				answer: "I don't have access to Postal ID application records.",
 				messageId: "message-2",
 				sources: [],
 				citations: [],
@@ -778,6 +787,64 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			expect(state.json).toEqual(
 				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
 			)
+		})
+	})
+
+	describe("CNV-6: Postal ID questions", () => {
+		const POSTAL_ID = {
+			screenedQuery: "how do I renew my postal id",
+			category: "postal-id",
+			eligible: true,
+			language: "en",
+			replyLanguage: "en" as const,
+			route: "retrieval" as const,
+			postalId: "guidance" as const,
+		}
+
+		it("answers an application-status question without retrieval (AC4)", async () => {
+			const classification = {
+				...POSTAL_ID,
+				screenedQuery: "where is my postal id",
+				route: "postal-id-status" as const,
+				postalId: "status" as const,
+			}
+			customerChatService.classify.mockResolvedValue(classification)
+			const { response, state } = responseDouble()
+
+			await controller.streamMessage(
+				{ query: "where is my postal id" },
+				"token",
+				REQUEST,
+				response as never
+			)
+
+			expect(fetchMock).not.toHaveBeenCalled()
+			expect(customerChatService.answerPostalIdStatus).toHaveBeenCalledWith(
+				expect.objectContaining({ conversationId: "conversation-1", classification })
+			)
+			expect(state.json).toEqual(
+				expect.objectContaining({ answerKind: "tool", conversationId: "conversation-1" })
+			)
+		})
+
+		it("asks the RAG service for the Postal ID reply rules (AC1, AC2)", async () => {
+			customerChatService.classify.mockResolvedValue(POSTAL_ID)
+			fetchMock.mockResolvedValue({
+				ok: true,
+				status: 200,
+				body: sseBody('event: final\ndata: {"answer":"ok","screenedQuery":"renew"}\n\n'),
+			})
+			const { response } = responseDouble()
+
+			await controller.streamMessage(
+				{ query: "how do I renew my postal id" },
+				"token",
+				REQUEST,
+				response as never
+			)
+
+			const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
+			expect(body).toEqual(expect.objectContaining({ replyRules: "postal-id" }))
 		})
 	})
 

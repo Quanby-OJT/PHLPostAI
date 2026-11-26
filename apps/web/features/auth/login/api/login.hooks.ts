@@ -51,7 +51,14 @@ export function useLoginMutation() {
 			}
 			return result
 		},
-		onSuccess: () => {
+		onSuccess: result => {
+			// ADM-2: a correct password with a second factor enrolled ends at the code step.
+			// No session exists yet, so the challenge page must not wait on one.
+			const data = result?.data as { twoFactorRedirect?: boolean } | null | undefined
+			if (data?.twoFactorRedirect) {
+				router.push("/two-factor")
+				return
+			}
 			queryClient.invalidateQueries({ queryKey: sessionKeys.all })
 			router.push("/")
 			router.refresh()

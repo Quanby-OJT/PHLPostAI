@@ -69,22 +69,40 @@ export const UserWithRolesSchema = z.object({
 	disabled: z.boolean(),
 })
 
-/** F4: admin-provisioned user creation (email + temp password). */
+/**
+ * ADM-1: admin-provisioned account. The account is created with the given roles
+ * and no password; the person receives an email invitation to set one. Email is
+ * lowercased so the address they later sign in with matches the stored one.
+ */
 export const CreateUserRequestSchema = z.object({
 	name: z.string().trim().min(1).max(120),
-	email: z.string().trim().email().max(254),
-	temporaryPassword: z.string().min(8).max(128),
+	email: z.string().trim().toLowerCase().email().max(254),
+	roleNames: z
+		.array(z.string().min(1).max(100))
+		.min(1, "Choose at least one role")
+		.max(20, "Too many roles"),
 })
 
 export const CreateUserResponseSchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	email: z.string(),
+	roles: z.array(z.string()),
 })
 
 export const SetUserDisabledRequestSchema = z.object({
 	userId: z.string().min(1),
 	disabled: z.boolean(),
+})
+
+/** ADM-2: admin reset of a user's second factor. The user enrols again at next sign-in. */
+export const ResetSecondFactorRequestSchema = z.object({
+	userId: z.string().min(1),
+})
+
+export const ResetSecondFactorResponseSchema = z.object({
+	id: z.string(),
+	twoFactorEnabled: z.literal(false),
 })
 
 /** Assign route input: userId from path + roleName from body */
@@ -117,5 +135,6 @@ export type UserWithRoles = z.infer<typeof UserWithRolesSchema>
 export type CreateUserRequest = z.infer<typeof CreateUserRequestSchema>
 export type CreateUserResponse = z.infer<typeof CreateUserResponseSchema>
 export type SetUserDisabledRequest = z.infer<typeof SetUserDisabledRequestSchema>
+export type ResetSecondFactorRequest = z.infer<typeof ResetSecondFactorRequestSchema>
 export type AssignRoleRequest = z.infer<typeof AssignRoleRequestSchema>
 export type RemoveRoleRequest = z.infer<typeof RemoveRoleRequestSchema>

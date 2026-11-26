@@ -1,36 +1,48 @@
-import { randomBytes, randomUUID, scryptSync } from "node:crypto"
 import { Injectable } from "@nestjs/common"
+import { randomUUID } from "node:crypto"
 import { ORPCError } from "@orpc/server"
-import { eq, inArray, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, sql } from "drizzle-orm"
 
+import { sendStaffInvitation } from "@repo/auth"
 import {
 	ADMIN_ROLE,
 	PERMISSION_NAMES,
 	type AssignRoleRequest,
 	type CreateRoleInput,
+	type CreateUserRequest,
+	type CreateUserResponse,
 	type PermissionCatalogEntry,
 	type PermissionName,
 	type RemoveRoleRequest,
+	type ResetSecondFactorRequest,
 	type Role,
 	type SetRolePermissionsRequest,
+	type SetUserDisabledRequest,
 	type UpdateRoleRequest,
 	type UserWithRoles,
-	type CreateUserRequest,
-	type SetUserDisabledRequest,
 } from "@repo/contracts"
-import { accounts, permissions, rolePermissions, roles, sessions, userRoles, users } from "@repo/db/schema"
+import {
+	permissions,
+	rolePermissions,
+	roles,
+	sessions,
+	twoFactor,
+	userRoles,
+	users,
+} from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
 import { db } from "@/common/database/database.client"
 import { RbacCacheService } from "@/common/rbac/rbac-cache.service"
-import { RbacService } from "@/common/rbac/rbac.service"
+
+/** A transaction handle, so role writes and their audit rows commit together. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 const PERMISSION_CATALOG = new Set<string>(PERMISSION_NAMES)
 
 @Injectable()
 export class RbacAdminService {
 	constructor(
-		private readonly rbacService: RbacService,
 		private readonly cacheService: RbacCacheService,
 		private readonly auditService: AuditService
 	) {}
@@ -193,16 +205,29 @@ export class RbacAdminService {
 	}
 
 	/**
-	 * F4: admin-provisioned account creation (no public registration). Same
-	 * scrypt credential format Better Auth verifies (mirrors packages/db seed);
-	 * the user can sign in with the temporary password immediately.
+	 * ADM-1: admin-provisioned account. The account and its roles commit in one
+	 * transaction with the audit entry. The person then gets an invitation to set
+	 * a password. No credential row exists until they do, so nothing can sign in.
 	 */
-	async createUser(payload: CreateUserRequest, actorId: string) {
-		const [existing] = await db.select().from(users).where(eq(users.email, payload.email))
+	async createUser(payload: CreateUserRequest, actorId: string): Promise<CreateUserResponse> {
+		const [existing] = await db
+			.select({ id: users.id })
+			.from(users)
+			.where(eq(users.email, payload.email))
 		if (existing) {
 			throw new ORPCError("CONFLICT", {
 				message: `A user with email ${payload.email} already exists`,
 			})
+		}
+
+		const roleNames = Array.from(new Set(payload.roleNames)).sort()
+		const roleRows = await db
+			.select({ id: roles.id, name: roles.name })
+			.from(roles)
+			.where(inArray(roles.name, roleNames))
+		const missing = roleNames.filter(name => !roleRows.some(row => row.name === name))
+		if (missing.length) {
+			throw new ORPCError("BAD_REQUEST", { message: `Unknown roles: ${missing.join(", ")}` })
 		}
 
 		const userId = randomUUID()
@@ -211,43 +236,78 @@ export class RbacAdminService {
 				id: userId,
 				name: payload.name,
 				email: payload.email,
-				emailVerified: true, // admin-provisioned: no verification loop
+				emailVerified: true, // the invitation link proves the address
 			})
-			await tx.insert(accounts).values({
-				id: randomUUID(),
-				userId,
-				providerId: "credential",
-				accountId: userId,
-				password: this.hashPassword(payload.temporaryPassword),
-			})
+			await tx.insert(userRoles).values(roleRows.map(role => ({ userId, roleId: role.id })))
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: "users.accounts.create",
+					resourceType: "user",
+					resourceId: userId,
+					after: { email: payload.email, name: payload.name, roles: roleNames },
+				},
+				tx
+			)
 		})
 
-		await this.auditService.writeAudit({
-			actorId,
-			actorType: "user",
-			action: "users.accounts.create",
-			resourceType: "user",
-			resourceId: userId,
-			after: { email: payload.email, name: payload.name },
-		})
-
-		return { id: userId, name: payload.name, email: payload.email }
+		await this.sendInvitationOrRollBack(userId, payload.email, roleNames, actorId)
+		return { id: userId, name: payload.name, email: payload.email, roles: roleNames }
 	}
 
 	/**
-	 * F4: disable = no new sessions (Better Auth session-create hook) AND all
-	 * existing sessions revoked; re-enable restores sign-in. Audited.
+	 * ADM-1: the invitation is sent here, not through Better Auth's reset endpoint.
+	 * That endpoint logs mail failures and still reports success, so a failed send
+	 * would look like a created account with no email. If the email cannot be sent,
+	 * the new account is removed, the failure is audited, and the request fails.
+	 */
+	private async sendInvitationOrRollBack(
+		userId: string,
+		email: string,
+		roleNames: string[],
+		actorId: string
+	): Promise<void> {
+		try {
+			await sendStaffInvitation({ userId, email })
+		} catch {
+			await db.transaction(async tx => {
+				await tx.delete(users).where(eq(users.id, userId))
+				await this.auditService.writeAudit(
+					{
+						actorId,
+						actorType: "user",
+						action: "users.accounts.invite_failed",
+						resourceType: "user",
+						resourceId: userId,
+						after: { email, roles: roleNames },
+					},
+					tx
+				)
+			})
+			throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				message:
+					"The invitation email could not be sent, so the account was not kept. Check the mail settings and try again.",
+			})
+		}
+	}
+
+	/**
+	 * F4/ADM-1: disable = no new sessions (Better Auth session-create hook) AND
+	 * every existing session revoked in the same transaction. Re-enable restores
+	 * sign-in. Refused when it would leave no active System Administrator.
 	 */
 	async setUserDisabled(payload: SetUserDisabledRequest, actorId: string) {
-		const [user] = await db.select().from(users).where(eq(users.id, payload.userId))
-		if (!user) {
-			throw new ORPCError("NOT_FOUND", { message: `User ${payload.userId} not found` })
-		}
-		if (user.id === actorId) {
-			throw new ORPCError("BAD_REQUEST", { message: "You cannot disable your own account" })
-		}
-
 		await db.transaction(async tx => {
+			await this.lockAdminRole(tx)
+			const user = await this.getUserOrThrow(tx, payload.userId)
+			if (user.id === actorId) {
+				throw new ORPCError("BAD_REQUEST", { message: "You cannot disable your own account" })
+			}
+			if (payload.disabled && !user.disabled) {
+				await this.assertNotLastActiveAdmin(tx, user.id)
+			}
+
 			await tx
 				.update(users)
 				.set({ disabled: payload.disabled, updatedAt: new Date() })
@@ -256,74 +316,221 @@ export class RbacAdminService {
 				// Revoke every live session so the lockout is immediate.
 				await tx.delete(sessions).where(eq(sessions.userId, payload.userId))
 			}
-		})
 
-		await this.auditService.writeAudit({
-			actorId,
-			actorType: "user",
-			action: payload.disabled ? "users.accounts.disable" : "users.accounts.enable",
-			resourceType: "user",
-			resourceId: payload.userId,
-			before: { disabled: user.disabled },
-			after: { disabled: payload.disabled },
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: payload.disabled ? "users.accounts.disable" : "users.accounts.enable",
+					resourceType: "user",
+					resourceId: payload.userId,
+					before: { disabled: user.disabled },
+					after: { disabled: payload.disabled },
+				},
+				tx
+			)
 		})
 
 		return { id: payload.userId, disabled: payload.disabled }
 	}
 
-	/** Better Auth-compatible scrypt hash (same params as packages/db seed). */
-	private hashPassword(password: string): string {
-		const saltHex = randomBytes(16).toString("hex")
-		const key = scryptSync(password.normalize("NFKC"), saltHex, 64, {
-			N: 16384,
-			r: 16,
-			p: 1,
-			maxmem: 128 * 16384 * 16 * 2,
-		})
-		return `${saltHex}:${key.toString("hex")}`
-	}
-
+	/**
+	 * ADM-1: assigning a role needs users.accounts.manage (route) and
+	 * users.roles.manage. Audited with the role set before and after, in the same
+	 * transaction as the change. The RBAC cache is cleared inside the transaction and
+	 * again after commit, so the new permissions apply on the next request, and a cache
+	 * failure rolls the change back.
+	 */
 	async assignUserRole(payload: AssignRoleRequest, actorId: string) {
-		const before = await this.getUserRoleNames(payload.userId)
-		await this.rbacService.assignRole(payload.userId, payload.roleName)
-		const after = await this.getUserRoleNames(payload.userId)
+		await db.transaction(async tx => {
+			await this.getUserOrThrow(tx, payload.userId)
+			const role = await this.getRoleRowByName(tx, payload.roleName)
+			const before = await this.getUserRoleNames(payload.userId, tx)
 
-		// Flow E: role assignment is a privileged state change — audit actor,
-		// action, and before -> after role sets on the append-only spine.
-		await this.auditService.writeAudit({
-			actorId,
-			actorType: "user",
-			action: "users.roles.assign",
-			resourceType: "user",
-			resourceId: payload.userId,
-			before: { roles: before },
-			after: { roles: after },
+			await tx
+				.insert(userRoles)
+				.values({ userId: payload.userId, roleId: role.id })
+				.onConflictDoNothing()
+
+			const after = await this.getUserRoleNames(payload.userId, tx)
+			// Inside the transaction: if the cache cannot be cleared the change rolls back.
+			await this.cacheService.invalidate(payload.userId)
+			// Flow E: role assignment is a privileged state change, audited with the
+			// before -> after role sets on the append-only spine.
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: "users.roles.assign",
+					resourceType: "user",
+					resourceId: payload.userId,
+					before: { roles: before },
+					after: { roles: after },
+				},
+				tx
+			)
 		})
 
+		await this.invalidateAfterCommit(payload.userId)
 		return { success: true, userId: payload.userId, roleName: payload.roleName }
 	}
 
+	/**
+	 * ADM-1: removing a role needs the same two keys as assigning one. Removing
+	 * System Administrator from the last active holder is refused. The admin-role
+	 * lock is taken before the check, so a concurrent change cannot slip past it.
+	 * A Staff user holds one or more Roles (DOMAIN-MODEL glossary), so removing the
+	 * account's only role is refused too.
+	 */
 	async removeUserRole(payload: RemoveRoleRequest, actorId: string) {
-		const before = await this.getUserRoleNames(payload.userId)
-		await this.rbacService.removeRole(payload.userId, payload.roleName)
-		const after = await this.getUserRoleNames(payload.userId)
+		await db.transaction(async tx => {
+			const role = await this.getRoleRowByName(tx, payload.roleName)
+			if (role.name === ADMIN_ROLE) {
+				await this.lockAdminRole(tx)
+			}
+			const user = await this.getUserOrThrow(tx, payload.userId)
+			if (role.name === ADMIN_ROLE) {
+				await this.assertNotLastActiveAdmin(tx, user.id)
+			}
 
-		await this.auditService.writeAudit({
-			actorId,
-			actorType: "user",
-			action: "users.roles.remove",
-			resourceType: "user",
-			resourceId: payload.userId,
-			before: { roles: before },
-			after: { roles: after },
+			const before = await this.getUserRoleNames(user.id, tx)
+			if (before.length === 1 && before[0] === role.name) {
+				throw new ORPCError("BAD_REQUEST", {
+					message: "A staff account must keep at least one role. Assign another role before removing this one.",
+				})
+			}
+			await tx
+				.delete(userRoles)
+				.where(and(eq(userRoles.userId, user.id), eq(userRoles.roleId, role.id)))
+			const after = await this.getUserRoleNames(user.id, tx)
+
+			// Inside the transaction: if the cache cannot be cleared the removal rolls back.
+			await this.cacheService.invalidate(user.id)
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: "users.roles.remove",
+					resourceType: "user",
+					resourceId: user.id,
+					before: { roles: before },
+					after: { roles: after },
+				},
+				tx
+			)
 		})
 
+		await this.invalidateAfterCommit(payload.userId)
 		return { success: true, userId: payload.userId, roleName: payload.roleName }
+	}
+
+	/**
+	 * ADM-2: admin reset of a second factor. Removes the authenticator app and recovery
+	 * codes, ends every session so the change takes effect at once, and requires
+	 * enrolment at next sign-in. Permission (users.accounts.manage) is enforced by the
+	 * route's RbacGuard, which also audits a denial. The reset is audited in the same
+	 * transaction.
+	 */
+	async resetSecondFactor(payload: ResetSecondFactorRequest, actorId: string) {
+		await db.transaction(async tx => {
+			const user = await this.getUserOrThrow(tx, payload.userId)
+			await tx.delete(twoFactor).where(eq(twoFactor.userId, user.id))
+			await tx
+				.update(users)
+				.set({ twoFactorEnabled: false, updatedAt: new Date() })
+				.where(eq(users.id, user.id))
+			await tx.delete(sessions).where(eq(sessions.userId, user.id))
+			await this.auditService.writeAudit(
+				{
+					actorId,
+					actorType: "user",
+					action: "users.mfa.reset",
+					resourceType: "user",
+					resourceId: user.id,
+					before: { twoFactorEnabled: user.twoFactorEnabled },
+					after: { twoFactorEnabled: false },
+				},
+				tx
+			)
+		})
+
+		return { id: payload.userId, twoFactorEnabled: false as const }
 	}
 
 	// -------------------------------------------------------------- helpers
-	private async getUserRoleNames(userId: string): Promise<string[]> {
-		const rows = await db
+	/**
+	 * Second invalidation, after commit. The first one (inside the transaction) already
+	 * rolls the change back on failure; this one catches a request that cached the old
+	 * roles between the two calls. If it fails, the request fails. The change is saved,
+	 * so repeating it is safe and clears the cache again.
+	 */
+	private async invalidateAfterCommit(userId: string): Promise<void> {
+		try {
+			await this.cacheService.invalidate(userId)
+		} catch {
+			throw new ORPCError("INTERNAL_SERVER_ERROR", {
+				message:
+					"The change was saved, but permissions could not be refreshed. Repeat the change; it is safe to repeat and clears the cache again.",
+			})
+		}
+	}
+
+	/**
+	 * Serialises every change that could remove an active System Administrator.
+	 * The row lock lasts until the transaction ends, so two concurrent changes
+	 * cannot both see the other administrator still active.
+	 */
+	private async lockAdminRole(tx: Tx): Promise<void> {
+		await tx.select({ id: roles.id }).from(roles).where(eq(roles.name, ADMIN_ROLE)).for("update")
+	}
+
+	/**
+	 * Throws when `userId` is an active System Administrator and no other active
+	 * System Administrator would remain. Callers take the admin-role lock first.
+	 */
+	private async assertNotLastActiveAdmin(tx: Tx, userId: string): Promise<void> {
+		const [self] = await tx
+			.select({ id: users.id })
+			.from(userRoles)
+			.innerJoin(roles, eq(roles.id, userRoles.roleId))
+			.innerJoin(users, eq(users.id, userRoles.userId))
+			.where(and(eq(users.id, userId), eq(roles.name, ADMIN_ROLE), eq(users.disabled, false)))
+			.limit(1)
+		if (!self) return
+
+		const [other] = await tx
+			.select({ id: users.id })
+			.from(userRoles)
+			.innerJoin(roles, eq(roles.id, userRoles.roleId))
+			.innerJoin(users, eq(users.id, userRoles.userId))
+			.where(and(ne(users.id, userId), eq(roles.name, ADMIN_ROLE), eq(users.disabled, false)))
+			.limit(1)
+		if (!other) {
+			throw new ORPCError("FORBIDDEN", {
+				message:
+					"This is the last active System Administrator. Make another active account a System Administrator first.",
+			})
+		}
+	}
+
+	private async getUserOrThrow(tx: Tx | typeof db, userId: string) {
+		const [user] = await tx.select().from(users).where(eq(users.id, userId))
+		if (!user) {
+			throw new ORPCError("NOT_FOUND", { message: `User ${userId} not found` })
+		}
+		return user
+	}
+
+	private async getRoleRowByName(tx: Tx | typeof db, name: string) {
+		const [role] = await tx.select().from(roles).where(eq(roles.name, name))
+		if (!role) {
+			throw new ORPCError("NOT_FOUND", { message: `Role "${name}" not found` })
+		}
+		return role
+	}
+
+	private async getUserRoleNames(userId: string, tx: Tx | typeof db = db): Promise<string[]> {
+		const rows = await tx
 			.select({ name: roles.name })
 			.from(userRoles)
 			.innerJoin(roles, eq(userRoles.roleId, roles.id))

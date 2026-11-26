@@ -53,6 +53,7 @@ import { ScamAssessmentService } from "./scam-assessment.service"
 	],
 
 	exports: [
+		CustomerChatService,
 		ConversationService,
 		CustomerSessionService,
 		ChannelsService,

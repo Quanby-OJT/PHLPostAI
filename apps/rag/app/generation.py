@@ -26,7 +26,7 @@ import time
 import uuid
 from typing import Annotated, Any, Literal, NoReturn
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.budget import (
@@ -150,11 +150,7 @@ def calculate_answer_confidence(
     if retrieval_strength == 0.0:
         return 0.0
     explicit_groundedness = grounding.get("grounded") if grounding else None
-    grounded = (
-        explicit_groundedness
-        if isinstance(explicit_groundedness, bool)
-        else bool(citations)
-    )
+    grounded = explicit_groundedness if isinstance(explicit_groundedness, bool) else bool(citations)
     grounded = grounded and not degraded and not is_i_dont_know
     return round(retrieval_strength * int(grounded), 4)
 
@@ -196,6 +192,8 @@ def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "retrievalScore",
             "groundednessResult",
             "outputTokens",
+            # CNV-5: the source text the backend checks a replayed answer against.
+            "retrievedChunks",
         )
         if key in payload
     }
@@ -401,6 +399,7 @@ class GenerationService:
                 for key in ("retrievalScore", "groundednessResult", "outputTokens")
                 if key in cached
             },
+            "retrievedChunks": cached.get("retrievedChunks", []),
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }
@@ -572,7 +571,9 @@ class GenerationService:
         # single-shot retrieve — never an error, never a lost answer.
         agentic_trace: dict[str, Any] | None = None
         chunks: list[dict[str, Any]] | None = None
-        retrieval_query = await self._translate_for_retrieval(query=query, language=language)
+        retrieval_query = language.with_retrieval_hint(
+            await self._translate_for_retrieval(query=query, language=language)
+        )
         if self._agentic is not None:
             try:
                 chunks, agentic_trace = await self._agentic.retrieve(
@@ -589,6 +590,8 @@ class GenerationService:
                 "id": chunk["id"],
                 "documentId": chunk["document_id"],
                 "similarity": chunk["similarity"],
+                # CNV-5 validates factual claims against the exact approved source text.
+                "content": chunk["content"],
                 **(
                     {"rerankScore": chunk["rerank_score"]}
                     if isinstance(chunk.get("rerank_score"), (int, float))
@@ -701,9 +704,7 @@ class GenerationService:
         if on_regenerating is not None:
             await on_regenerating()
         marker["regenerated"] = True
-        regenerated = await self._regenerate_strict(
-            client, messages, max_tokens=max_output_tokens
-        )
+        regenerated = await self._regenerate_strict(client, messages, max_tokens=max_output_tokens)
         if regenerated is None:
             marker["outcome"] = "regenerate-failed-draft-kept"
             return answer_text, citations, marker
@@ -1012,7 +1013,10 @@ class GenerationService:
                 query=query,
                 answer=answer_text,
                 citations=citations,
-                retrieved_chunks=retrieved_record,
+                retrieved_chunks=[
+                    {key: value for key, value in chunk.items() if key != "content"}
+                    for chunk in retrieved_record
+                ],
                 used_chunks=used_record,
                 token_usage=token_usage,
                 trace_id=trace_id,
@@ -1427,7 +1431,10 @@ class GenerationService:
                 query=query,
                 answer=answer_text,
                 citations=citations,
-                retrieved_chunks=prep["retrieved_record"],
+                retrieved_chunks=[
+                    {key: value for key, value in chunk.items() if key != "content"}
+                    for chunk in prep["retrieved_record"]
+                ],
                 used_chunks=prep["used_record"],
                 token_usage=token_usage,
                 trace_id=trace_id,
@@ -1597,6 +1604,7 @@ class ChatRequest(BaseModel):
     # this service to answer WITHOUT persisting. Defaults to True, which keeps
     # the authenticated staff path exactly as it was.
     persist: bool = Field(default=True)
+    fresh_evaluation: bool = Field(default=False, alias="freshEvaluation")
     # CNV-3: per-request cap on eligible customer routine answers.
     max_output_tokens: int | None = Field(default=None, alias="maxOutputTokens", ge=1, le=200)
     # CNV-4: the customer's reply language, the detected question language,
@@ -1608,11 +1616,15 @@ class ChatRequest(BaseModel):
     glossary: list[Annotated[str, Field(max_length=80)]] | None = Field(
         default=None, max_length=100
     )
+    # CNV-6: category reply rules added to the grounded prompt.
+    reply_rules: Literal["postal-id"] | None = Field(default=None, alias="replyRules")
 
     model_config = {"populate_by_name": True}
 
     def language_context(self) -> LanguageContext:
-        return LanguageContext.build(self.language, self.query_language, self.glossary)
+        return LanguageContext.build(
+            self.language, self.query_language, self.glossary, self.reply_rules
+        )
 
 
 def get_response_cache(request: Request) -> "ResponseCache | None":
@@ -1685,6 +1697,8 @@ async def chat(
     repository: Annotated[ConversationsRepository, Depends(get_conversations_repository)],
 ) -> dict[str, Any]:
     """Non-streamed JSON mode — preserved for integrators (GN-3 AC)."""
+    if payload.fresh_evaluation and "eval.runs.execute" not in principal.permissions:
+        raise HTTPException(status_code=403, detail="Evaluation execution permission required")
     vision_client, page_images = get_vision(request)
     service = GenerationService(
         settings=request.app.state.settings,
@@ -1692,7 +1706,7 @@ async def chat(
         chat_client=chat_client,
         repository=repository,
         compressor=get_compressor(request),
-        response_cache=get_response_cache(request),
+        response_cache=None if payload.fresh_evaluation else get_response_cache(request),
         agentic=get_agentic(request, retrieval),
         vision_client=vision_client,
         page_images=page_images,
@@ -1709,12 +1723,8 @@ async def chat(
             max_output_tokens=payload.max_output_tokens,
         )
     except QueryBlockedError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ConversationAccessError as exc:
-        from fastapi import HTTPException
-
         raise HTTPException(
             status_code=403 if exc.found else 404,
             detail="You do not have access to that conversation"

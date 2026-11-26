@@ -480,16 +480,14 @@ export class EscalationService {
 		return result
 	}
 
-	/** Creates the queued escalation and conversation transition atomically. */
-	async request(input: {
-		conversationId: string
-		customerSessionId: string
-		reason: string
-		category?: string
-	}) {
-		const settings = await this.settingsService.getEscalationSettings()
+	/** Uses the caller's transaction when supplied. Its owner publishes after commit. */
+	async request(
+		input: { conversationId: string; customerSessionId: string; reason: string; category?: string },
+		transaction?: DbTransaction
+	) {
+		const settings = await this.settingsService.getEscalationSettings(transaction)
 		const offline = !isWithinBusinessHours(new Date(), settings.businessHours)
-		const result = await db.transaction(async tx => {
+		const create = async (tx: DbTransaction) => {
 			const [conversation] = await tx
 				.select()
 				.from(conversations)
@@ -576,7 +574,10 @@ export class EscalationService {
 				assignedAgentId,
 				createdAt: row.createdAt,
 			}
-		})
+		}
+		if (transaction) return create(transaction)
+
+		const result = await db.transaction(create)
 		if (offline || result.assignedAgentId)
 			await this.conversationLiveService.publish(input.conversationId)
 		return result

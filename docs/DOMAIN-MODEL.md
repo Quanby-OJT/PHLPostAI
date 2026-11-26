@@ -43,6 +43,11 @@ The project is built on the Quanby `RAG_AI` template. Names marked _(template)_ 
 | **Export Bundle**                       | A machine-readable export of PHLPost-owned data and configuration.                                                                                                        |
 | **System**                              | The automated actor: classification, retention jobs, connector calls.                                                                                                     |
 
+### Answer quality evaluation
+
+- **Golden Item** `golden_items` carries the question, ideal answer, expected chunk hashes, tags, and active or retired status. EVL-1 adds `answer_quality` with language, use case, code-switch flag, expected behavior, and optional tool result. Linked external approvals carry `external_approver`, `approval_reference`, and `approved_at`. Editing the approved revision returns it to draft. The append-only audit retains the previous approval.
+- **Evaluation Run** `eval_runs` retains its versioned dataset and configuration, slice metrics, and per-item evidence. **Evaluation Baseline** `eval_baselines` points to a specific approved run and preserves the acceptance actor and reason. The release gate compares each language against the accepted compatible baseline and always applies the 200-token limit. See [EVL-1 evaluation](EVL-1.md).
+
 ## 2. Permission-key convention
 
 ```
@@ -147,7 +152,7 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `knowledge_gaps` | `label`, `category`, `language`, `question_count`, `examples_masked`, `status`, `draft_article_id?` | Rebuilt by the grouping job; `open → in_progress → resolved`. |
 | `feedback` | `conversation_id` (unique), `rating`, `comment_masked` | One per Conversation. |
 | `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. ANL-1 records `conversation_started`, `answer_sent`, `tracking_lookup`, and `escalated`. `category` is an Inquiry Category code (`tracking`, `rates`, `postal-id`, `service-info`, `scam`, `complaint`, `other`); use `other` when classification is unavailable. `payload` is null unless validated non-text metadata is available; never place customer text or other free text in an event. |
-| `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. CNV-3 keys include `confidence_threshold` (0–1, default 0.7) and `max_output_tokens` (1–200, default 200). ESC-3 keys are `escalation_rules` (topics, keywords, categories, repeated low-confidence count) and `escalation_business_hours` (Asia/Manila weekly hours and holidays, plus the 30–3600 second wait limit). ESC-5 key `escalation_routing` stores `mode` (`least_busy` or `manual`) and `maxOpenChatsPerAgent` (1–30). |
+| `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. CNV-3 keys include `confidence_threshold` (0–1, default 0.7) and `max_output_tokens` (1–200, default 200). CNV-5 adds `blocked_topics` (string array, default empty), changed through the same audited settings service. ESC-3 keys are `escalation_rules` (topics, keywords, categories, repeated low-confidence count) and `escalation_business_hours` (Asia/Manila weekly hours and holidays, plus the 30–3600 second wait limit). ESC-5 key `escalation_routing` stores `mode` (`least_busy` or `manual`) and `maxOpenChatsPerAgent` (1–30). |
 | **ESC-5 audit actions** | — | `escalations.presence.updated`, `escalations.presence.limit_updated`, `escalations.auto_assigned`, `escalations.transferred`, and `escalations.agent_unavailable`. Routing-setting changes use `escalation.settings.update` with old and new settings. |
 | `dashboard_layouts` | `user_id?`, `tiles` (jsonb) | A null `user_id` is the default layout. |
 | `kpi_definitions` | `code`, `method` (jsonb), `baseline`, `target`, `approved_by`, `effective_from` | Versioned; reports cite the version used. |
@@ -241,6 +246,13 @@ reported ──► under_review ──► confirmed_scam ──► closed
 ```
 
 Only a holder of `scam.reports.validate` sets a finding. The customer-facing assessment stays advisory in every state.
+
+#### SCM-3 implementation
+
+- The generated report UUID `id` is the customer reference. There is one report per `submission_id`; repeating a send returns that reference. The customer must own the assessed submission through its Conversation and Customer Session.
+- The widget offers reporting after each scam assessment. Confirming the report creates it. A customer who also asks for a person triggers the existing ESC-1 handoff in the same transaction and reuses any open handoff in the Conversation.
+- Queue and detail require `scam.reports.view`. Start review, save a finding, and close require both read and `scam.reports.validate`. The two grants are independent. A finding uses `confirmed_scam`, `legitimate`, or `inconclusive` and is recorded separately from status so it survives closure. `reviewer_id` identifies the reviewer who started review until a finding is saved, then identifies the staff member who saved the finding.
+- Report creation records the existing `scam_reported` Interaction Event with no free-text payload. The implementation-specific audit actions submitted for reviewer confirmation are `scam.report.created` and `scam.report.status_changed` on `scam_report`, keyed by report UUID. Review audits include the previous and resulting status, finding, and reviewer, with notes stored on the report only. Handoff and authorization denials use the existing audit actions.
 
 ## 6. Cross-epic ownership risks
 

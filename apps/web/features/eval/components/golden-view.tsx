@@ -2,7 +2,13 @@
 
 import { useRef, useState, type FormEvent } from "react"
 
-import { GoldenSetExportSchema } from "@repo/contracts"
+import {
+	EvalBehaviorSchema,
+	EvalLanguageSchema,
+	EvalUseCaseSchema,
+	GoldenAnswerQualitySchema,
+	GoldenSetExportSchema,
+} from "@repo/contracts"
 
 import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
@@ -14,27 +20,23 @@ import {
 	CardTitle,
 } from "@/core/components/ui/card"
 import { Checkbox } from "@/core/components/ui/checkbox"
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/core/components/ui/dialog"
 import { Input } from "@/core/components/ui/input"
 import { Label } from "@/core/components/ui/label"
 import { Skeleton } from "@/core/components/ui/skeleton"
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from "@/core/components/ui/table"
+import { TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/core/components/ui/table"
 import { Textarea } from "@/core/components/ui/textarea"
 import {
 	exportGoldenSet,
 	useCreateGoldenItemMutation,
 	useGoldenItemsQuery,
 	useImportGoldenSetMutation,
+	useRecordGoldenApprovalMutation,
 	useSearchChunksMutation,
 	useUpdateGoldenItemMutation,
 	type GoldenItemUi,
 } from "@/features/eval/api/eval.hooks"
+import { categoryLabel, LANGUAGE_LABELS } from "@/features/knowledge/lib/labels"
 
 function truncate(text: string, length = 120): string {
 	return text.length > length ? `${text.slice(0, length - 1)}…` : text
@@ -51,7 +53,65 @@ function itemBadges(item: GoldenItemUi) {
 		// AC: orphaned expected hashes flag the item stale, never silent.
 		badges.push({ label: `stale (${item.staleHashes.length})`, variant: "destructive" })
 	}
+	if (item.answerQuality)
+		badges.push({ label: item.approvalReference ? "Approved" : "Draft", variant: "secondary" })
 	return badges
+}
+
+function GoldenItemExpectations({ quality }: { quality: GoldenItemUi["answerQuality"] }) {
+	if (!quality) return <span className="text-muted-foreground text-xs">Retrieval only</span>
+
+	return (
+		<dl className="grid gap-1.5 text-xs leading-snug">
+			<div>
+				<dt className="text-muted-foreground">Language</dt>
+				<dd>
+					{LANGUAGE_LABELS[quality.language]}
+					{quality.codeSwitched ? " (code-switched)" : ""}
+				</dd>
+			</div>
+			<div>
+				<dt className="text-muted-foreground">Use case</dt>
+				<dd>{categoryLabel(quality.useCase)}</dd>
+			</div>
+			<div>
+				<dt className="text-muted-foreground">Expected behavior</dt>
+				<dd className="capitalize">{quality.expectedBehavior}</dd>
+			</div>
+		</dl>
+	)
+}
+
+function GoldenItemDetails({ item }: { item: GoldenItemUi }) {
+	return (
+		<Dialog>
+			<DialogTrigger
+				aria-label={`View full text for ${truncate(item.question, 60)}`}
+				render={<Button type="button" variant="outline" size="sm" />}
+			>
+				View full text
+			</DialogTrigger>
+			<DialogContent className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-2xl">
+				<DialogTitle className="pr-8">Golden item</DialogTitle>
+				<div
+					role="region"
+					aria-label="Full question and ideal answer"
+					tabIndex={0}
+					className="focus-visible:outline-ring min-h-0 space-y-4 overflow-y-auto overscroll-contain pr-1 focus-visible:outline-2 focus-visible:-outline-offset-2"
+				>
+					<GoldenItemExpectations quality={item.answerQuality} />
+					<div className="space-y-1">
+						<h3 className="font-medium">Question</h3>
+						<p className="wrap-anywhere whitespace-pre-wrap">{item.question}</p>
+					</div>
+					<div className="space-y-1">
+						<h3 className="font-medium">Ideal answer</h3>
+						<p className="wrap-anywhere whitespace-pre-wrap">{item.idealAnswer}</p>
+					</div>
+				</div>
+			</DialogContent>
+		</Dialog>
+	)
 }
 
 /**
@@ -64,12 +124,24 @@ export function GoldenView() {
 	const updateItem = useUpdateGoldenItemMutation()
 	const importSet = useImportGoldenSetMutation()
 	const searchChunks = useSearchChunksMutation()
+	const recordApproval = useRecordGoldenApprovalMutation()
 
 	const [question, setQuestion] = useState("")
 	const [idealAnswer, setIdealAnswer] = useState("")
 	const [tagsText, setTagsText] = useState("")
 	const [pickerQuery, setPickerQuery] = useState("")
 	const [selectedHashes, setSelectedHashes] = useState<string[]>([])
+	const [editingId, setEditingId] = useState<string | null>(null)
+	const [qualityEnabled, setQualityEnabled] = useState(false)
+	const [language, setLanguage] = useState("en")
+	const [useCase, setUseCase] = useState("tracking")
+	const [expectedBehavior, setBehavior] = useState("answer")
+	const [codeSwitched, setCodeSwitched] = useState(false)
+	const [toolJson, setToolJson] = useState("")
+	const [formError, setFormError] = useState<string | null>(null)
+	const [approvalItem, setApprovalItem] = useState<GoldenItemUi | null>(null)
+	const [externalApprover, setExternalApprover] = useState("")
+	const [approvalReference, setApprovalReference] = useState("")
 	const [importError, setImportError] = useState<string | null>(null)
 	const [importedNotice, setImportedNotice] = useState<string | null>(null)
 	const fileInputRef = useRef<HTMLInputElement>(null)
@@ -87,29 +159,76 @@ export function GoldenView() {
 
 	const handleCreate = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault()
-		if (!question.trim() || !idealAnswer.trim() || selectedHashes.length === 0) return
+		setFormError(null)
+		if (!question.trim() || !idealAnswer.trim()) return
+		let answerQuality
+		if (qualityEnabled) {
+			try {
+				answerQuality = GoldenAnswerQualitySchema.parse({
+					language,
+					useCase,
+					expectedBehavior,
+					codeSwitched,
+					...(toolJson.trim() && { expectedTool: JSON.parse(toolJson) }),
+				})
+			} catch {
+				setFormError("Enter a tool result with an outcome and facts, or leave the field blank.")
+				return
+			}
+		}
+		if (
+			!selectedHashes.length &&
+			!answerQuality?.expectedTool &&
+			(!answerQuality || expectedBehavior === "answer")
+		) {
+			setFormError("Choose an expected source or enter an expected tool result.")
+			return
+		}
 		const tags = tagsText
 			.split(",")
 			.map(tag => tag.trim())
 			.filter(Boolean)
-		createItem.mutate(
-			{
-				question: question.trim(),
-				idealAnswer: idealAnswer.trim(),
-				expectedChunkHashes: selectedHashes,
-				tags,
+		const payload = {
+			question: question.trim(),
+			idealAnswer: idealAnswer.trim(),
+			expectedChunkHashes: selectedHashes,
+			tags,
+			answerQuality,
+		}
+		const callbacks = {
+			onSuccess: () => {
+				setEditingId(null)
+				setQuestion("")
+				setIdealAnswer("")
+				setTagsText("")
+				setSelectedHashes([])
+				searchChunks.reset()
+				setPickerQuery("")
+				setToolJson("")
 			},
-			{
-				onSuccess: () => {
-					setQuestion("")
-					setIdealAnswer("")
-					setTagsText("")
-					setSelectedHashes([])
-					searchChunks.reset()
-					setPickerQuery("")
-				},
-			}
+		}
+		if (editingId) updateItem.mutate({ id: editingId, ...payload }, callbacks)
+		else createItem.mutate(payload, callbacks)
+	}
+
+	const editItem = (item: GoldenItemUi) => {
+		setEditingId(item.id)
+		setQuestion(item.question)
+		setIdealAnswer(item.idealAnswer)
+		setTagsText(item.tags.join(", "))
+		setSelectedHashes(item.expectedChunkHashes)
+		setQualityEnabled(Boolean(item.answerQuality))
+		setLanguage(item.answerQuality?.language ?? "en")
+		setUseCase(item.answerQuality?.useCase ?? "tracking")
+		setBehavior(item.answerQuality?.expectedBehavior ?? "answer")
+		setCodeSwitched(item.answerQuality?.codeSwitched ?? false)
+		setToolJson(
+			item.answerQuality?.expectedTool
+				? JSON.stringify(item.answerQuality.expectedTool, null, 2)
+				: ""
 		)
+		setFormError(null)
+		document.getElementById("golden-question")?.focus()
 	}
 
 	const handleExport = async () => {
@@ -134,8 +253,7 @@ export function GoldenView() {
 			}
 			importSet.mutate(parsed.data, {
 				onSuccess: result => setImportedNotice(`${result.imported} item(s) imported`),
-				onError: err =>
-					setImportError(err instanceof Error ? err.message : "Import failed"),
+				onError: err => setImportError(err instanceof Error ? err.message : "Import failed"),
 			})
 		} catch {
 			setImportError("File is not valid JSON")
@@ -143,17 +261,21 @@ export function GoldenView() {
 	}
 
 	return (
-		<div className="flex flex-col gap-6 p-4 md:p-6">
+		<div className="flex min-w-0 flex-col gap-6 p-4 md:p-6">
 			<Card>
 				<CardHeader>
-					<CardTitle>Add golden item</CardTitle>
+					<CardTitle>{editingId ? "Edit golden item" : "Add golden item"}</CardTitle>
 					<CardDescription>
-						Expected chunks bind by content hash — run live retrieval below and pick the
-						chunk(s) that SHOULD come back for the question.
+						Expected chunks bind by content hash — run live retrieval below and pick the chunk(s)
+						that SHOULD come back for the question.
 					</CardDescription>
 				</CardHeader>
 				<CardContent>
-					<form aria-label="Add golden item" className="flex flex-col gap-4" onSubmit={handleCreate}>
+					<form
+						aria-label={editingId ? "Edit golden item" : "Add golden item"}
+						className="flex flex-col gap-4"
+						onSubmit={handleCreate}
+					>
 						<div className="flex flex-col gap-2">
 							<Label htmlFor="golden-question">Question</Label>
 							<Input
@@ -184,6 +306,75 @@ export function GoldenView() {
 							/>
 						</div>
 
+						<label className="flex items-center gap-2 text-sm">
+							<input
+								type="checkbox"
+								checked={qualityEnabled}
+								disabled={Boolean(
+									editingId && items?.find(item => item.id === editingId)?.answerQuality
+								)}
+								onChange={event => setQualityEnabled(event.target.checked)}
+							/>
+							Answer quality item (EVL-1)
+						</label>
+						{qualityEnabled && (
+							<fieldset className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
+								<legend className="px-1 text-sm font-medium">Answer quality expectations</legend>
+								{[
+									{
+										id: "golden-language",
+										label: "Language",
+										value: language,
+										set: setLanguage,
+										values: EvalLanguageSchema.options,
+									},
+									{
+										id: "golden-use-case",
+										label: "Use case",
+										value: useCase,
+										set: setUseCase,
+										values: EvalUseCaseSchema.options,
+									},
+									{
+										id: "golden-expected-behavior",
+										label: "Expected behavior",
+										value: expectedBehavior,
+										set: setBehavior,
+										values: EvalBehaviorSchema.options,
+									},
+								].map(field => (
+									<div key={field.id} className="grid min-w-0 gap-1 text-sm">
+										<Label htmlFor={field.id}>{field.label}</Label>
+										<select
+											id={field.id}
+											className="border-input bg-background rounded-md border p-2"
+											value={field.value}
+											onChange={event => field.set(event.target.value)}
+										>
+											{field.values.map(value => (
+												<option key={value}>{value}</option>
+											))}
+										</select>
+									</div>
+								))}
+								<label className="flex items-center gap-2 text-sm sm:col-span-3">
+									<input
+										type="checkbox"
+										checked={codeSwitched}
+										onChange={event => setCodeSwitched(event.target.checked)}
+									/>
+									Code-switched question
+								</label>
+								<label className="grid gap-1 text-sm sm:col-span-3">
+									Expected tool result (JSON)
+									<Textarea
+										value={toolJson}
+										onChange={event => setToolJson(event.target.value)}
+										placeholder={'{"outcome":"found","facts":{"statusCode":"IN_TRANSIT"}}'}
+									/>
+								</label>
+							</fieldset>
+						)}
 						<fieldset className="flex flex-col gap-2 rounded-lg border p-3">
 							<legend className="px-1 text-sm font-medium">Expected chunks</legend>
 							<div className="flex gap-2">
@@ -246,7 +437,24 @@ export function GoldenView() {
 									{selectedHashes.length} chunk(s) selected
 								</p>
 							) : null}
+							{selectedHashes.map(hash => (
+								<Button
+									key={hash}
+									type="button"
+									size="sm"
+									variant="outline"
+									className="w-fit"
+									onClick={() => toggleHash(hash, false)}
+								>
+									Remove {hash.slice(0, 12)}
+								</Button>
+							))}
 						</fieldset>
+						{formError && (
+							<p role="alert" className="text-destructive text-sm">
+								{formError}
+							</p>
+						)}
 
 						{createItem.error ? (
 							<p role="alert" className="text-destructive text-sm">
@@ -258,27 +466,35 @@ export function GoldenView() {
 								type="submit"
 								disabled={
 									createItem.isPending ||
+									updateItem.isPending ||
 									!question.trim() ||
 									!idealAnswer.trim() ||
-									selectedHashes.length === 0
+									(!qualityEnabled && selectedHashes.length === 0)
 								}
 							>
-								{createItem.isPending ? "Saving…" : "Add item"}
+								{createItem.isPending || updateItem.isPending
+									? "Saving…"
+									: editingId
+										? "Save changes"
+										: "Add item"}
 							</Button>
 						</div>
 					</form>
 				</CardContent>
 			</Card>
 
-			<Card>
-				<CardHeader className="flex flex-row items-start justify-between gap-2">
+			<Card className="min-w-0">
+				<CardHeader className="flex flex-wrap items-start justify-between gap-3">
 					<div className="flex flex-col gap-1.5">
-						<CardTitle>Golden set</CardTitle>
+						<CardTitle id="golden-set-title">Golden set</CardTitle>
 						<CardDescription>
 							Items with orphaned chunk hashes are flagged stale after re-chunking.
 						</CardDescription>
+						<p className="text-muted-foreground text-xs md:hidden">
+							Scroll horizontally to see all columns.
+						</p>
 					</div>
-					<div className="flex gap-2">
+					<div className="flex flex-wrap gap-2">
 						<Button type="button" variant="outline" size="sm" onClick={() => void handleExport()}>
 							Export JSON
 						</Button>
@@ -306,6 +522,65 @@ export function GoldenView() {
 					</div>
 				</CardHeader>
 				<CardContent>
+					{approvalItem && (
+						<form
+							aria-label="Record external PHLPost approval"
+							className="mb-4 grid gap-2 rounded-md border p-3"
+							onSubmit={event => {
+								event.preventDefault()
+								recordApproval.mutate(
+									{
+										id: approvalItem.id,
+										revision: approvalItem.updatedAt,
+										externalApprover,
+										approvalReference,
+									},
+									{
+										onSuccess: () => {
+											setApprovalItem(null)
+											setExternalApprover("")
+											setApprovalReference("")
+										},
+									}
+								)
+							}}
+						>
+							<p className="text-sm wrap-anywhere">
+								Record external PHLPost approval for “{approvalItem.question}”
+							</p>
+							<label className="grid gap-1 text-sm">
+								External approver
+								<Input
+									required
+									maxLength={300}
+									value={externalApprover}
+									onChange={event => setExternalApprover(event.target.value)}
+								/>
+							</label>
+							<label className="grid gap-1 text-sm">
+								Approval evidence reference
+								<Input
+									required
+									maxLength={500}
+									value={approvalReference}
+									onChange={event => setApprovalReference(event.target.value)}
+								/>
+							</label>
+							<div className="flex gap-2">
+								<Button disabled={recordApproval.isPending} type="submit">
+									Record approval
+								</Button>
+								<Button type="button" variant="outline" onClick={() => setApprovalItem(null)}>
+									Cancel
+								</Button>
+							</div>
+							{recordApproval.error && (
+								<p role="alert" className="text-destructive text-sm">
+									{recordApproval.error.message}
+								</p>
+							)}
+						</form>
+					)}
 					{importError ? (
 						<p role="alert" className="text-destructive mb-2 text-sm">
 							{importError}
@@ -330,70 +605,141 @@ export function GoldenView() {
 							No golden items yet. Seeding needs an ingested corpus.
 						</p>
 					) : (
-						<Table data-testid="golden-items-table">
-							<TableHeader>
-								<TableRow>
-									<TableHead>Question</TableHead>
-									<TableHead>Ideal answer</TableHead>
-									<TableHead>Chunks</TableHead>
-									<TableHead>Tags</TableHead>
-									<TableHead>Status</TableHead>
-									<TableHead className="text-right">Actions</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{items.map(item => (
-									<TableRow key={item.id}>
-										<TableCell className="max-w-xs align-top font-medium">
-											{truncate(item.question, 80)}
-										</TableCell>
-										<TableCell className="text-muted-foreground max-w-xs align-top text-sm">
-											{truncate(item.idealAnswer, 80)}
-										</TableCell>
-										<TableCell className="align-top">
-											<span className="font-mono text-xs">
-												{item.expectedChunkHashes.length}
-											</span>
-										</TableCell>
-										<TableCell className="align-top">
-											<div className="flex max-w-40 flex-wrap gap-1">
-												{item.tags.map(tag => (
-													<Badge key={tag} variant="outline" className="text-[10px]">
-														{tag}
-													</Badge>
-												))}
-											</div>
-										</TableCell>
-										<TableCell className="align-top">
-											<div className="flex flex-wrap gap-1">
-												{itemBadges(item).map(badge => (
-													<Badge key={badge.label} variant={badge.variant}>
-														{badge.label}
-													</Badge>
-												))}
-											</div>
-										</TableCell>
-										<TableCell className="text-right align-top">
-											<Button
-												type="button"
-												variant={item.status === "active" ? "destructive" : "outline"}
-												size="sm"
-												aria-label={`${item.status === "active" ? "Retire" : "Reactivate"} ${truncate(item.question, 40)}`}
-												disabled={updateItem.isPending}
-												onClick={() =>
-													updateItem.mutate({
-														id: item.id,
-														status: item.status === "active" ? "retired" : "active",
-													})
-												}
-											>
-												{item.status === "active" ? "Retire" : "Reactivate"}
-											</Button>
-										</TableCell>
+						<div
+							role="region"
+							aria-labelledby="golden-set-title"
+							tabIndex={0}
+							className="focus-visible:outline-ring isolate w-full min-w-0 overflow-x-auto rounded-md border focus-visible:outline-2 focus-visible:-outline-offset-2"
+						>
+							<table
+								data-testid="golden-items-table"
+								className="w-full min-w-[55rem] table-fixed text-sm"
+							>
+								<colgroup>
+									<col className="w-[19%]" />
+									<col />
+									<col className="w-[8.25rem]" />
+									<col className="w-[4.25rem]" />
+									<col className="w-[7.25rem]" />
+									<col className="w-[5.5rem]" />
+									<col className="w-[8rem]" />
+								</colgroup>
+								<TableHeader>
+									<TableRow>
+										<TableHead scope="col" className="px-3">
+											Question
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Ideal answer
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Expectations
+										</TableHead>
+										<TableHead scope="col" className="px-3 text-center">
+											Chunks
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Tags
+										</TableHead>
+										<TableHead scope="col" className="px-3">
+											Status
+										</TableHead>
+										<TableHead scope="col" className="bg-card sticky right-0 z-10 border-l px-3">
+											Actions
+										</TableHead>
 									</TableRow>
-								))}
-							</TableBody>
-						</Table>
+								</TableHeader>
+								<TableBody>
+									{items.map(item => (
+										<TableRow key={item.id}>
+											<TableCell className="p-3 align-top font-medium">
+												<p className="line-clamp-4 wrap-anywhere whitespace-pre-wrap">
+													{item.question}
+												</p>
+											</TableCell>
+											<TableCell className="text-muted-foreground p-3 align-top">
+												<p className="line-clamp-4 wrap-anywhere whitespace-pre-wrap">
+													{item.idealAnswer}
+												</p>
+											</TableCell>
+											<TableCell className="p-3 align-top whitespace-normal">
+												<GoldenItemExpectations quality={item.answerQuality} />
+											</TableCell>
+											<TableCell className="p-3 text-center align-top">
+												<span className="font-mono text-xs">{item.expectedChunkHashes.length}</span>
+											</TableCell>
+											<TableCell className="p-3 align-top">
+												<div className="flex flex-wrap gap-1">
+													{item.tags.map(tag => (
+														<Badge
+															key={tag}
+															variant="outline"
+															className="h-auto min-h-5 max-w-full justify-start text-left text-[10px] wrap-anywhere whitespace-normal"
+														>
+															{tag}
+														</Badge>
+													))}
+												</div>
+											</TableCell>
+											<TableCell className="p-3 align-top">
+												<div className="flex flex-wrap gap-1">
+													{itemBadges(item).map(badge => (
+														<Badge key={badge.label} variant={badge.variant}>
+															{badge.label}
+														</Badge>
+													))}
+												</div>
+											</TableCell>
+											<TableCell className="bg-card sticky right-0 z-10 border-l p-3 align-top">
+												<div className="grid gap-1.5">
+													<GoldenItemDetails item={item} />
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														onClick={() => editItem(item)}
+													>
+														Edit
+													</Button>
+													{item.answerQuality &&
+														item.status === "active" &&
+														!item.approvalReference &&
+														!item.tags.includes("synthetic-review-candidate") && (
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																className="h-auto min-h-7 py-1 whitespace-normal"
+																onClick={() => {
+																	recordApproval.reset()
+																	setApprovalItem(item)
+																}}
+															>
+																Record external approval
+															</Button>
+														)}
+													<Button
+														type="button"
+														variant={item.status === "active" ? "destructive" : "outline"}
+														size="sm"
+														aria-label={`${item.status === "active" ? "Retire" : "Reactivate"} ${truncate(item.question, 40)}`}
+														disabled={updateItem.isPending}
+														onClick={() =>
+															updateItem.mutate({
+																id: item.id,
+																status: item.status === "active" ? "retired" : "active",
+															})
+														}
+													>
+														{item.status === "active" ? "Retire" : "Reactivate"}
+													</Button>
+												</div>
+											</TableCell>
+										</TableRow>
+									))}
+								</TableBody>
+							</table>
+						</div>
 					)}
 					{updateItem.error ? (
 						<p role="alert" className="text-destructive mt-2 text-sm">
