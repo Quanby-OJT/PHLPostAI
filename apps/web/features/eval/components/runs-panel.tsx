@@ -42,7 +42,9 @@ function formatDelta(value: number): string {
 	return value > 0 ? `+${fixed}` : fixed
 }
 
-function statusVariant(status: EvalRunSummaryUi["status"]): "default" | "secondary" | "destructive" {
+function statusVariant(
+	status: EvalRunSummaryUi["status"]
+): "default" | "secondary" | "destructive" {
 	if (status === "completed") return "default"
 	if (status === "running") return "secondary"
 	return "destructive"
@@ -53,7 +55,8 @@ function statusVariant(status: EvalRunSummaryUi["status"]): "default" | "seconda
  * list run history with aggregates, and diff two runs per metric.
  */
 export function RunsPanel() {
-	const { data: runs, isPending, error } = useEvalRunsQuery()
+	const { data, isPending, error } = useEvalRunsQuery()
+	const runs = data?.filter(run => !run.config.profile)
 	const executeRun = useExecuteEvalRunMutation()
 	const { data: baseline } = useEvalBaselineQuery()
 	const promote = usePromoteBaselineMutation()
@@ -93,8 +96,8 @@ export function RunsPanel() {
 			<CardHeader>
 				<CardTitle>Retrieval eval runs</CardTitle>
 				<CardDescription>
-					Each run scores the real retrieval pipeline against the active golden set and is
-					stamped with the git sha + exact config. Select two runs to compare.
+					Each run scores the real retrieval pipeline against the active golden set and is stamped
+					with the git sha + exact config. Select two runs to compare.
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -123,9 +126,7 @@ export function RunsPanel() {
 							id="run-rerank"
 							className="border-input bg-background h-9 rounded-md border px-2 text-sm"
 							value={rerankMode}
-							onChange={event =>
-								setRerankMode(event.target.value as "default" | "on" | "off")
-							}
+							onChange={event => setRerankMode(event.target.value as "default" | "on" | "off")}
 						>
 							<option value="default">config default</option>
 							<option value="on">on</option>
@@ -191,7 +192,8 @@ export function RunsPanel() {
 							<TableBody>
 								{runs.map(run => {
 									const selected = run.id === baseId || run.id === candidateId
-									const role = run.id === baseId ? "base" : run.id === candidateId ? "candidate" : null
+									const role =
+										run.id === baseId ? "base" : run.id === candidateId ? "candidate" : null
 									return (
 										<TableRow key={run.id} data-state={selected ? "selected" : undefined}>
 											<TableCell>
@@ -208,9 +210,7 @@ export function RunsPanel() {
 											<TableCell>
 												<Badge variant={statusVariant(run.status)}>{run.status}</Badge>
 											</TableCell>
-											<TableCell className="font-mono text-xs">
-												{run.gitSha.slice(0, 10)}
-											</TableCell>
+											<TableCell className="font-mono text-xs">{run.gitSha.slice(0, 10)}</TableCell>
 											<TableCell>{String(run.config["k"] ?? "—")}</TableCell>
 											<TableCell>{run.config["rerank"] ? "on" : "off"}</TableCell>
 											{METRIC_COLUMNS.map(metric => (
@@ -225,9 +225,7 @@ export function RunsPanel() {
 												{formatMetric(run.metrics?.["answerRelevancy"])}
 											</TableCell>
 											<TableCell>{formatMetric(run.metrics?.["itemCount"])}</TableCell>
-											<TableCell>
-												{formatMetric(run.metrics?.["skippedStaleCount"])}
-											</TableCell>
+											<TableCell>{formatMetric(run.metrics?.["skippedStaleCount"])}</TableCell>
 											<TableCell className="text-muted-foreground text-xs">
 												{new Date(run.createdAt).toLocaleString()}
 											</TableCell>

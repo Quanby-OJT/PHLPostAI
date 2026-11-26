@@ -14,6 +14,7 @@ import {
 	GoldenSetExportSchema,
 	ImportGoldenSetResponseSchema,
 	PromoteBaselineRequestSchema,
+	RecordGoldenApprovalRequestSchema,
 	UpdateGoldenItemRequestSchema,
 } from "./eval.schema.js"
 
@@ -61,6 +62,15 @@ export const evalContract = {
 				tags: ["Evaluation"],
 			})
 			.output(GoldenSetExportSchema),
+		recordApproval: oc
+			.route({
+				method: "POST",
+				path: "/eval/golden/{id}/external-approval",
+				summary: "Record external PHLPost approval",
+				tags: ["Evaluation"],
+			})
+			.input(RecordGoldenApprovalRequestSchema)
+			.output(GoldenItemSchema),
 		import: oc
 			.route({
 				method: "POST",
@@ -142,6 +152,15 @@ export const evalContract = {
 				summary: "Current approved gate baseline",
 				tags: ["Evaluation"],
 			})
+			.input(z.object({ profile: z.enum(["evl1", "evl1-local"]).optional() }))
 			.output(EvalBaselineSchema.nullable()),
+		approvalOptions: oc
+			.route({
+				method: "GET",
+				path: "/eval/approvals",
+				summary: "List runs for baseline approval",
+				tags: ["Evaluation"],
+			})
+			.output(z.array(EvalRunSummarySchema)),
 	},
 }

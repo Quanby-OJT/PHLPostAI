@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from "@nestjs/common"
+
 import type { CustomerLanguage } from "@repo/contracts"
 
 import { StatusExplanationsRepository } from "./status-explanations.repository"
@@ -11,11 +12,7 @@ import {
 } from "./tracking-number"
 import type { TrackingEvent, TrackingSource } from "./tracking-source"
 import { TRACKING_CONFIG, type TrackingConfig } from "./tracking.config"
-import {
-	foundReply,
-	trackingReply,
-	type ReplyExplanation,
-} from "./tracking.replies"
+import { foundReply, trackingReply, type ReplyExplanation } from "./tracking.replies"
 import type { TrackingLookupRecord } from "./tracking.repository"
 
 export interface TrackingAnswer {
@@ -24,6 +21,7 @@ export interface TrackingAnswer {
 	storedQuery: string
 	/** Null when no lookup was made (no number, or a malformed one). */
 	lookup: TrackingLookupRecord | null
+	event?: TrackingEvent
 }
 
 type LookupResult =
@@ -53,10 +51,7 @@ export class TrackingService {
 		)
 	}
 
-	async answer(
-		screenedQuery: string,
-	language: CustomerLanguage = "en"
-	): Promise<TrackingAnswer> {
+	async answer(screenedQuery: string, language: CustomerLanguage = "en"): Promise<TrackingAnswer> {
 		const scan = scanForTrackingNumber(screenedQuery, this.config.numberPattern)
 		const storedQuery = maskTrackingNumber(screenedQuery, scan)
 
@@ -87,7 +82,12 @@ export class TrackingService {
 				: result.outcome === "not_found"
 					? trackingReply("notFound", language)
 					: trackingReply("unavailable", language)
-		return { reply, storedQuery, lookup }
+		return {
+			reply,
+			storedQuery,
+			lookup,
+			...(result.outcome === "found" && { event: result.event }),
+		}
 	}
 
 	/** Flow B step 4. A failed lookup of the wording still shows the official status. */

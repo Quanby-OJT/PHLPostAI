@@ -340,24 +340,15 @@ export class CustomerChatService {
 		blockedTopics?: readonly string[]
 	}): Promise<CustomerTurn> {
 		const { classification } = input
-		const fixed = POSTAL_ID_STATUS_REPLIES[classification.replyLanguage]
-		const guardrail = validateCustomerAnswer(fixed, [fixed], input.blockedTopics)
+		const { answer, guardrail } = this.previewPostalIdStatus(classification, input.blockedTopics)
 		if (guardrail.blocked) this.logBlocked(guardrail.reason, input.correlationId)
-		const reply = withLanguageNotice(
-			withPostalIdNotices(
-				guardrail.blocked ? this.lowConfidenceReply(classification, []) : fixed,
-				{ maskedQuery: classification.screenedQuery, language: classification.replyLanguage }
-			),
-			classification.language,
-			classification.replyLanguage
-		)
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
 			maskedQuery: classification.screenedQuery,
 			inquiryCategory: classification.category,
 			language: classification.language ?? undefined,
-			answer: reply,
+			answer,
 			// A fixed, certain reply like KB-2's "no published rate": it must not
 			// count toward ESC-3's repeated low-confidence handoff.
 			answerKind: guardrail.blocked ? "uncertain" : "tool",
@@ -368,13 +359,31 @@ export class CustomerChatService {
 		})
 
 		return {
-			answer: reply,
+			answer,
 			messageId: assistantMessageId,
 			sources: [],
 			citations: [],
 			answerKind: guardrail.blocked ? "uncertain" : "tool",
 			isIDontKnow: guardrail.blocked,
 		}
+	}
+
+	/** Prepare the fixed status reply for live chat or an isolated evaluation. */
+	previewPostalIdStatus(
+		classification: Pick<InquiryClassification, "screenedQuery" | "language" | "replyLanguage">,
+		blockedTopics?: readonly string[]
+	) {
+		const fixed = POSTAL_ID_STATUS_REPLIES[classification.replyLanguage]
+		const guardrail = validateCustomerAnswer(fixed, [fixed], blockedTopics)
+		const answer = withLanguageNotice(
+			withPostalIdNotices(guardrail.blocked ? this.lowConfidenceReply(classification, []) : fixed, {
+				maskedQuery: classification.screenedQuery,
+				language: classification.replyLanguage,
+			}),
+			classification.language,
+			classification.replyLanguage
+		)
+		return { answer, guardrail }
 	}
 
 	private fallbackCategory(screenedQuery: string, active: ReadonlySet<string>): string {
@@ -511,13 +520,87 @@ export class CustomerChatService {
 		blockedTopics?: readonly string[]
 	}): Promise<CustomerTurn> {
 		const { conversationId, envelope, classification } = input
+		const preview = await this.previewAnswer(input)
+		const {
+			answer,
+			answerKind,
+			citations,
+			confidence,
+			groundednessResult,
+			guardrail,
+			maskedQuery,
+			retrievalScore,
+		} = preview
+		if (guardrail.blocked) this.logBlocked(guardrail.reason, asString(envelope.traceId))
+
+		if (maskedQuery === null) {
+			this.logger.warn(
+				"RAG answer carried no screenedQuery; storing the turn without the question so no unmasked text is persisted"
+			)
+		}
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId,
+			maskedQuery: maskedQuery ?? "",
+			inquiryCategory: classification?.category ?? classifyInquiryCategory(maskedQuery ?? ""),
+			language: classification?.language ?? undefined,
+			answer,
+			answerKind,
+			confidence,
+			retrievalScore,
+			groundednessResult,
+			outputTokens:
+				typeof envelope.outputTokens === "number" && Number.isFinite(envelope.outputTokens)
+					? Math.max(0, Math.trunc(envelope.outputTokens))
+					: typeof envelope.tokenUsage === "object" &&
+						  envelope.tokenUsage !== null &&
+						  typeof (envelope.tokenUsage as { completionTokens?: unknown }).completionTokens ===
+								"number"
+						? Math.max(
+								0,
+								Math.trunc((envelope.tokenUsage as { completionTokens: number }).completionTokens)
+							)
+						: null,
+			citations,
+			retrievedChunks: chunkMetadata(envelope.retrievedChunks) ?? null,
+			usedChunks: chunkMetadata(envelope.usedChunks) ?? null,
+			tokenUsage: envelope.tokenUsage ?? null,
+			traceId: asString(envelope.traceId),
+			modelUsed: asString(envelope.model),
+			requestStartedAt: input.requestStartedAt,
+			...(guardrail.blocked ? { additionalEventKinds: ["answer_blocked" as const] } : {}),
+		})
+
+		return {
+			answer,
+			messageId: assistantMessageId,
+			sources: preview.sources,
+			citations,
+			answerKind,
+			isIDontKnow: preview.isIDontKnow,
+		}
+	}
+
+	/** Apply the customer answer policy without writing a conversation. */
+	async previewAnswer(input: {
+		envelope: RagAnswerEnvelope
+		answerKind?: CustomerAnswerKind
+		answerOverride?: string
+		classification?: Pick<
+			InquiryClassification,
+			"category" | "language" | "replyLanguage" | "postalId"
+		>
+		confidenceThreshold?: number
+		blockedTopics?: readonly string[]
+	}) {
+		const { envelope, classification } = input
 		let answerKind = input.answerKind ?? this.answerKindFor(envelope)
 		// The RAG service owns the citation shape (ChatCitationSchema); it crosses
 		// the internal boundary unvalidated, as it does on the staff path.
 		const citations = (
 			answerKind === "refusal" || !Array.isArray(envelope.citations) ? [] : envelope.citations
 		) as CustomerAnswer["citations"]
-		const sources = answerKind === "refusal" ? [] : await this.resolveSources(citations)
+		const sources = citations.length ? await this.resolveSources(citations) : []
 		const confidence =
 			typeof envelope.confidence === "number" && Number.isFinite(envelope.confidence)
 				? Math.max(0, Math.min(1, envelope.confidence))
@@ -562,13 +645,13 @@ export class CustomerChatService {
 			...(answerKind === "tool" && typeof envelope.answer === "string" ? [envelope.answer] : []),
 			...citedEvidence(envelope),
 		]
+		// The fixed screening refusal is trusted copy. Other overrides still go through validation.
 		const guardrail =
-			answerKind === "refusal"
+			answerKind === "refusal" && draftAnswer === CUSTOMER_REFUSAL_ANSWER
 				? { blocked: false, reason: null }
 				: validateCustomerAnswer(draftAnswer, evidence, input.blockedTopics)
 		let answer = draftAnswer
 		if (guardrail.blocked) {
-			this.logBlocked(guardrail.reason, asString(envelope.traceId))
 			answer = withLanguageNotice(
 				this.lowConfidenceReply(classification, []),
 				classification?.language ?? null,
@@ -594,55 +677,22 @@ export class CustomerChatService {
 				language: classification?.replyLanguage ?? "en",
 			})
 		}
-		if (maskedQuery === null) {
-			this.logger.warn(
-				"RAG answer carried no screenedQuery; storing the turn without the question so no unmasked text is persisted"
-			)
-		}
 
-		const { assistantMessageId } = await this.conversationService.recordTurn({
-			conversationId,
-			maskedQuery: maskedQuery ?? "",
-			inquiryCategory: input.classification?.category ?? classifyInquiryCategory(maskedQuery ?? ""),
-			language: input.classification?.language ?? undefined,
+		return {
 			answer,
+			sources,
+			citations,
 			answerKind,
 			confidence,
 			retrievalScore,
 			groundednessResult,
-			outputTokens:
-				typeof envelope.outputTokens === "number" && Number.isFinite(envelope.outputTokens)
-					? Math.max(0, Math.trunc(envelope.outputTokens))
-					: typeof envelope.tokenUsage === "object" &&
-						  envelope.tokenUsage !== null &&
-						  typeof (envelope.tokenUsage as { completionTokens?: unknown }).completionTokens ===
-								"number"
-						? Math.max(
-								0,
-								Math.trunc((envelope.tokenUsage as { completionTokens: number }).completionTokens)
-							)
-						: null,
-			citations,
-			retrievedChunks: chunkMetadata(envelope.retrievedChunks) ?? null,
-			usedChunks: chunkMetadata(envelope.usedChunks) ?? null,
-			tokenUsage: envelope.tokenUsage ?? null,
-			traceId: asString(envelope.traceId),
-			modelUsed: asString(envelope.model),
-			requestStartedAt: input.requestStartedAt,
-			...(guardrail.blocked ? { additionalEventKinds: ["answer_blocked" as const] } : {}),
-		})
-
-		return {
-			answer,
-			messageId: assistantMessageId,
-			sources,
-			citations,
-			answerKind,
+			guardrail,
+			maskedQuery,
 			isIDontKnow: belowThreshold || guardrail.blocked || envelope.isIDontKnow === true,
 		}
 	}
 
-	private lowConfidenceReply(
+	lowConfidenceReply(
 		classification: Pick<InquiryClassification, "replyLanguage"> | undefined,
 		sourceTitles: string[]
 	): string {

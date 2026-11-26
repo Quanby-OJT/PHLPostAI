@@ -1,0 +1,89 @@
+name: Answer Quality Gate
+on:
+  workflow_call:
+    secrets:
+      EVAL_DATABASE_URL:
+        required: true
+      EVAL_REDIS_URL:
+        required: true
+      EVAL_OPENAI_API_KEY:
+        required: true
+      NPM_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  evl1:
+    name: EVL-1 answer quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.EVAL_DATABASE_URL }}
+      REDIS_URL: ${{ secrets.EVAL_REDIS_URL }}
+      OPENAI_API_KEY: ${{ secrets.EVAL_OPENAI_API_KEY }}
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      GIT_SHA: ${{ github.sha }}
+      EVL1_MODE: evl1
+      TRACKING_CONNECTOR: mock
+      CORS_ORIGINS: http://127.0.0.1:3000
+      BETTER_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:3000
+      BETTER_AUTH_URL: http://127.0.0.1:3000
+      RAG_SERVICE_URL: http://127.0.0.1:18030
+      CACHE_ENABLED: "false"
+      OTEL_ENABLED: "false"
+      TRACING_PROVIDER: langsmith
+      LANGSMITH_API_KEY: evl1-disabled-tracing
+      LANGSMITH_ENDPOINT: http://127.0.0.1:9
+      LANGSMITH_TRACING: "false"
+      LANGCHAIN_TRACING_V2: "false"
+      RATE_LIMIT_CHAT: "1000/minute"
+      RATE_LIMIT_CLASSIFY: "1000/minute"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.27.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.22.1
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v5
+      - name: Require provisioned evaluation infrastructure
+        run: |
+          test -n "$DATABASE_URL"
+          test -n "$REDIS_URL"
+          test -n "$OPENAI_API_KEY"
+          qa_auth=$(openssl rand -hex 32)
+          qa_rag=$(openssl rand -hex 32)
+          echo "::add-mask::$qa_auth"
+          echo "::add-mask::$qa_rag"
+          echo "BETTER_AUTH_SECRET=$qa_auth" >> "$GITHUB_ENV"
+          echo "RAG_SERVICE_TOKEN_SECRET=$qa_rag" >> "$GITHUB_ENV"
+      - name: Build the candidate backend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec turbo build --filter=@repo/backend
+      - name: Score the candidate and compare the accepted baseline
+        run: |
+          (cd apps/rag && uv sync --frozen)
+          (cd apps/rag && exec uv run uvicorn --factory app.main:create_app --host 127.0.0.1 --port 18030) > "$RUNNER_TEMP/evl1-rag.log" 2>&1 &
+          rag_pid=$!
+          trap 'kill "$rag_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:18030/health > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 2
+          done
+          test "$ready" = true
+          (cd apps/backend && node dist/answer-quality-cli.js ci "$RUNNER_TEMP/evl1-report.json")
+      - name: Store evaluation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evl1-gate-report
+          path: ${{ runner.temp }}/evl1-report.json

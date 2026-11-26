@@ -1,17 +1,14 @@
 import { Injectable } from "@nestjs/common"
 import { ORPCError } from "@orpc/server"
-import { desc, eq } from "drizzle-orm"
+import { desc, eq, sql } from "drizzle-orm"
 
-import type {
-	EvalBaseline,
-	EvalRun,
-	EvalRunComparison,
-	EvalRunSummary,
-} from "@repo/contracts"
+import type { EvalBaseline, EvalRun, EvalRunComparison, EvalRunSummary } from "@repo/contracts"
 import { evalBaselines, evalRuns } from "@repo/db/schema"
 
 import { AuditService } from "@/common/audit/audit.service"
-import { db } from "@/common/database/database.client"
+import { db, type DbTransaction } from "@/common/database/database.client"
+
+import { qualityBlockers } from "./answer-quality-gate"
 
 type EvalRunRow = typeof evalRuns.$inferSelect
 
@@ -90,40 +87,60 @@ export class EvalRunsService {
 				message: `Only completed runs can become the baseline (run is ${run.status})`,
 			})
 		}
-		const previous = await this.currentBaseline()
-
-		const [row] = await db
-			.insert(evalBaselines)
-			.values({ runId, promotedBy: userId, note: note ?? null })
-			.returning()
-		if (!row) {
-			throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Insert returned no row" })
+		const profile =
+			run.config.profile === "evl1" || run.config.profile === "evl1-local"
+				? run.config.profile
+				: undefined
+		if (profile) {
+			const blockers = qualityBlockers(run)
+			if (blockers.length) throw new ORPCError("CONFLICT", { message: blockers[0] })
+			if (!note?.trim())
+				throw new ORPCError("BAD_REQUEST", {
+					message: "Record a reason for accepting this baseline",
+				})
 		}
+		return db.transaction(async tx => {
+			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${profile ?? "eval-legacy"}))`)
+			const previous = await this.currentBaseline(profile, tx)
+			const [row] = await tx
+				.insert(evalBaselines)
+				.values({ runId, promotedBy: userId, note: note ?? null })
+				.returning()
+			if (!row) {
+				throw new ORPCError("INTERNAL_SERVER_ERROR", { message: "Insert returned no row" })
+			}
 
-		await this.auditService.writeAudit({
-			actorId: userId,
-			actorType: "user",
-			action: "eval.gate.promote",
-			resourceType: "eval_baseline",
-			resourceId: row.id,
-			before: previous ? { runId: previous.runId, gitSha: previous.gitSha } : null,
-			after: { runId, gitSha: run.gitSha, note: note ?? null },
+			await this.auditService.writeAudit(
+				{
+					actorId: userId,
+					actorType: "user",
+					action: "eval.gate.promote",
+					resourceType: "eval_baseline",
+					resourceId: row.id,
+					before: previous ? { runId: previous.runId, gitSha: previous.gitSha } : null,
+					after: { runId, gitSha: run.gitSha, note: note ?? null },
+				},
+				tx
+			)
+
+			return {
+				id: row.id,
+				runId,
+				promotedBy: row.promotedBy,
+				note: row.note,
+				createdAt: row.createdAt,
+				metrics: run.metrics,
+				gitSha: run.gitSha,
+			}
 		})
-
-		return {
-			id: row.id,
-			runId,
-			promotedBy: row.promotedBy,
-			note: row.note,
-			createdAt: row.createdAt,
-			metrics: run.metrics,
-			gitSha: run.gitSha,
-		}
 	}
 
 	/** Newest promotion wins; null when no baseline has been approved yet. */
-	async currentBaseline(): Promise<EvalBaseline | null> {
-		const [row] = await db
+	async currentBaseline(
+		profile?: "evl1" | "evl1-local",
+		reader: Pick<DbTransaction, "select"> = db
+	): Promise<EvalBaseline | null> {
+		const [row] = await reader
 			.select({
 				id: evalBaselines.id,
 				runId: evalBaselines.runId,
@@ -135,7 +152,12 @@ export class EvalRunsService {
 			})
 			.from(evalBaselines)
 			.innerJoin(evalRuns, eq(evalRuns.id, evalBaselines.runId))
-			.orderBy(desc(evalBaselines.createdAt))
+			.where(
+				profile
+					? sql`${evalRuns.config}->>'profile' = ${profile}`
+					: sql`${evalRuns.config}->>'profile' IS NULL`
+			)
+			.orderBy(desc(evalBaselines.createdAt), desc(evalBaselines.id))
 			.limit(1)
 		if (!row) {
 			return null

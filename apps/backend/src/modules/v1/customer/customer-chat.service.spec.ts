@@ -208,7 +208,7 @@ describe("CustomerChatService (CNV-1)", () => {
 				conversationId: "conversation-1",
 				envelope: {
 					answer: "The package is delivered and the fee is ₱500.",
-					retrievedChunks: [{ text: "The package status is in transit. The fee is ₱320." }],
+					retrievedChunks: [{ id: "chunk-1", text: "The package status is in transit." }],
 					confidence: 0.95,
 					screenedQuery: "q",
 				},
@@ -217,15 +217,48 @@ describe("CustomerChatService (CNV-1)", () => {
 			})
 
 			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.isIDontKnow).toBe(true)
 			expect(turn.answer).toContain("I'm not sure enough to answer")
 			expect(turn.answer).not.toContain("delivered")
 			expect(turn.answer).not.toContain("₱500")
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
 				expect.objectContaining({
 					answerKind: "uncertain",
+					maskedQuery: "q",
+					retrievedChunks: [{ id: "chunk-1" }],
 					additionalEventKinds: ["answer_blocked"],
 				})
 			)
+		})
+
+		it("evaluates overrides without writing a customer turn and still applies blocked topics", async () => {
+			const groundednessResult = { grounded: false, outcome: "idk" }
+			const input = {
+				envelope: { confidence: 0.4, retrievalScore: 0.6, groundednessResult },
+				confidenceThreshold: 0.7,
+				blockedTopics: ["customs clearance"],
+			}
+
+			await expect(
+				service.previewAnswer({ ...input, answerOverride: "Check the official postal website." })
+			).resolves.toMatchObject({
+				answer: "Check the official postal website.",
+				answerKind: "answer",
+				confidence: 0.4,
+				retrievalScore: 0.6,
+				groundednessResult,
+				isIDontKnow: false,
+				guardrail: { blocked: false },
+			})
+			await expect(
+				service.previewAnswer({ ...input, answerOverride: "Customs clearance is available." })
+			).resolves.toMatchObject({
+				answerKind: "uncertain",
+				isIDontKnow: true,
+				guardrail: { blocked: true },
+			})
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
 		})
 
 		it("checks blocked topics in the draft even when confidence is below threshold", async () => {
@@ -1011,14 +1044,14 @@ describe("CustomerChatService (CNV-1)", () => {
 		})
 
 		it("withholds a draft that decides the customer's case", async () => {
-			const turn = await service.completeTurn({
+			const input = {
 				conversationId: "conversation-1",
 				envelope: {
 					answer: "Based on your documents, you are eligible and will be approved [1].",
 					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
 					retrievedChunks: [{ id: "chunk-1", content: ARTICLE_TEXT }],
 					confidence: 0.9,
-					screenedQuery: "Am I eligible for a Postal ID?",
+					screenedQuery: "Am I eligible for a Postal ID? My ID is [PH_ID].",
 				},
 				classification: {
 					category: "postal-id",
@@ -1026,12 +1059,24 @@ describe("CustomerChatService (CNV-1)", () => {
 					replyLanguage: "en",
 					postalId: "eligibility",
 				},
-			})
+			} satisfies Parameters<CustomerChatService["completeTurn"]>[0]
+			const preview = await service.previewAnswer(input)
+			expect(preview).toMatchObject({ answerKind: "uncertain", isIDontKnow: true })
+			expect(preview.answer).toContain("I can't decide individual cases")
+			expect(preview.answer).toContain("please don't share ID numbers")
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
+
+			const turn = await service.completeTurn(input)
 
 			expect(turn.answer).not.toContain("you are eligible")
-			expect(turn.answer).toContain("I can't decide individual cases")
+			expect(turn.answer).toBe(preview.answer)
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
-				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+				expect.objectContaining({
+					answer: preview.answer,
+					maskedQuery: input.envelope.screenedQuery,
+					additionalEventKinds: ["answer_blocked"],
+				})
 			)
 		})
 
@@ -1111,7 +1156,7 @@ describe("CustomerChatService (CNV-1)", () => {
 		})
 
 		it("says it has no access to application records (AC4)", async () => {
-			const turn = await service.answerPostalIdStatus({
+			const input = {
 				conversationId: "conversation-1",
 				classification: {
 					screenedQuery: "Nasaan na ang Postal ID ko?",
@@ -1122,9 +1167,14 @@ describe("CustomerChatService (CNV-1)", () => {
 					postalId: "status",
 				},
 				correlationId: "req-1",
-			})
+			} satisfies Parameters<CustomerChatService["answerPostalIdStatus"]>[0]
+			const preview = service.previewPostalIdStatus(input.classification)
+			expect(preview.answer).toContain("Wala akong access sa mga rekord ng aplikasyon")
+			expect(conversationService.recordTurn).not.toHaveBeenCalled()
 
-			expect(turn.answer).toContain("Wala akong access sa mga rekord ng aplikasyon")
+			const turn = await service.answerPostalIdStatus(input)
+			expect(turn.answer).toBe(preview.answer)
+			expect(conversationService.recordTurn).toHaveBeenCalledTimes(1)
 			expect(turn).toMatchObject({ answerKind: "tool", sources: [], citations: [] })
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
 				expect.objectContaining({

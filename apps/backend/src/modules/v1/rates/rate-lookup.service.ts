@@ -14,6 +14,13 @@ export interface RateLookupContext {
 export interface RateAnswer {
 	reply: string
 	outcome: "quoted" | "missing_details" | "no_rate"
+	facts?: {
+		serviceName: string
+		zone: string
+		weightG: number
+		priceCentavos: number
+		effectiveFrom: string
+	}
 }
 
 /** Today's date in the Philippines (YYYY-MM-DD); rates take effect by local date. */
@@ -95,6 +102,13 @@ export class RateLookupService {
 				effectiveFrom: entry.effectiveFrom,
 			}),
 			outcome: "quoted",
+			facts: {
+				serviceName: entry.serviceName,
+				zone: entry.zone,
+				weightG,
+				priceCentavos: entry.priceCentavos,
+				effectiveFrom: entry.effectiveFrom,
+			},
 		}
 	}
 

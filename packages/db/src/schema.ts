@@ -9,6 +9,8 @@ import {
 	type AnyPgColumn,
 } from "drizzle-orm/pg-core"
 
+import type { GoldenAnswerQuality } from "@repo/contracts"
+
 import { createTable } from "./utils/table.js"
 
 /**
@@ -735,6 +737,10 @@ export const goldenItems = createTable(
 		idealAnswer: t.text("ideal_answer").notNull(),
 		// chunks.content_hash values expected in retrieval results.
 		expectedChunkHashes: t.jsonb("expected_chunk_hashes").$type<string[]>().notNull(),
+		answerQuality: t.jsonb("answer_quality").$type<GoldenAnswerQuality>(),
+		approvalReference: t.text("approval_reference"),
+		externalApprover: t.text("external_approver"),
+		approvedAt: t.timestamp("approved_at", { withTimezone: true }),
 		tags: t.jsonb("tags").$type<string[]>().notNull().default([]),
 		status: t
 			.text("status", { enum: ["active", "retired"] })

@@ -110,6 +110,10 @@ export type {
 export { evalContract } from "./modules/v1/eval/eval.contract.js"
 export {
 	GoldenItemSchema,
+	GoldenAnswerQualitySchema,
+	EvalLanguageSchema,
+	EvalUseCaseSchema,
+	EvalBehaviorSchema,
 	GoldenItemStatusSchema,
 	CreateGoldenItemRequestSchema,
 	UpdateGoldenItemRequestSchema,
@@ -126,6 +130,8 @@ export {
 } from "./modules/v1/eval/eval.schema.js"
 export type {
 	GoldenItem,
+	GoldenAnswerQuality,
+	RecordGoldenApprovalRequest,
 	GoldenItemStatus,
 	CreateGoldenItemRequest,
 	UpdateGoldenItemRequest,
