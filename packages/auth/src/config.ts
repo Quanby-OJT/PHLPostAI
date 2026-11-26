@@ -2,7 +2,7 @@ import { createEnv } from "@t3-oss/env-core"
 import { betterAuth } from "better-auth"
 import { drizzleAdapter } from "better-auth/adapters/drizzle"
 import { APIError } from "better-auth/api"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { z } from "zod"
 
 import { createDBClient } from "@repo/db/client"
@@ -288,9 +288,17 @@ export function createAuth() {
 			sendResetPassword: async ({ user, token }) => {
 				try {
 					const resetUrl = `${appWebUrl}/reset-password?token=${token}`
+					// An account with no credential password yet (an admin-provisioned
+					// staff invitation) gets set-password wording, not reset wording.
+					const [credential] = await db
+						.select({ id: accounts.id })
+						.from(accounts)
+						.where(and(eq(accounts.userId, user.id), eq(accounts.providerId, "credential")))
+						.limit(1)
 					const email = buildResetPasswordEmail({
 						resetUrl,
 						userEmail: user.email,
+						mode: credential ? "reset" : "set",
 					})
 					await sendMail(transporter, mailFrom, {
 						to: user.email,

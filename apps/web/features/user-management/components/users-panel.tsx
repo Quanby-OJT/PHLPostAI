@@ -6,7 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 
 import { Badge } from "@/core/components/ui/badge"
 import { Button } from "@/core/components/ui/button"
-import { Input } from "@/core/components/ui/input"
+import { Checkbox } from "@/core/components/ui/checkbox"
 import {
 	Empty,
 	EmptyDescription,
@@ -14,6 +14,8 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/core/components/ui/empty"
+import { Field, FieldLabel } from "@/core/components/ui/field"
+import { Input } from "@/core/components/ui/input"
 import {
 	Select,
 	SelectContent,
@@ -49,22 +51,34 @@ export function UsersPanel() {
 	const setDisabled = useSetUserDisabledMutation()
 	const [newName, setNewName] = useState("")
 	const [newEmail, setNewEmail] = useState("")
-	const [newPassword, setNewPassword] = useState("")
+	const [newRoleNames, setNewRoleNames] = useState<string[]>([])
 	const [createdNotice, setCreatedNotice] = useState<string | null>(null)
 
+	function toggleNewRole(roleName: string, checked: boolean) {
+		setNewRoleNames(current =>
+			checked
+				? current.includes(roleName)
+					? current
+					: [...current, roleName]
+				: current.filter(name => name !== roleName)
+		)
+	}
+
+	// ADM-1: the account is created with its roles and no password. The person is
+	// emailed an invitation to set one, so no password is typed or shared here.
 	function handleCreateUser(event: React.FormEvent) {
 		event.preventDefault()
 		setCreatedNotice(null)
 		createUser.mutate(
-			{ name: newName.trim(), email: newEmail.trim(), temporaryPassword: newPassword },
+			{ name: newName.trim(), email: newEmail.trim(), roleNames: newRoleNames },
 			{
 				onSuccess: created => {
 					setCreatedNotice(
-						`${created.email} created — share the temporary password with them securely; it is not shown again.`
+						`${created.email} created with ${created.roles.join(", ")}. An invitation to set a password was emailed to them.`
 					)
 					setNewName("")
 					setNewEmail("")
-					setNewPassword("")
+					setNewRoleNames([])
 				},
 			}
 		)
@@ -85,54 +99,63 @@ export function UsersPanel() {
 				</p>
 			</div>
 
-			{/* F4: admin-provisioned account creation (email + temp password). */}
+			{/* ADM-1: admin-provisioned account with roles; the person sets their own password from an emailed invitation. */}
 			<form
 				onSubmit={handleCreateUser}
-				className="flex flex-col gap-2 rounded-lg border p-3 sm:flex-row sm:items-end"
+				className="flex flex-col gap-3 rounded-lg border p-3"
 				aria-label="Create user"
 			>
-				<div className="flex-1">
-					<label htmlFor="new-user-name" className="text-xs font-medium">
-						Name
-					</label>
-					<Input
-						id="new-user-name"
-						value={newName}
-						onChange={event => setNewName(event.target.value)}
-						required
-						disabled={createUser.isPending}
-					/>
+				<div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+					<div className="flex-1">
+						<label htmlFor="new-user-name" className="text-xs font-medium">
+							Name
+						</label>
+						<Input
+							id="new-user-name"
+							value={newName}
+							onChange={event => setNewName(event.target.value)}
+							required
+							disabled={createUser.isPending}
+						/>
+					</div>
+					<div className="flex-1">
+						<label htmlFor="new-user-email" className="text-xs font-medium">
+							Email
+						</label>
+						<Input
+							id="new-user-email"
+							type="email"
+							value={newEmail}
+							onChange={event => setNewEmail(event.target.value)}
+							required
+							disabled={createUser.isPending}
+						/>
+					</div>
 				</div>
-				<div className="flex-1">
-					<label htmlFor="new-user-email" className="text-xs font-medium">
-						Email
-					</label>
-					<Input
-						id="new-user-email"
-						type="email"
-						value={newEmail}
-						onChange={event => setNewEmail(event.target.value)}
-						required
-						disabled={createUser.isPending}
-					/>
+				<fieldset className="flex flex-col gap-2">
+					<legend className="text-xs font-medium">Roles</legend>
+					<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+						{(roles ?? []).map(role => (
+							<Field key={role.id} orientation="horizontal">
+								<Checkbox
+									id={`new-user-role-${role.id}`}
+									aria-label={role.name}
+									checked={newRoleNames.includes(role.name)}
+									onCheckedChange={checked => toggleNewRole(role.name, checked === true)}
+									disabled={createUser.isPending}
+								/>
+								<FieldLabel htmlFor={`new-user-role-${role.id}`} className="font-normal">
+									{role.name}
+								</FieldLabel>
+							</Field>
+						))}
+					</div>
+				</fieldset>
+				<div>
+					<Button type="submit" disabled={createUser.isPending || newRoleNames.length === 0}>
+						{createUser.isPending ? "Sending invitation..." : "Create user and send invitation"}
+					</Button>
 				</div>
-				<div className="flex-1">
-					<label htmlFor="new-user-password" className="text-xs font-medium">
-						Temporary password
-					</label>
-					<Input
-						id="new-user-password"
-						type="text"
-						value={newPassword}
-						onChange={event => setNewPassword(event.target.value)}
-						minLength={8}
-						required
-						disabled={createUser.isPending}
-					/>
-				</div>
-				<Button type="submit" disabled={createUser.isPending}>
-					{createUser.isPending ? "Creating..." : "Create user"}
-				</Button>
 			</form>
 			{createUser.isError ? (
 				<p className="text-destructive text-xs" role="alert">
@@ -142,6 +165,16 @@ export function UsersPanel() {
 			{createdNotice ? (
 				<p className="text-muted-foreground text-xs" role="status">
 					{createdNotice}
+				</p>
+			) : null}
+			{assignRole.isError && !assignRateLimit.isActive ? (
+				<p className="text-destructive text-xs" role="alert">
+					{assignRole.error instanceof Error ? assignRole.error.message : "Failed to assign role"}
+				</p>
+			) : null}
+			{removeRole.isError && !removeRateLimit.isActive ? (
+				<p className="text-destructive text-xs" role="alert">
+					{removeRole.error instanceof Error ? removeRole.error.message : "Failed to remove role"}
 				</p>
 			) : null}
 			{setDisabled.isError ? (
@@ -269,7 +302,9 @@ export function UsersPanel() {
 							<HugeiconsIcon icon={UserGroupIcon} strokeWidth={2} />
 						</EmptyMedia>
 						<EmptyTitle>No users found</EmptyTitle>
-						<EmptyDescription>Users will appear here once an administrator provisions them.</EmptyDescription>
+						<EmptyDescription>
+							Users will appear here once an administrator provisions them.
+						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>
 			) : null}

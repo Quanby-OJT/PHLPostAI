@@ -313,7 +313,9 @@ test.describe("conversation history (CH-3)", () => {
 })
 
 test.describe("user management console (F4)", () => {
-	test("creates a user and toggles disable/enable through the UI", async ({ page }, testInfo) => {
+	test("creates a user with a role, sends an invitation, and toggles disable/enable through the UI", async ({
+		page,
+	}, testInfo) => {
 		await page.goto("/user-management")
 		// Users live in the second tab (default is Roles). A click can land
 		// before the tabs hydrate and silently no-op, so retry until the
@@ -331,7 +333,7 @@ test.describe("user management console (F4)", () => {
 		const email = `e2e-f4-${testInfo.workerIndex}-${Date.now()}@example.com`
 		await form.getByLabel("Name").fill("E2E Provisioned")
 		await form.getByLabel("Email").fill(email)
-		await form.getByLabel("Temporary password").fill("TempPass123!")
+		await form.getByRole("checkbox", { name: "Customer Service Agent" }).check()
 		await form.getByRole("button", { name: /create user/i }).click()
 
 		await expect(page.getByText(`${email} created`, { exact: false })).toBeVisible({

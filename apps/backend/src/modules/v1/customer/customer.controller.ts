@@ -27,10 +27,12 @@ import { v1 } from "@/config/api-versions.config"
 import { env } from "@/config/env.config"
 import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { RagGatewayService, toORPCError } from "@/modules/v1/corpus/rag-gateway.service"
+import { EscalationService } from "@/modules/v1/escalations/escalation.service"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
 import { StrictThrottle } from "@/shared/decorators/strict-throttle.decorator"
 
 import { ChannelAdapterRegistry } from "../channels/channel-adapter"
+import { matchesEscalationRule } from "../escalations/escalation-rules"
 import { AllowedOriginGuard } from "./allowed-origin.guard"
 import { ChannelsService, WEB_WIDGET_CHANNEL } from "./channels.service"
 import { ConversationService } from "./conversation.service"
@@ -69,6 +71,7 @@ export class CustomerController {
 		private readonly conversationService: ConversationService,
 		private readonly customerChatService: CustomerChatService,
 		private readonly assistantSettingsService: AssistantSettingsService,
+		private readonly escalationService: EscalationService,
 		private readonly ragGatewayService: RagGatewayService,
 		private readonly conversationLiveService: ConversationLiveService,
 		private readonly channelAdapters: ChannelAdapterRegistry,
@@ -173,6 +176,18 @@ export class CustomerController {
 					return toORPCError(error)
 				}
 			}
+			const escalationSettings = await this.assistantSettingsService.getEscalationSettings()
+			if (matchesEscalationRule(message.text, undefined, escalationSettings)) {
+				return adapter.send(
+					await this.routeToAgent(
+						session,
+						conversation.id,
+						message.text,
+						correlationId,
+						"An escalation rule matched"
+					)
+				)
+			}
 
 			let classification: InquiryClassification
 			try {
@@ -193,7 +208,20 @@ export class CustomerController {
 				if (refusal) return refusal
 				return toORPCError(error)
 			}
+			if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
+				return adapter.send(
+					await this.routeToAgent(
+						session,
+						conversation.id,
+						message.text,
+						correlationId,
+						"An escalation rule matched",
+						classification.category
+					)
+				)
+			}
 			const settings = await this.assistantSettingsService.get()
+
 			if (classification.route !== "retrieval") {
 				try {
 					return adapter.send(
@@ -246,6 +274,29 @@ export class CustomerController {
 				return toORPCError(error)
 			}
 
+			if (
+				(envelope.isIDontKnow === true ||
+					typeof envelope.confidence !== "number" ||
+					envelope.confidence < settings.confidenceThreshold) &&
+				(await this.shouldEscalateRepeatedLowConfidence(
+					conversation.id,
+					typeof envelope.confidence === "number" ? envelope.confidence : null,
+					escalationSettings.rules.repeatedLowConfidenceCount,
+					settings.confidenceThreshold,
+					envelope.isIDontKnow === true
+				))
+			) {
+				return adapter.send(
+					await this.routeToAgent(
+						session,
+						conversation.id,
+						message.text,
+						correlationId,
+						"Repeated low-confidence answers",
+						classification.category
+					)
+				)
+			}
 			const turn = await this.customerChatService.completeTurn({
 				conversationId: conversation.id,
 				envelope,
@@ -300,6 +351,18 @@ export class CustomerController {
 			response.status(200).json(result)
 			return
 		}
+		const escalationSettings = await this.assistantSettingsService.getEscalationSettings()
+		if (matchesEscalationRule(message.text, undefined, escalationSettings)) {
+			const result = await this.routeToAgent(
+				session,
+				conversation.id,
+				message.text,
+				correlationId,
+				"An escalation rule matched"
+			)
+			response.status(200).json(result)
+			return
+		}
 
 		// CNV-2: screen and classify first; the category decides the route.
 		let classification: InquiryClassification
@@ -323,6 +386,18 @@ export class CustomerController {
 			} else {
 				response.status(502).json({ message: "The assistant is unavailable. Please try again." })
 			}
+			return
+		}
+		if (matchesEscalationRule(message.text, classification.category, escalationSettings)) {
+			const result = await this.routeToAgent(
+				session,
+				conversation.id,
+				message.text,
+				correlationId,
+				"An escalation rule matched",
+				classification.category
+			)
+			response.status(200).json(result)
 			return
 		}
 		// Tool results arrive as one completed turn after persistence.
@@ -440,6 +515,30 @@ export class CustomerController {
 			}
 
 			if (envelope === null) throw new Error("RAG stream ended without a final frame")
+			if (
+				(envelope.isIDontKnow === true ||
+					typeof envelope.confidence !== "number" ||
+					envelope.confidence < assistantSettings.confidenceThreshold) &&
+				(await this.shouldEscalateRepeatedLowConfidence(
+					conversation.id,
+					typeof envelope.confidence === "number" ? envelope.confidence : null,
+					escalationSettings.rules.repeatedLowConfidenceCount,
+					assistantSettings.confidenceThreshold,
+					envelope.isIDontKnow === true
+				))
+			) {
+				const handoff = await this.routeToAgent(
+					session,
+					conversation.id,
+					message.text,
+					correlationId,
+					"Repeated low-confidence answers",
+					classification.category
+				)
+				response.write(formatSseFrame("final", handoff))
+				turnRecorded = true
+				return
+			}
 
 			const turn = await this.customerChatService.completeTurn({
 				conversationId: conversation.id,
@@ -503,7 +602,8 @@ export class CustomerController {
 		if (
 			conversation.status !== "escalation_requested" &&
 			conversation.status !== "agent_active" &&
-			conversation.status !== "resolved_by_agent"
+			conversation.status !== "resolved_by_agent" &&
+			conversation.status !== "contact_captured"
 		) {
 			throw new ConflictException("This conversation is not waiting for an agent")
 		}
@@ -512,6 +612,65 @@ export class CustomerController {
 			afterTurnIndex: Number.isSafeInteger(afterIndex) && afterIndex >= -1 ? afterIndex : -1,
 			agentsOnly: true,
 		})
+	}
+
+	private async screenForAgent(query: string, session: CustomerSessionRow, correlationId: string) {
+		const screened = await this.ragGatewayService.screenQuery({
+			query,
+			userId: this.principalFor(session),
+			permissions: CUSTOMER_SERVICE_PERMISSIONS,
+			requestId: correlationId,
+			traceId: correlationId,
+			actorType: "customer",
+		})
+		return screened.screenedQuery
+	}
+
+	private async routeToAgent(
+		session: CustomerSessionRow,
+		conversationId: string,
+		query: string,
+		correlationId: string,
+		reason: string,
+		category?: string
+	) {
+		const maskedQuery = await this.screenForAgent(query, session, correlationId)
+		const escalation = await this.escalationService.request({
+			conversationId,
+			customerSessionId: session.id,
+			reason,
+			category,
+		})
+		const message = await this.conversationService.recordCustomerMessage({
+			conversationId,
+			customerSessionId: session.id,
+			maskedQuery,
+			inquiryCategory: category,
+		})
+		await this.conversationLiveService.publish(conversationId)
+		return {
+			agentMode: true as const,
+			conversationId,
+			messageId: message.id,
+			status: escalation.status,
+		}
+	}
+
+	private async shouldEscalateRepeatedLowConfidence(
+		conversationId: string,
+		confidence: number | null | undefined,
+		requiredCount: number,
+		threshold: number,
+		isIDontKnow: boolean
+	): Promise<boolean> {
+		const currentIsLow =
+			isIDontKnow || confidence === null || confidence === undefined || confidence < threshold
+		if (!currentIsLow) return false
+		const recentLow = await this.conversationService.countRecentLowConfidenceTurns(
+			conversationId,
+			threshold
+		)
+		return recentLow + 1 >= requiredCount
 	}
 
 	/** CNV-2: screen and classify the question (Flow A steps 3 to 5). */

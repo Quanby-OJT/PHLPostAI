@@ -165,6 +165,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 		endCustomerConversation: jest.Mock
 		recordUnansweredInquiry: jest.Mock
 		recordCustomerMessage: jest.Mock
+		countRecentLowConfidenceTurns: jest.Mock
 	}
 	let customerChatService: {
 		completeTurn: jest.Mock
@@ -196,6 +197,7 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			endCustomerConversation: jest.fn(),
 			recordUnansweredInquiry: jest.fn(),
 			recordCustomerMessage: jest.fn().mockResolvedValue({ id: "message-3", turnIndex: 3 }),
+			countRecentLowConfidenceTurns: jest.fn().mockResolvedValue(0),
 		}
 		customerChatService = {
 			completeTurn: jest.fn().mockResolvedValue({
@@ -249,12 +251,27 @@ describe("CustomerController (CNV-1 public chat)", () => {
 			customerChatService as unknown as CustomerChatService,
 			{
 				get: jest.fn().mockResolvedValue({ confidenceThreshold: 0.7, maxOutputTokens: 200 }),
+				getEscalationSettings: jest.fn().mockResolvedValue({
+					rules: {
+						topics: [],
+						keywords: [],
+						categories: [],
+						repeatedLowConfidenceCount: 2,
+					},
+					businessHours: {
+						timezone: "Asia/Manila",
+						days: [],
+						holidays: [],
+						waitLimitSeconds: 180,
+					},
+				}),
 			} as never,
+			{ request: jest.fn().mockResolvedValue({ id: "escalation-1", status: "queued" }) } as never,
 			ragGatewayService as unknown as RagGatewayService,
 			{ publish: jest.fn(), stream: jest.fn() } as never,
 			channelAdapters,
 			{ getWelcomeText: jest.fn().mockResolvedValue("Welcome") } as unknown as ChannelsService,
-			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[8]
+			{ answer: jest.fn() } as unknown as ConstructorParameters<typeof CustomerController>[9]
 		)
 	})
 

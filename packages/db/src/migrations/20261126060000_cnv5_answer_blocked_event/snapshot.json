@@ -1,7 +1,7 @@
 {
   "id": "c97ec644-f6b9-4c46-889e-4f943ef7389a",
   "prevIds": [
-    "d3ad5bc4-7be5-461d-9f75-2553c911bb53"
+    "32c23f0b-4caa-45bb-8f71-a39339d0c464"
   ],
   "version": "8",
   "dialect": "postgres",
@@ -75,12 +75,6 @@
     {
       "schema": "public",
       "isRlsEnabled": false,
-      "name": "escalations",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": false,
       "name": "eval_baselines",
       "entityType": "tables"
     },
@@ -112,18 +106,6 @@
       "schema": "public",
       "isRlsEnabled": false,
       "name": "ingestion_jobs",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": false,
-      "name": "inquiry_categories",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": false,
-      "name": "interaction_events",
       "entityType": "tables"
     },
     {
@@ -196,18 +178,6 @@
       "schema": "public",
       "isRlsEnabled": false,
       "name": "sessions",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": false,
-      "name": "status_explanations",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": false,
-      "name": "tracking_lookups",
       "entityType": "tables"
     },
     {
@@ -1351,136 +1321,6 @@
     },
     {
       "schema": "public",
-      "table": "escalations",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "conversation_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "reason",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'queued'",
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "assigned_agent_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "contact",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "claimed_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "resolved_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
       "table": "eval_baselines",
       "type": "uuid",
       "typeSchema": null,
@@ -2040,188 +1880,6 @@
     },
     {
       "schema": "public",
-      "table": "inquiry_categories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "code",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "name",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "false",
-      "generated": null,
-      "identity": null,
-      "name": "is_eligible",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "true",
-      "generated": null,
-      "identity": null,
-      "name": "is_active",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "conversation_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "kind",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "category",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "language",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "channel_code",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "payload",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "occurred_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
       "table": "job_documents",
       "type": "uuid",
       "typeSchema": null,
@@ -2693,45 +2351,6 @@
       "table": "messages",
       "type": "text",
       "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "inquiry_category",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "messages",
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "is_eligible",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "messages",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "language",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "messages",
-      "type": "text",
-      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -2751,19 +2370,6 @@
       "generated": null,
       "identity": null,
       "name": "citations",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "messages",
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "confidence",
       "entityType": "columns"
     },
     {
@@ -3600,214 +3206,6 @@
     },
     {
       "schema": "public",
-      "table": "status_explanations",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status_code",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "language",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "explanation",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "next_steps",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "boolean",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "true",
-      "generated": null,
-      "identity": null,
-      "name": "is_active",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "gen_random_uuid()",
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "uuid",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "message_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "connector_code",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "tracking_number_hash",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "outcome",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status_code",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "latency_ms",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
       "table": "user_roles",
       "type": "text",
       "typeSchema": null,
@@ -4079,55 +3477,6 @@
     },
     {
       "schema": "public",
-      "table": "escalations",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "status",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "created_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "escalations_status_created_at_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "conversation_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "escalations_conversation_id_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
       "table": "eval_baselines",
       "nameExplicit": true,
       "columns": [
@@ -4187,55 +3536,6 @@
       "method": "btree",
       "concurrently": false,
       "name": "golden_items_status_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "occurred_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "interaction_events_occurred_at_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "kind",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        },
-        {
-          "value": "occurred_at",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "interaction_events_kind_occurred_at_idx",
       "entityType": "indexes"
     },
     {
@@ -4408,48 +3708,6 @@
     },
     {
       "schema": "public",
-      "table": "tracking_lookups",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "message_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "tracking_lookups_message_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "tracking_number_hash",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "tracking_lookups_number_hash_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
       "table": "user_roles",
       "nameExplicit": true,
       "columns": [
@@ -4573,40 +3831,6 @@
     },
     {
       "schema": "public",
-      "table": "escalations",
-      "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "escalations_conversation_id_conversations_id_fkey",
-      "entityType": "fks"
-    },
-    {
-      "schema": "public",
-      "table": "escalations",
-      "nameExplicit": false,
-      "columns": [
-        "assigned_agent_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "users",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "SET NULL",
-      "name": "escalations_assigned_agent_id_users_id_fkey",
-      "entityType": "fks"
-    },
-    {
-      "schema": "public",
       "table": "eval_baselines",
       "nameExplicit": false,
       "columns": [
@@ -4637,23 +3861,6 @@
       "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "golden_items_created_by_users_id_fkey",
-      "entityType": "fks"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "nameExplicit": false,
-      "columns": [
-        "conversation_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "conversations",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "RESTRICT",
-      "name": "interaction_events_conversation_id_conversations_id_fkey",
       "entityType": "fks"
     },
     {
@@ -4913,23 +4120,6 @@
     },
     {
       "schema": "public",
-      "table": "tracking_lookups",
-      "nameExplicit": false,
-      "columns": [
-        "message_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "messages",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "tracking_lookups_message_id_messages_id_fkey",
-      "entityType": "fks"
-    },
-    {
-      "schema": "public",
       "table": "user_roles",
       "nameExplicit": false,
       "columns": [
@@ -5125,16 +4315,6 @@
     },
     {
       "schema": "public",
-      "table": "escalations",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "escalations_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
       "table": "eval_baselines",
       "columns": [
         "id"
@@ -5181,26 +4361,6 @@
       ],
       "nameExplicit": false,
       "name": "ingestion_jobs_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
-      "table": "inquiry_categories",
-      "columns": [
-        "code"
-      ],
-      "nameExplicit": false,
-      "name": "inquiry_categories_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
-      "table": "interaction_events",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "interaction_events_pkey",
       "entityType": "pks"
     },
     {
@@ -5315,26 +4475,6 @@
     },
     {
       "schema": "public",
-      "table": "status_explanations",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "status_explanations_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
-      "table": "tracking_lookups",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "tracking_lookups_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
       "table": "users",
       "columns": [
         "id"
@@ -5365,18 +4505,6 @@
       ],
       "nullsNotDistinct": false,
       "name": "page_images_document_page_uq",
-      "entityType": "uniques"
-    },
-    {
-      "schema": "public",
-      "table": "status_explanations",
-      "nameExplicit": true,
-      "columns": [
-        "status_code",
-        "language"
-      ],
-      "nullsNotDistinct": false,
-      "name": "status_explanations_code_language_uq",
       "entityType": "uniques"
     },
     {
@@ -5476,6 +4604,895 @@
       ],
       "nullsNotDistinct": false,
       "name": "users_email_key",
+      "entityType": "uniques"
+    },
+    {
+      "schema": "public",
+      "isRlsEnabled": false,
+      "name": "escalations",
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "conversation_id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reason",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'queued'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "assigned_agent_id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "contact",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "claimed_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "resolved_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "status",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "escalations_status_created_at_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "conversation_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "escalations_conversation_id_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "escalations_pkey",
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "nameExplicit": false,
+      "columns": [
+        "conversation_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "conversations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "escalations_conversation_id_conversations_id_fkey",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "escalations",
+      "nameExplicit": false,
+      "columns": [
+        "assigned_agent_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "escalations_assigned_agent_id_users_id_fkey",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "isRlsEnabled": false,
+      "name": "tracking_lookups",
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "message_id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "connector_code",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "tracking_number_hash",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "outcome",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_code",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "latency_ms",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "message_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "tracking_lookups_message_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "tracking_number_hash",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "tracking_lookups_number_hash_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "tracking_lookups_pkey",
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "tracking_lookups",
+      "nameExplicit": false,
+      "columns": [
+        "message_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "messages",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "tracking_lookups_message_id_messages_id_fkey",
+      "entityType": "fks"
+    },
+    {
+      "schema": "public",
+      "table": "messages",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "inquiry_category",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "messages",
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "confidence",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "isRlsEnabled": false,
+      "name": "interaction_events",
+      "entityType": "tables"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "conversation_id",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "kind",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "category",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "language",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "channel_code",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "payload",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "occurred_at",
+      "entityType": "columns"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "occurred_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "interaction_events_occurred_at_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "kind",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "occurred_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "interaction_events_kind_occurred_at_idx",
+      "entityType": "indexes"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "interaction_events_pkey",
+      "entityType": "pks"
+    },
+    {
+      "schema": "public",
+      "table": "interaction_events",
+      "nameExplicit": false,
+      "columns": [
+        "conversation_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "conversations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "RESTRICT",
+      "name": "interaction_events_conversation_id_conversations_id_fkey",
+      "entityType": "fks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "outcome_note",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "escalations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "agent_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "agent_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "messages_agent_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "inquiry_categories",
+      "schema": "public",
+      "entityType": "tables"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "code",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "name",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "false",
+      "generated": null,
+      "identity": null,
+      "name": "is_eligible",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "is_active",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "columns"
+    },
+    {
+      "columns": [
+        "code"
+      ],
+      "nameExplicit": false,
+      "name": "inquiry_categories_pkey",
+      "schema": "public",
+      "table": "inquiry_categories",
+      "entityType": "pks"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "status_explanations",
+      "schema": "public",
+      "entityType": "tables"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_code",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "language",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "explanation",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "next_steps",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "true",
+      "generated": null,
+      "identity": null,
+      "name": "is_active",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "columns"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "status_explanations_pkey",
+      "schema": "public",
+      "table": "status_explanations",
+      "entityType": "pks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "status_code",
+        "language"
+      ],
+      "nullsNotDistinct": false,
+      "name": "status_explanations_code_language_uq",
+      "schema": "public",
+      "table": "status_explanations",
       "entityType": "uniques"
     },
     {
@@ -6170,45 +6187,6 @@
       "entityType": "pks"
     },
     {
-      "type": "real",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "retrieval_score",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "messages"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "groundedness_result",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "messages"
-    },
-    {
-      "type": "integer",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "output_tokens",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "messages"
-    },
-    {
       "isRlsEnabled": false,
       "name": "official_contacts",
       "schema": "public",
@@ -6836,6 +6814,71 @@
       "schema": "public",
       "table": "dashboard_layouts",
       "entityType": "fks"
+    },
+    {
+      "type": "boolean",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "is_eligible",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "language",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "type": "real",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "retrieval_score",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "groundedness_result",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "output_tokens",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "messages"
     }
   ],
   "renames": []

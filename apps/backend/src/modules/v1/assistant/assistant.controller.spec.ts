@@ -14,7 +14,13 @@ jest.mock("@orpc/server", () => ({
 	ORPCError: class ORPCError extends Error {},
 }))
 jest.mock("@/config/api-versions.config", () => ({
-	v1: { assistant: { settings: { get: {}, update: {} }, categories: { list: {}, create: {}, update: {} } } },
+	v1: {
+		assistant: {
+			settings: { get: {}, update: {} },
+			escalationSettings: { get: {}, update: {} },
+			categories: { list: {}, create: {}, update: {} },
+		},
+	},
 }))
 jest.mock("@thallesp/nestjs-better-auth", () => ({ Session: () => () => undefined }))
 jest.mock("./assistant.service", () => ({ AssistantService: class AssistantService {} }))
@@ -33,6 +39,10 @@ describe("AssistantController (CNV-2)", () => {
 	it.each(["getSettings", "updateSettings"] as const)(
 		"CNV-3 AC3/AC5: %s requires settings.assistant.manage",
 		method => expect(required(method)).toEqual(["settings.assistant.manage"])
+	)
+	it.each(["getEscalationSettings", "updateEscalationSettings"] as const)(
+		"ESC-3: %s requires settings.escalation.manage",
+		method => expect(required(method)).toEqual(["settings.escalation.manage"])
 	)
 	it.each(["listCategories", "createCategory", "updateCategory"] as const)(
 		"AC5: %s requires settings.assistant.manage, so the RbacGuard answers 403 and audits",

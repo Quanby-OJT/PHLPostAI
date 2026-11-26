@@ -192,6 +192,7 @@ describe("navItems", () => {
 			"Evaluation",
 			"Reports",
 			"Assistant Settings",
+			"Escalation Rules",
 			"Inquiry Categories",
 			"Risk Indicators",
 			"Official Contacts",

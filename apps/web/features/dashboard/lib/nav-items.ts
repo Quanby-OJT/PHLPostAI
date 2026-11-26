@@ -120,6 +120,13 @@ export const navItems: readonly DashboardNavItem[] = [
 		requiredPermission: "settings.assistant.manage",
 	},
 	{
+		label: "Escalation Rules",
+		href: "/escalation-settings",
+		icon: Settings02Icon,
+		section: "Administration",
+		requiredPermission: "settings.escalation.manage",
+	},
+	{
 		// CNV-2: inquiry category classification & self-service eligibility.
 		label: "Inquiry Categories",
 		href: "/inquiry-categories",

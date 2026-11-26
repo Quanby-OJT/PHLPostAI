@@ -1,7 +1,11 @@
 import type { AuditService } from "@/common/audit/audit.service"
 
 import { type AssistantSettingsRepository } from "./assistant-settings.repository"
-import { AssistantSettingsService, DEFAULT_ASSISTANT_SETTINGS } from "./assistant-settings.service"
+import {
+	AssistantSettingsService,
+	DEFAULT_ASSISTANT_SETTINGS,
+	DEFAULT_ESCALATION_SETTINGS,
+} from "./assistant-settings.service"
 
 jest.mock("@/common/audit/audit.service", () => ({ AuditService: class AuditService {} }))
 
@@ -90,6 +94,42 @@ describe("AssistantSettingsService (CNV-3/CNV-5)", () => {
 					...DEFAULT_ASSISTANT_SETTINGS,
 					blockedTopics: ["customs clearance", "payment link"],
 				},
+			})
+		)
+	})
+
+	it("uses documented escalation defaults until a supervisor saves them", async () => {
+		await expect(service.getEscalationSettings()).resolves.toEqual(DEFAULT_ESCALATION_SETTINGS)
+	})
+
+	it("stores escalation rules and hours under the documented keys and audits the change", async () => {
+		const input = {
+			rules: {
+				topics: ["lost parcel"],
+				keywords: ["refund"],
+				categories: ["scam" as const],
+				repeatedLowConfidenceCount: 3,
+			},
+			businessHours: {
+				...DEFAULT_ESCALATION_SETTINGS.businessHours,
+				waitLimitSeconds: 240,
+			},
+		}
+
+		await service.updateEscalationSettings(input, { userId: "supervisor-1" })
+
+		expect(repository.setMany).toHaveBeenCalledWith(
+			[
+				{ key: "escalation_rules", value: input.rules },
+				{ key: "escalation_business_hours", value: input.businessHours },
+			],
+			"supervisor-1"
+		)
+		expect(audit.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "escalation.settings.update",
+				before: DEFAULT_ESCALATION_SETTINGS,
+				after: input,
 			})
 		)
 	})
