@@ -43,6 +43,9 @@ export function useUpdateEscalationSettingsMutation() {
 	return useMutation<EscalationSettings, Error, UpdateEscalationSettingsRequest>({
 		mutationFn: input =>
 			requestSettings<EscalationSettings>({ method: "PUT", body: JSON.stringify(input) }),
-		onSuccess: settings => queryClient.setQueryData(settingsKey, settings),
+		onSuccess: settings => {
+			queryClient.setQueryData(settingsKey, settings)
+			return queryClient.invalidateQueries({ queryKey: ["escalations", "agent-capacities"] })
+		},
 	})
 }

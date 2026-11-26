@@ -114,6 +114,7 @@ describe("AssistantSettingsService (CNV-3/CNV-5)", () => {
 				...DEFAULT_ESCALATION_SETTINGS.businessHours,
 				waitLimitSeconds: 240,
 			},
+			routing: DEFAULT_ESCALATION_SETTINGS.routing,
 		}
 
 		await service.updateEscalationSettings(input, { userId: "supervisor-1" })
@@ -122,8 +123,10 @@ describe("AssistantSettingsService (CNV-3/CNV-5)", () => {
 			[
 				{ key: "escalation_rules", value: input.rules },
 				{ key: "escalation_business_hours", value: input.businessHours },
+				{ key: "escalation_routing", value: input.routing },
 			],
-			"supervisor-1"
+			"supervisor-1",
+			undefined
 		)
 		expect(audit.writeAudit).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -132,5 +135,19 @@ describe("AssistantSettingsService (CNV-3/CNV-5)", () => {
 				after: input,
 			})
 		)
+	})
+
+	it("applies a changed global chat limit to agents still using the previous default", async () => {
+		const input = {
+			...DEFAULT_ESCALATION_SETTINGS,
+			routing: { ...DEFAULT_ESCALATION_SETTINGS.routing, maxOpenChatsPerAgent: 5 },
+		}
+
+		await service.updateEscalationSettings(input, { userId: "supervisor-1" })
+
+		expect(repository.setMany).toHaveBeenCalledWith(expect.any(Array), "supervisor-1", {
+			from: 3,
+			to: 5,
+		})
 	})
 })

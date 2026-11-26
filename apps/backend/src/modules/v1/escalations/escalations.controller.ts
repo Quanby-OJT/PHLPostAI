@@ -6,6 +6,7 @@ import {
 	Headers,
 	Param,
 	Post,
+	Put,
 	Query,
 	Res,
 	UnauthorizedException,
@@ -106,6 +107,64 @@ export class EscalationsController {
 		return this.escalationService.listQueued()
 	}
 
+	@Get("v1/escalations/presence")
+	@RequirePermissions("escalations.conversations.handle")
+	async getPresence(@Session() session: UserSession) {
+		return this.escalationService.getAgentPresence(session.user.id)
+	}
+
+	@Put("v1/escalations/presence")
+	@StrictThrottle()
+	@RequirePermissions("escalations.conversations.handle")
+	async setPresence(@Session() session: UserSession, @Body() body: unknown) {
+		const parsed = z.object({ available: z.boolean() }).safeParse(body)
+		if (!parsed.success) throw new BadRequestException("Availability must be true or false")
+		return this.escalationService.setAgentAvailability(session.user.id, parsed.data.available)
+	}
+
+	@Post("v1/escalations/presence/heartbeat")
+	@StrictThrottle()
+	@RequirePermissions("escalations.conversations.handle")
+	async heartbeat(@Session() session: UserSession) {
+		await this.escalationService.heartbeat(session.user.id)
+		return { ok: true }
+	}
+
+	@Get("v1/escalations/mine")
+	@RequirePermissions("escalations.conversations.handle")
+	async listMine(@Session() session: UserSession) {
+		return this.escalationService.listMyOpen(session.user.id)
+	}
+
+	@Get("v1/escalations/available-agents")
+	@RequirePermissions("escalations.conversations.handle")
+	async listAvailableAgents() {
+		return this.escalationService.listAvailableAgents()
+	}
+
+	@Get("v1/escalations/agent-capacities")
+	@RequirePermissions("settings.escalation.manage")
+	async listAgentCapacities() {
+		return this.escalationService.listAgentCapacities()
+	}
+
+	@Put("v1/escalations/agents/:agentId/capacity")
+	@StrictThrottle()
+	@RequirePermissions("settings.escalation.manage")
+	async setAgentChatLimit(
+		@Param("agentId") agentId: string,
+		@Session() session: UserSession,
+		@Body() body: unknown
+	) {
+		const parsed = z.object({ maxOpenChats: z.number().int().min(1).max(30) }).safeParse(body)
+		if (!parsed.success) throw new BadRequestException("Chat limit must be between 1 and 30")
+		return this.escalationService.setAgentChatLimit(
+			agentId,
+			parsed.data.maxOpenChats,
+			session.user.id
+		)
+	}
+
 	@Get("v1/escalations/:id")
 	@RequirePermissions("escalations.queue.view")
 	async getQueued(@Param("id") id: string, @Session() session: UserSession) {
@@ -127,6 +186,26 @@ export class EscalationsController {
 	async claim(@Param("id") id: string, @Session() session: UserSession) {
 		this.requireEscalationId(id)
 		return this.escalationService.claim(id, session.user.id)
+	}
+
+	@Post("v1/escalations/:id/transfer")
+	@StrictThrottle()
+	@RequirePermissions("escalations.conversations.handle")
+	async transfer(@Param("id") id: string, @Session() session: UserSession, @Body() body: unknown) {
+		this.requireEscalationId(id)
+		const parsed = z
+			.object({
+				toAgentId: z.string().min(1).nullable(),
+				note: z.string().trim().min(1).max(1000),
+			})
+			.safeParse(body)
+		if (!parsed.success) throw new BadRequestException("A transfer target and note are required")
+		return this.escalationService.transfer(
+			id,
+			session.user.id,
+			parsed.data.toAgentId,
+			parsed.data.note
+		)
 	}
 
 	@Post("v1/escalations/:id/replies")

@@ -98,7 +98,7 @@ export class ConversationLiveService {
 				const rows = await this.getMessagesAfter(conversationId, cursor)
 				for (const row of rows) {
 					cursor = row.turnIndex
-					if (options.agentsOnly && row.sender !== "agent") continue
+					if (options.agentsOnly && row.sender !== "agent" && row.sender !== "system") continue
 					response.write(
 						`event: message\ndata: ${JSON.stringify({
 							id: row.id,
