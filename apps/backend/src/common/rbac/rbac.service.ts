@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common"
-import { and, eq } from "drizzle-orm"
+import { Injectable } from "@nestjs/common"
+import { eq } from "drizzle-orm"
 
 import { ADMIN_ROLE, PERMISSION_NAMES, type MePermissions } from "@repo/contracts"
-import { permissions, rolePermissions, roles, userRoles, users } from "@repo/db/schema"
+import { permissions, rolePermissions, roles, userRoles } from "@repo/db/schema"
 
 import { db } from "@/common/database/database.client"
 
@@ -95,31 +95,5 @@ export class RbacService {
 			// the admin role short-circuit into concrete dotted keys.
 			permissions: PERMISSION_NAMES.filter(permission => this.matchPermission(set, permission)),
 		}
-	}
-
-	async assignRole(userId: string, roleName: string): Promise<void> {
-		const [user] = await db.select().from(users).where(eq(users.id, userId))
-		if (!user) throw new NotFoundException(`User with ID ${userId} not found`)
-
-		const [role] = await db.select().from(roles).where(eq(roles.name, roleName))
-		if (!role) throw new NotFoundException(`Role "${roleName}" not found`)
-
-		await db.insert(userRoles).values({ userId, roleId: role.id }).onConflictDoNothing()
-
-		await this.cacheService.invalidate(userId)
-	}
-
-	async removeRole(userId: string, roleName: string): Promise<void> {
-		const [user] = await db.select().from(users).where(eq(users.id, userId))
-		if (!user) throw new NotFoundException(`User with ID ${userId} not found`)
-
-		const [role] = await db.select().from(roles).where(eq(roles.name, roleName))
-		if (!role) throw new NotFoundException(`Role "${roleName}" not found`)
-
-		await db
-			.delete(userRoles)
-			.where(and(eq(userRoles.userId, userId), eq(userRoles.roleId, role.id)))
-
-		await this.cacheService.invalidate(userId)
 	}
 }
