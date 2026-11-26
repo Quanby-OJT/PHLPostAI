@@ -51,9 +51,34 @@ export const users = createTable("users", t => ({
 	// F4: admin-disabled accounts cannot sign in (enforced by the Better Auth
 	// session-create hook in packages/auth) and their sessions are revoked.
 	disabled: t.boolean("disabled").default(false).notNull(),
+	// ADM-2: set by the Better Auth two-factor plugin once an authenticator app is
+	// confirmed. Staff accounts without it are held at enrolment by the API gate.
+	twoFactorEnabled: t.boolean("two_factor_enabled").default(false).notNull(),
 	createdAt: t.timestamp("created_at").notNull().defaultNow(),
 	updatedAt: t.timestamp("updated_at").notNull().defaultNow(),
 }))
+
+/**
+ * ADM-2: authenticator-app secret, encrypted recovery codes and the account-level
+ * failed-verification counter used for the lockout. Table and column names follow
+ * the Better Auth two-factor plugin's schema.
+ */
+export const twoFactor = createTable(
+	"two_factor",
+	t => ({
+		id: t.text("id").primaryKey(),
+		secret: t.text("secret").notNull(),
+		backupCodes: t.text("backup_codes").notNull(),
+		userId: t
+			.text("user_id")
+			.notNull()
+			.references(() => users.id, { onDelete: "cascade" }),
+		verified: t.boolean("verified").default(true).notNull(),
+		failedVerificationCount: t.integer("failed_verification_count").default(0).notNull(),
+		lockedUntil: t.timestamp("locked_until"),
+	}),
+	t => [index("two_factor_user_id_idx").on(t.userId)]
+)
 
 export const sessions = createTable("sessions", t => ({
 	id: t.text("id").primaryKey(),

@@ -24,6 +24,10 @@
 		"./rate-limit-storage": {
 			"types": "./dist/rate-limit-storage.d.ts",
 			"default": "./dist/rate-limit-storage.js"
+		},
+		"./audit-sink": {
+			"types": "./dist/audit-sink.d.ts",
+			"default": "./dist/audit-sink.js"
 		}
 	},
 	"scripts": {

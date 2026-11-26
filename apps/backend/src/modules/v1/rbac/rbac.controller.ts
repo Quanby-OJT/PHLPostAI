@@ -98,6 +98,16 @@ export class RbacController {
 		})
 	}
 
+	/** ADM-2: reset a user's second factor. Denial returns 403 and is audited by RbacGuard. */
+	@StrictThrottle()
+	@RequirePermissions("users.accounts.manage")
+	@Implement(v1.rbac.users.resetSecondFactor)
+	async resetSecondFactor(@Session() session: UserSession) {
+		return implement(v1.rbac.users.resetSecondFactor).handler(async ({ input }) => {
+			return this.rbacAdminService.resetSecondFactor(input, session.user.id)
+		})
+	}
+
 	@StrictThrottle()
 	@RequirePermissions("users.accounts.manage", "users.roles.manage")
 	@Implement(v1.rbac.users.assignRole)

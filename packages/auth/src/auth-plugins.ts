@@ -1,5 +1,7 @@
 import { openAPI } from "better-auth/plugins"
 
+import { buildMfaPlugin } from "./mfa.js"
+
 /**
  * Plugins for the shared Better Auth instance.
  *
@@ -11,5 +13,6 @@ import { openAPI } from "better-auth/plugins"
  * connection or `createEnv()`.
  */
 export function buildAuthPlugins(docsEnabled: boolean) {
-	return [...(docsEnabled ? [openAPI({ path: "/reference" })] : [])]
+	// ADM-2: the second factor is always on. It is not part of the docs toggle.
+	return [buildMfaPlugin(), ...(docsEnabled ? [openAPI({ path: "/reference" })] : [])]
 }

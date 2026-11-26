@@ -9,6 +9,8 @@ import {
 	DeleteRoleResponseSchema,
 	PermissionSchema,
 	RemoveRoleRequestSchema,
+	ResetSecondFactorRequestSchema,
+	ResetSecondFactorResponseSchema,
 	RoleIdSchema,
 	RoleSchema,
 	SetRolePermissionsRequestSchema,
@@ -153,5 +155,21 @@ export const rbacContract = {
 			})
 			.input(SetUserDisabledRequestSchema)
 			.output(UserWithRolesSchema.pick({ id: true, disabled: true })),
+
+		/**
+		 * ADM-2: remove a user's authenticator app and recovery codes, end their sessions,
+		 * and require enrolment again at next sign-in. Requires users.accounts.manage. Audited.
+		 */
+		resetSecondFactor: oc
+			.route({
+				method: "POST",
+				path: "/rbac/users/{userId}/mfa/reset",
+				summary: "Reset a user's second factor",
+				description:
+					"ADM-2: removes the authenticator app and recovery codes, ends the user's sessions, and requires enrolment again at next sign-in. Requires users.accounts.manage. Audited.",
+				tags: ["RBAC"],
+			})
+			.input(ResetSecondFactorRequestSchema)
+			.output(ResetSecondFactorResponseSchema),
 	},
 }
