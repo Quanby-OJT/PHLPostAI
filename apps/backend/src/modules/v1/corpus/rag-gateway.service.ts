@@ -87,6 +87,8 @@ export interface ChatForwardInput {
 	/** CNV-3: the routine-answer limit for an eligible category. */
 	maxOutputTokens?: number
 	freshEvaluation?: boolean
+	/** CNV-6: category reply rules the RAG service adds to the prompt. */
+	replyRules?: "postal-id"
 }
 
 function base64UrlJson(value: unknown): string {
@@ -185,6 +187,7 @@ export class RagGatewayService {
 				...(input.glossary !== undefined && { glossary: input.glossary }),
 				...(input.maxOutputTokens !== undefined && { maxOutputTokens: input.maxOutputTokens }),
 				...(input.freshEvaluation && { freshEvaluation: true }),
+				...(input.replyRules !== undefined && { replyRules: input.replyRules }),
 			}),
 			failureMessage: "RAG chat failed",
 		})

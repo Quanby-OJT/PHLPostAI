@@ -1,10 +1,10 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "bfe8cbaf-de71-4842-bb54-287f83c3ad11",
+  "id": "610bb717-8290-48b7-b4d5-2c41a02ccfd9",
   "prevIds": [
-    "32c23f0b-4caa-45bb-8f71-a39339d0c464",
-    "ac7015ec-3c80-4e33-ab59-f3de70346ba5"
+    "c1fd4b31-8e9c-43c6-bdb0-22817c93354a",
+    "c97ec644-f6b9-4c46-889e-4f943ef7389a"
   ],
   "ddl": [
     {
@@ -238,6 +238,12 @@
     {
       "isRlsEnabled": false,
       "name": "scam_assessments",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": false,
+      "name": "scam_reports",
       "entityType": "tables",
       "schema": "public"
     },
@@ -4392,6 +4398,110 @@
       "name": "id",
       "entityType": "columns",
       "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "submission_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'reported'",
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "reviewer_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "finding",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "notes",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "type": "uuid",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "gen_random_uuid()",
+      "generated": null,
+      "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "scam_submissions"
     },
     {
@@ -5514,6 +5624,34 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "created_at",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "scam_reports_queue_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "conversation_id",
           "isExpression": false,
           "asc": true,
@@ -6141,6 +6279,40 @@
     {
       "nameExplicit": false,
       "columns": [
+        "submission_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "scam_submissions",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "scam_reports_submission_id_scam_submissions_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "reviewer_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "users",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "SET NULL",
+      "name": "scam_reports_reviewer_id_users_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "scam_reports"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "conversation_id"
       ],
       "schemaTo": "public",
@@ -6639,6 +6811,16 @@
         "id"
       ],
       "nameExplicit": false,
+      "name": "scam_reports_pkey",
+      "schema": "public",
+      "table": "scam_reports",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
       "name": "scam_submissions_pkey",
       "schema": "public",
       "table": "scam_submissions",
@@ -6846,6 +7028,17 @@
     {
       "nameExplicit": false,
       "columns": [
+        "submission_id"
+      ],
+      "nullsNotDistinct": false,
+      "name": "scam_reports_submission_id_key",
+      "schema": "public",
+      "table": "scam_reports",
+      "entityType": "uniques"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "token"
       ],
       "nullsNotDistinct": false,
@@ -6892,6 +7085,13 @@
       "entityType": "checks",
       "schema": "public",
       "table": "scam_assessments"
+    },
+    {
+      "value": "(\n\t\t\t\t(\"status\" in ('reported', 'under_review') and \"finding\" is null and \"notes\" is null)\n\t\t\t\tor\n\t\t\t\t(\"finding\" is not null and \"finding\" in ('confirmed_scam', 'legitimate', 'inconclusive')\n\t\t\t\t\tand (\"status\" = \"finding\" or \"status\" = 'closed')\n\t\t\t\t\tand \"notes\" is not null and length(trim(\"notes\")) > 0)\n\t\t\t)",
+      "name": "scam_reports_state_check",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "scam_reports"
     },
     {
       "value": "\"kind\" in ('text', 'link', 'email', 'image')",

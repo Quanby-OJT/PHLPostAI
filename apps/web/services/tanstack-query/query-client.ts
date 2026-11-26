@@ -42,10 +42,10 @@ export function shouldDehydrateMutation(mutation: { state: { isPaused: boolean }
  * directory including every email address. Persisting either hands the next
  * person on a shared browser profile a readable copy of the previous user's
  * data. This is an exclusion, not an allowlist of safe keys — new sensitive
- * roots must be added here. Scam configuration also stays in memory so an
- * earlier snapshot cannot hide a recent change after a reload.
+ * roots must be added here. Scam configuration and report evidence stay in
+ * memory so restored snapshots cannot hide recent changes.
  */
-export const NON_PERSISTED_QUERY_ROOTS = ["session", "rbac", "scam"] as const
+export const NON_PERSISTED_QUERY_ROOTS = ["session", "rbac", "scam", "scam-reports"] as const
 
 /**
  * The string labels in a query key's first segment. Handles both plain keys

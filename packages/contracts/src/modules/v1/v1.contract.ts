@@ -15,6 +15,7 @@ import { opsContract } from "./ops/ops.contract.js"
 import { ratesContract } from "./rates/rates.contract.js"
 import { rbacContract } from "./rbac/rbac.contract.js"
 import { reportsContract } from "./reports/reports.contract.js"
+import { scamReportsContract } from "./scam-reports/scam-reports.contract.js"
 import { scamContract } from "./scam/scam.contract.js"
 import { trackingContract } from "./tracking/tracking.contract.js"
 
@@ -40,6 +41,7 @@ export const v1Contract = oc.prefix("/v1").router(
 		tracking: trackingContract,
 		assistant: assistantContract,
 		rates: ratesContract,
+		scamReports: scamReportsContract,
 		scam: scamContract,
 	})
 )

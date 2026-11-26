@@ -20,6 +20,12 @@ import { validateCustomerAnswer } from "./answer-guardrail"
 import { ConversationService } from "./conversation.service"
 import { I_DONT_KNOW_REPLIES, replyLanguageFor, withLanguageNotice } from "./customer-language"
 import { routeForCategory, type InquiryRoute } from "./inquiry-routing"
+import {
+	POSTAL_ID_STATUS_REPLIES,
+	postalIdIntent,
+	withPostalIdNotices,
+	type PostalIdIntent,
+} from "./postal-id-guidance"
 import { inspectScamLinks, isScamSubmission, maskScamInput } from "./scam-checks"
 
 /**
@@ -72,6 +78,8 @@ export interface InquiryClassification {
 	route: InquiryRoute
 	/** KB-2: the earlier rates question this message completes, if any. */
 	context?: string
+	/** CNV-6: what a Postal ID question asks for. */
+	postalId?: PostalIdIntent
 }
 
 /** The RAG service's `final` SSE frame / JSON answer, as far as CNV-1 needs it. */
@@ -231,13 +239,15 @@ export class CustomerChatService {
 			}
 		}
 		const eligible = categories.find(item => item.code === category)?.isEligible ?? false
+		const postalId = category === "postal-id" ? postalIdIntent(result.screenedQuery) : undefined
 		return {
 			screenedQuery: result.screenedQuery,
 			category,
 			eligible,
 			language: result.language,
 			replyLanguage,
-			route: routeForCategory(category),
+			route: routeForCategory(category, postalId),
+			...(postalId && { postalId }),
 		}
 	}
 
@@ -316,6 +326,64 @@ export class CustomerChatService {
 			answerKind: guardrail.blocked ? "uncertain" : "tool",
 			isIDontKnow: guardrail.blocked,
 		}
+	}
+
+	/**
+	 * CNV-6 AC4: a question about one Postal ID application. No application
+	 * records exist to look up, so the reply says so and offers the official
+	 * channel or a person; nothing is retrieved or generated.
+	 */
+	async answerPostalIdStatus(input: {
+		conversationId: string
+		classification: InquiryClassification
+		correlationId: string
+		blockedTopics?: readonly string[]
+	}): Promise<CustomerTurn> {
+		const { classification } = input
+		const { answer, guardrail } = this.previewPostalIdStatus(classification, input.blockedTopics)
+		if (guardrail.blocked) this.logBlocked(guardrail.reason, input.correlationId)
+
+		const { assistantMessageId } = await this.conversationService.recordTurn({
+			conversationId: input.conversationId,
+			maskedQuery: classification.screenedQuery,
+			inquiryCategory: classification.category,
+			language: classification.language ?? undefined,
+			answer,
+			// A fixed, certain reply like KB-2's "no published rate": it must not
+			// count toward ESC-3's repeated low-confidence handoff.
+			answerKind: guardrail.blocked ? "uncertain" : "tool",
+			confidence: 1,
+			traceId: input.correlationId,
+			category: "postal-id",
+			additionalEventKinds: guardrail.blocked ? ["answer_blocked"] : [],
+		})
+
+		return {
+			answer,
+			messageId: assistantMessageId,
+			sources: [],
+			citations: [],
+			answerKind: guardrail.blocked ? "uncertain" : "tool",
+			isIDontKnow: guardrail.blocked,
+		}
+	}
+
+	/** Prepare the fixed status reply for live chat or an isolated evaluation. */
+	previewPostalIdStatus(
+		classification: Pick<InquiryClassification, "screenedQuery" | "language" | "replyLanguage">,
+		blockedTopics?: readonly string[]
+	) {
+		const fixed = POSTAL_ID_STATUS_REPLIES[classification.replyLanguage]
+		const guardrail = validateCustomerAnswer(fixed, [fixed], blockedTopics)
+		const answer = withLanguageNotice(
+			withPostalIdNotices(guardrail.blocked ? this.lowConfidenceReply(classification, []) : fixed, {
+				maskedQuery: classification.screenedQuery,
+				language: classification.replyLanguage,
+			}),
+			classification.language,
+			classification.replyLanguage
+		)
+		return { answer, guardrail }
 	}
 
 	private fallbackCategory(screenedQuery: string, active: ReadonlySet<string>): string {
@@ -443,7 +511,10 @@ export class CustomerChatService {
 		envelope: RagAnswerEnvelope
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
-		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		classification?: Pick<
+			InquiryClassification,
+			"category" | "language" | "replyLanguage" | "postalId"
+		>
 		requestStartedAt?: number
 		confidenceThreshold?: number
 		blockedTopics?: readonly string[]
@@ -457,11 +528,11 @@ export class CustomerChatService {
 			confidence,
 			groundednessResult,
 			guardrail,
+			maskedQuery,
 			retrievalScore,
 		} = preview
 		if (guardrail.blocked) this.logBlocked(guardrail.reason, asString(envelope.traceId))
 
-		const maskedQuery = asString(envelope.screenedQuery)
 		if (maskedQuery === null) {
 			this.logger.warn(
 				"RAG answer carried no screenedQuery; storing the turn without the question so no unmasked text is persisted"
@@ -515,7 +586,10 @@ export class CustomerChatService {
 		envelope: RagAnswerEnvelope
 		answerKind?: CustomerAnswerKind
 		answerOverride?: string
-		classification?: Pick<InquiryClassification, "category" | "language" | "replyLanguage">
+		classification?: Pick<
+			InquiryClassification,
+			"category" | "language" | "replyLanguage" | "postalId"
+		>
 		confidenceThreshold?: number
 		blockedTopics?: readonly string[]
 	}) {
@@ -595,6 +669,15 @@ export class CustomerChatService {
 			)
 		}
 
+		const maskedQuery = asString(envelope.screenedQuery)
+		if (answerKind !== "refusal") {
+			answer = withPostalIdNotices(answer, {
+				intent: classification?.postalId,
+				maskedQuery: maskedQuery ?? "",
+				language: classification?.replyLanguage ?? "en",
+			})
+		}
+
 		return {
 			answer,
 			sources,
@@ -604,6 +687,7 @@ export class CustomerChatService {
 			retrievalScore,
 			groundednessResult,
 			guardrail,
+			maskedQuery,
 			isIDontKnow: belowThreshold || guardrail.blocked || envelope.isIDontKnow === true,
 		}
 	}

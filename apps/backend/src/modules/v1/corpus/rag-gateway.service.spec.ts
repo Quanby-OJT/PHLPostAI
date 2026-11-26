@@ -1,9 +1,5 @@
+import { BadGatewayException, GatewayTimeoutException, HttpException } from "@nestjs/common"
 import { createHmac } from "node:crypto"
-import {
-	BadGatewayException,
-	GatewayTimeoutException,
-	HttpException,
-} from "@nestjs/common"
 
 import { RagGatewayService } from "./rag-gateway.service"
 
@@ -17,7 +13,6 @@ jest.mock("@orpc/server", () => ({
 	},
 	implement: jest.fn(() => ({ handler: jest.fn((fn: () => unknown) => fn()) })),
 }))
-
 
 jest.mock("@/config/env.config", () => ({
 	env: {
@@ -223,6 +218,27 @@ describe("RagGatewayService", () => {
 
 			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
 			expect(JSON.parse(init.body as string)).toEqual({ query: "How many vacation days?" })
+		})
+
+		it("forwards the fresh evaluation flags and Postal ID reply rules together", async () => {
+			fetchMock.mockResolvedValue(chatOkResponse())
+
+			await service.submitChatQuery({
+				...chatInput,
+				query: "What do I need to bring for a Postal ID?",
+				persist: false,
+				freshEvaluation: true,
+				replyRules: "postal-id",
+				maxOutputTokens: 200,
+			})
+
+			const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+			expect(JSON.parse(init.body as string)).toMatchObject({
+				persist: false,
+				freshEvaluation: true,
+				replyRules: "postal-id",
+				maxOutputTokens: 200,
+			})
 		})
 
 		it("maps AbortSignal timeouts to 504", async () => {

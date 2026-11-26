@@ -21,6 +21,8 @@ import { AssistantSettingsService } from "../assistant/assistant-settings.servic
 import { RagGatewayService } from "../corpus/rag-gateway.service"
 import { CustomerChatService, type RagAnswerEnvelope } from "../customer/customer-chat.service"
 import { ragLanguageFields, withLanguageNotice } from "../customer/customer-language"
+import { routeForCategory } from "../customer/inquiry-routing"
+import { postalIdIntent } from "../customer/postal-id-guidance"
 import { RateLookupService } from "../rates/rate-lookup.service"
 import { MOCK_RECORDS } from "../tracking/connectors/mock/mock.records"
 import { TrackingService } from "../tracking/tracking.service"
@@ -47,7 +49,7 @@ type GoldenRow = Pick<
 	| "approvedAt"
 >
 type Settings = Awaited<ReturnType<AssistantSettingsService["get"]>>
-const workflowVersion = "evl1-2"
+const workflowVersion = "evl1-3"
 const customerPermissions = ["chat.query.submit", "corpus.read", "eval.runs.execute"] as const
 
 function object(value: unknown): Record<string, unknown> {
@@ -388,6 +390,12 @@ export class AnswerQualityService {
 				quality.toolResult = { outcome: outcome.outcome, facts: outcome.facts ?? {} }
 				quality.actualBehavior =
 					!preview.guardrail.blocked && outcome.outcome === "quoted" ? "answer" : "uncertain"
+			} else if (classification.route === "postal-id-status") {
+				result.answer = this.chat.previewPostalIdStatus(
+					classification,
+					settings.blockedTopics
+				).answer
+				quality.actualBehavior = "uncertain"
 			} else if (classification.route === "retrieval") {
 				const envelope = (await this.rag.submitChatQuery({
 					query: row.question,
@@ -473,10 +481,10 @@ export class AnswerQualityService {
 				judge.grounded === true &&
 				toolMatches &&
 				row.expectedChunkHashes.every(hash => citedHashes.includes(hash))
-			const expectedRoute =
-				expected.useCase === "rates" || expected.useCase === "tracking"
-					? expected.useCase
-					: "retrieval"
+			const expectedRoute = routeForCategory(
+				expected.useCase,
+				expected.useCase === "postal-id" ? postalIdIntent(classification.screenedQuery) : undefined
+			)
 			quality.behaviorCorrect =
 				judge.behaviorCorrect === true &&
 				classification.route === expectedRoute &&

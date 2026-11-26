@@ -50,14 +50,19 @@ export function withLanguageNotice(
 		: answer
 }
 
-/** What the RAG service needs to translate the question and write the reply. */
+/**
+ * What the RAG service needs to translate the question and write the reply,
+ * plus the category's reply rules (CNV-6: Postal ID).
+ */
 export function ragLanguageFields(classification: {
 	language: string | null
 	replyLanguage: CustomerLanguage
+	category?: string
 }) {
 	return {
 		language: classification.replyLanguage,
 		...(classification.language !== null && { queryLanguage: classification.language }),
 		glossary: UNTRANSLATED_POSTAL_TERMS,
+		...(classification.category === "postal-id" && { replyRules: "postal-id" as const }),
 	}
 }

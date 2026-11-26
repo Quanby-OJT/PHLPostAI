@@ -18,12 +18,15 @@ export default defineConfig({
 		screenshot: "only-on-failure",
 		video: "off",
 	},
-	webServer: {
-		command: "pnpm turbo run start --filter=@repo/web",
-		url: "http://localhost:3001",
-		timeout: 120_000,
-		reuseExistingServer: !process.env.CI,
-	},
+	webServer:
+		process.env.E2E_NO_WEBSERVER === "1"
+			? undefined
+			: {
+					command: "pnpm turbo run start --filter=@repo/web",
+					url: "http://localhost:3001",
+					timeout: 120_000,
+					reuseExistingServer: !process.env.CI,
+				},
 	projects: [
 		// ── Auth setup (runs once before authenticated tests) ──────────────────
 		...(hasBackend

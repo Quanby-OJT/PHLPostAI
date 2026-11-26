@@ -6,7 +6,7 @@ import { conversations, customerSessions, escalations, messages } from "@repo/db
 
 import { AuditService } from "@/common/audit/audit.service"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
-import { db } from "@/common/database/database.client"
+import { db, type DbTransaction } from "@/common/database/database.client"
 import { AssistantSettingsService } from "@/modules/v1/assistant/assistant-settings.service"
 import { ConversationService } from "@/modules/v1/customer/conversation.service"
 
@@ -127,16 +127,14 @@ export class EscalationService {
 		return result
 	}
 
-	/** Creates the queued escalation and conversation transition atomically. */
-	async request(input: {
-		conversationId: string
-		customerSessionId: string
-		reason: string
-		category?: string
-	}) {
-		const settings = await this.settingsService.getEscalationSettings()
+	/** Uses the caller's transaction when supplied. Its owner publishes after commit. */
+	async request(
+		input: { conversationId: string; customerSessionId: string; reason: string; category?: string },
+		transaction?: DbTransaction
+	) {
+		const settings = await this.settingsService.getEscalationSettings(transaction)
 		const offline = !isWithinBusinessHours(new Date(), settings.businessHours)
-		const result = await db.transaction(async tx => {
+		const create = async (tx: DbTransaction) => {
 			const [conversation] = await tx
 				.select()
 				.from(conversations)
@@ -190,7 +188,10 @@ export class EscalationService {
 				status: offline ? ("contact_captured" as const) : ("queued" as const),
 				createdAt: row.createdAt,
 			}
-		})
+		}
+		if (transaction) return create(transaction)
+
+		const result = await db.transaction(create)
 		if (offline) await this.conversationLiveService.publish(input.conversationId)
 		return result
 	}

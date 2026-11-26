@@ -187,6 +187,7 @@ describe("navItems", () => {
 			"Status explanations",
 			"Chat",
 			"Agent inbox",
+			"Scam Reports",
 			"Deflection KPI",
 			"User Management",
 			"Evaluation",
@@ -200,6 +201,14 @@ describe("navItems", () => {
 			"Channels",
 			"API Keys",
 		])
+	})
+
+	it("shows Scam Reports for the read grant independently of the validation grant", () => {
+		const labels = (permissions: string[]) =>
+			getAccessibleNavItems({ roles: [], permissions }).map(item => item.label)
+		expect(labels(["scam.reports.view"])).toContain("Scam Reports")
+		expect(labels(["scam.reports.validate"])).not.toContain("Scam Reports")
+		expect(labels([])).not.toContain("Scam Reports")
 	})
 
 	it("gates both SCM-2 destinations with the same permission", () => {
@@ -217,6 +226,7 @@ describe("navItems", () => {
 		expect(getDashboardRouteTitle("/corpus")).toBe("Corpus")
 		expect(getDashboardRouteTitle("/chat")).toBe("Chat")
 		expect(getDashboardRouteTitle("/escalations")).toBe("Agent inbox")
+		expect(getDashboardRouteTitle("/scam-reports")).toBe("Scam Reports")
 		expect(getDashboardRouteTitle("/user-management")).toBe("User Management")
 		expect(getDashboardRouteTitle("/account")).toBe("Account")
 	})
