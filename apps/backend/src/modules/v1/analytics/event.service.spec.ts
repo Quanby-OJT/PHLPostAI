@@ -43,6 +43,19 @@ describe("EventService", () => {
 		])
 	})
 
+	it("accepts the recorded response time metadata", async () => {
+		await service.record({
+			conversationId: "conversation-1",
+			kind: "answer_sent",
+			category: "service-info",
+			language: "en",
+			channelCode: "web-widget",
+			payload: { response_time_ms: 1234 },
+		})
+
+		expect(mockInserted[0]?.payload).toEqual({ response_time_ms: 1234 })
+	})
+
 	it("rejects free-text categories", async () => {
 		await expect(
 			service.record({

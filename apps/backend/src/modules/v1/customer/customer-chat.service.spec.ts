@@ -186,6 +186,87 @@ describe("CustomerChatService (CNV-1)", () => {
 	})
 
 	describe("AC2: an uncovered question is answered, not invented", () => {
+		it("accepts official amounts and statuses only from cited source chunks", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "The fee is ₱320 and the parcel is in transit.",
+					retrievedChunks: [{ id: "chunk-1", content: "Fee: ₱320. Parcel status: in transit." }],
+					citations: [{ chunkId: "chunk-1", documentId: "document-1" }],
+					confidence: 0.95,
+					screenedQuery: "q",
+				},
+				classification: { category: "tracking", language: "en", replyLanguage: "en" },
+			})
+
+			expect(turn.answer).toContain("₱320")
+			expect(turn.answerKind).toBe("answer")
+		})
+
+		it("withholds unsupported official claims and records answer_blocked", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "The package is delivered and the fee is ₱500.",
+					retrievedChunks: [{ text: "The package status is in transit. The fee is ₱320." }],
+					confidence: 0.95,
+					screenedQuery: "q",
+				},
+				classification: { category: "service-info", language: "en", replyLanguage: "en" },
+				blockedTopics: [],
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.answer).toContain("I'm not sure enough to answer")
+			expect(turn.answer).not.toContain("delivered")
+			expect(turn.answer).not.toContain("₱500")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					answerKind: "uncertain",
+					additionalEventKinds: ["answer_blocked"],
+				})
+			)
+		})
+
+		it("checks blocked topics in the draft even when confidence is below threshold", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "Customs clearance requires the customer to provide documents.",
+					confidence: 0.42,
+					screenedQuery: "What is customs clearance?",
+				},
+				classification: { category: "service-info", language: "en", replyLanguage: "en" },
+				confidenceThreshold: 0.7,
+				blockedTopics: ["customs clearance"],
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.answer).not.toContain("Customs clearance")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+			)
+		})
+
+		it("always blocks requests for payment or credentials even when cited", async () => {
+			const turn = await service.completeTurn({
+				conversationId: "conversation-1",
+				envelope: {
+					answer: "Please pay ₱320 now and share your password.",
+					retrievedChunks: [{ text: "Please pay ₱320 now and share your password." }],
+					confidence: 0.99,
+					screenedQuery: "q",
+				},
+				classification: { category: "rates", language: "en", replyLanguage: "en" },
+			})
+
+			expect(turn.answerKind).toBe("uncertain")
+			expect(turn.answer).not.toContain("password")
+			expect(conversationService.recordTurn).toHaveBeenCalledWith(
+				expect.objectContaining({ additionalEventKinds: ["answer_blocked"] })
+			)
+		})
+
 		it("replaces a below-threshold draft with a localized uncertainty and handoff offer", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
@@ -243,7 +324,12 @@ describe("CustomerChatService (CNV-1)", () => {
 		it("sends an answer whose confidence equals the configured threshold normally", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Grounded answer [1].", confidence: 0.7, citations: [], screenedQuery: "q" },
+				envelope: {
+					answer: "Grounded answer [1].",
+					confidence: 0.7,
+					citations: [],
+					screenedQuery: "q",
+				},
 				confidenceThreshold: 0.7,
 			})
 
@@ -806,14 +892,22 @@ describe("CustomerChatService (CNV-1)", () => {
 				answerKind: "uncertain",
 			})
 			expect(conversationService.recordTurn).toHaveBeenCalledWith(
-				expect.objectContaining({ answer: expect.stringContaining("Hindi ako sapat na sigurado"), language: "fil" })
+				expect.objectContaining({
+					answer: expect.stringContaining("Hindi ako sapat na sigurado"),
+					language: "fil",
+				})
 			)
 		})
 
 		it("answers an unsupported language in English and names the supported ones", async () => {
 			const turn = await service.completeTurn({
 				conversationId: "conversation-1",
-				envelope: { answer: "Express Mail is next-day [1].", confidence: 0.9, screenedQuery: "q", citations: [] },
+				envelope: {
+					answer: "Express Mail is next-day [1].",
+					confidence: 0.9,
+					screenedQuery: "q",
+					citations: [],
+				},
 				classification: { category: "service-info", language: "unsupported", replyLanguage: "en" },
 			})
 

@@ -71,3 +71,9 @@ def test_shared_entries_carry_the_recorded_metrics():
         "groundednessResult": {"grounded": True},
         "outputTokens": 12,
     }
+
+
+def test_shared_entries_keep_the_source_text_for_the_guardrail():
+    chunks = [{"id": "c1", "documentId": "d1", "similarity": 0.9, "content": "Fee: ₱320."}]
+    entry = _sharable_entry({"answer": "The fee is ₱320 [1].", "retrievedChunks": chunks})
+    assert entry["retrievedChunks"] == chunks

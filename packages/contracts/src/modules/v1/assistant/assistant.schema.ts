@@ -39,16 +39,24 @@ export const CreateInquiryCategoryRequestSchema = z.object({
 export const AssistantSettingsSchema = z.object({
 	confidenceThreshold: z.number().min(0).max(1),
 	maxOutputTokens: z.number().int().min(1).max(200),
+	blockedTopics: z.array(z.string().trim().min(1).max(120)).max(100),
 })
 
 export const UpdateAssistantSettingsRequestSchema = z
 	.object({
 		confidenceThreshold: z.number().min(0).max(1).optional(),
 		maxOutputTokens: z.number().int().min(1).max(200).optional(),
+		blockedTopics: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
 	})
-	.refine(value => value.confidenceThreshold !== undefined || value.maxOutputTokens !== undefined, {
-		message: "At least one assistant setting must be provided",
-	})
+	.refine(
+		value =>
+			value.confidenceThreshold !== undefined ||
+			value.maxOutputTokens !== undefined ||
+			value.blockedTopics !== undefined,
+		{
+			message: "At least one assistant setting must be provided",
+		}
+	)
 
 const EscalationDaySchema = z.enum([
 	"monday",

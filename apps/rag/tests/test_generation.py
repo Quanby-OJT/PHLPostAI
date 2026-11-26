@@ -59,39 +59,51 @@ def test_answer_confidence_combines_retrieval_and_grounding():
     chunks = [{"similarity": 0.61}, {"similarity": 0.82}]
     citations = [{"chunkId": "chunk-1"}]
 
-    assert calculate_answer_confidence(
-        chunks,
-        citations=citations,
-        degraded=False,
-        is_i_dont_know=False,
-        grounding={"grounded": True},
-    ) == 0.82
-    assert calculate_answer_confidence(
-        chunks,
-        citations=citations,
-        degraded=False,
-        is_i_dont_know=False,
-        grounding={"grounded": False, "outcome": "draft"},
-    ) == 0.0
+    assert (
+        calculate_answer_confidence(
+            chunks,
+            citations=citations,
+            degraded=False,
+            is_i_dont_know=False,
+            grounding={"grounded": True},
+        )
+        == 0.82
+    )
+    assert (
+        calculate_answer_confidence(
+            chunks,
+            citations=citations,
+            degraded=False,
+            is_i_dont_know=False,
+            grounding={"grounded": False, "outcome": "draft"},
+        )
+        == 0.0
+    )
 
 
 def test_explicit_groundedness_controls_confidence_without_citation_dependency():
     chunks = [{"similarity": 0.82}]
 
-    assert calculate_answer_confidence(
-        chunks,
-        citations=[],
-        degraded=False,
-        is_i_dont_know=False,
-        grounding={"grounded": True, "outcome": "draft"},
-    ) == 0.82
-    assert calculate_answer_confidence(
-        chunks,
-        citations=[{"chunkId": "chunk-1"}],
-        degraded=False,
-        is_i_dont_know=False,
-        grounding={"grounded": False, "outcome": "regenerated"},
-    ) == 0.0
+    assert (
+        calculate_answer_confidence(
+            chunks,
+            citations=[],
+            degraded=False,
+            is_i_dont_know=False,
+            grounding={"grounded": True, "outcome": "draft"},
+        )
+        == 0.82
+    )
+    assert (
+        calculate_answer_confidence(
+            chunks,
+            citations=[{"chunkId": "chunk-1"}],
+            degraded=False,
+            is_i_dont_know=False,
+            grounding={"grounded": False, "outcome": "regenerated"},
+        )
+        == 0.0
+    )
 
 
 @pytest.mark.parametrize(
@@ -524,6 +536,7 @@ async def test_turn_persisted_as_new_conversation_with_both_messages(settings):
     assert turn["query"] == "what fact?"
     assert turn["answer"] == "Fact stated [1]."
     assert turn["citations"] == result["citations"]
+    assert result["retrievedChunks"][0]["content"] == "Fact."
     assert turn["retrieved_chunks"] == [
         {"id": chunks[0]["id"], "documentId": DOC_ID, "similarity": 0.9}
     ]
@@ -627,9 +640,7 @@ async def test_chat_endpoint_validates_the_query(chat_app):
 
 
 # ------------------------------------------------ token budget (GN-2, Flow B5)
-async def test_budget_selects_rank_order_and_logs_used_separately(
-    settings, caplog, monkeypatch
-):
+async def test_budget_selects_rank_order_and_logs_used_separately(settings, caplog, monkeypatch):
     import app.budget as budget_module
 
     monkeypatch.setattr(budget_module, "count_tokens", lambda text: len(text))
@@ -694,9 +705,7 @@ async def test_budget_change_applies_on_next_request_without_restart(settings, m
     assert "b" * 50 not in client.calls[1][1]["content"]  # only the first fits now
 
 
-async def test_nothing_fits_budget_answers_i_dont_know_without_model_call(
-    settings, monkeypatch
-):
+async def test_nothing_fits_budget_answers_i_dont_know_without_model_call(settings, monkeypatch):
     import app.budget as budget_module
 
     monkeypatch.setattr(budget_module, "count_tokens", lambda text: len(text))
@@ -912,9 +921,7 @@ async def test_routing_keeps_simple_queries_on_cheap_fast(settings):
     router = ModelRouter(settings, cheap=cheap, strong=strong)
 
     retrieval = FakeRetrievalService([make_chunk("Vacation is 20 days.")])
-    service = GenerationService(
-        settings, retrieval, router, FakeConversationsRepository()
-    )  # type: ignore[arg-type]
+    service = GenerationService(settings, retrieval, router, FakeConversationsRepository())  # type: ignore[arg-type]
 
     result = await service.answer(query="Vacation days?", k=None, principal=PRINCIPAL)
 
@@ -924,14 +931,14 @@ async def test_routing_keeps_simple_queries_on_cheap_fast(settings):
 
 # ------------------------------------------- conversation continuation (CH-3)
 async def test_continue_appends_to_an_owned_conversation(settings):
-    service, _, _, repository = make_service(
-        settings, chunks=[make_chunk("Vacation is 20 days.")]
-    )
+    service, _, _, repository = make_service(settings, chunks=[make_chunk("Vacation is 20 days.")])
     existing = "11111111-1111-4111-8111-111111111111"
     repository.owners[existing] = PRINCIPAL.sub
 
     result = await service.answer(
-        query="And how many carry over?", k=None, principal=PRINCIPAL,
+        query="And how many carry over?",
+        k=None,
+        principal=PRINCIPAL,
         conversation_id=existing,
     )
 
@@ -949,9 +956,7 @@ async def test_continuing_someone_elses_conversation_is_denied_and_audited(setti
     repository.owners[theirs] = "someone-else"
 
     with pytest.raises(ConversationAccessError) as excinfo:
-        await service.answer(
-            query="q", k=None, principal=PRINCIPAL, conversation_id=theirs
-        )
+        await service.answer(query="q", k=None, principal=PRINCIPAL, conversation_id=theirs)
 
     assert excinfo.value.found is True
     assert client.calls == []  # denied before any model call
@@ -968,7 +973,9 @@ async def test_continuing_an_unknown_conversation_reports_not_found(settings):
 
     with pytest.raises(ConversationAccessError) as excinfo:
         await service.answer(
-            query="q", k=None, principal=PRINCIPAL,
+            query="q",
+            k=None,
+            principal=PRINCIPAL,
             conversation_id="33333333-3333-4333-8333-333333333333",
         )
 
