@@ -45,7 +45,7 @@ function isCustomerLanguage(value: unknown): value is CustomerLanguage {
 
 interface Turn {
 	id?: string
-	sender: "customer" | "assistant" | "agent"
+	sender: "customer" | "assistant" | "agent" | "system"
 	content: string
 	sources?: CustomerAnswerSource[]
 	/** Set once the final frame lands; `uncertain` and `refusal` are not failures. */
@@ -230,7 +230,7 @@ export function AssistantChat() {
 								setTurns(previous =>
 									previous.some(turn => turn.id === message.id)
 										? previous
-										: [...previous, { id: message.id, sender: "agent", content: message.content }]
+										: [...previous, { id: message.id, sender: message.sender, content: message.content }]
 								)
 							},
 							onStatus: status => {
@@ -381,6 +381,7 @@ export function AssistantChat() {
 					setConversationId(result.conversationId)
 					setHandoffDone(true)
 					setContactCaptured(result.status === "contact_captured")
+					setAgentJoined(result.status === "claimed")
 					setTurns(previous => previous.filter(turn => !turn.streaming))
 				},
 			}
@@ -458,6 +459,7 @@ export function AssistantChat() {
 				}
 				setHandoffDone(true)
 				setContactCaptured(result.status === "contact_captured")
+				setAgentJoined(result.status === "claimed")
 			} catch (caught) {
 				setError(
 					caught instanceof ApiError ? caught.message : ASSISTANT_COPY[language].handoffFailed
@@ -630,12 +632,14 @@ export function AssistantChat() {
 										className={`max-w-[90%] rounded-lg px-4 py-2 text-sm sm:max-w-prose ${
 											turn.sender === "customer"
 												? "bg-primary text-primary-foreground"
-												: "bg-muted border"
+												: turn.sender === "system"
+													? "bg-muted/60 border border-dashed"
+													: "bg-muted border"
 										}`}
 									>
 										<span
 											className={
-												turn.sender === "agent"
+											turn.sender === "agent" || turn.sender === "system"
 													? "text-muted-foreground text-xs font-medium"
 													: "sr-only"
 											}
@@ -644,7 +648,9 @@ export function AssistantChat() {
 												? copy.youSaid
 												: turn.sender === "agent"
 													? copy.agentLabel
-													: copy.assistantSaid}
+													: turn.sender === "system"
+														? "Support update"
+														: copy.assistantSaid}
 										</span>
 										<p className="whitespace-pre-wrap">
 											{turn.content}

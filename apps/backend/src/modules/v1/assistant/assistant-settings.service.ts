@@ -19,6 +19,7 @@ export const DEFAULT_ASSISTANT_SETTINGS: AssistantSettings = {
 
 export const DEFAULT_ESCALATION_SETTINGS: EscalationSettings = {
 	rules: { topics: [], keywords: [], categories: [], repeatedLowConfidenceCount: 2 },
+	routing: { mode: "least_busy", maxOpenChatsPerAgent: 3 },
 	businessHours: {
 		timezone: "Asia/Manila",
 		days: [
@@ -62,6 +63,7 @@ function parseEscalationSettings(value: unknown): EscalationSettings | null {
 	if (!isRecord(value) || !isRecord(value.rules) || !isRecord(value.businessHours)) return null
 	const rules = value.rules
 	const hours = value.businessHours
+	const routing = isRecord(value.routing) ? value.routing : DEFAULT_ESCALATION_SETTINGS.routing
 	if (
 		!Array.isArray(rules.topics) ||
 		!rules.topics.every(item => typeof item === "string") ||
@@ -92,11 +94,15 @@ function parseEscalationSettings(value: unknown): EscalationSettings | null {
 		!hours.holidays.every(item => typeof item === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item)) ||
 		!Number.isInteger(hours.waitLimitSeconds) ||
 		Number(hours.waitLimitSeconds) < 30 ||
-		Number(hours.waitLimitSeconds) > 3600
+		Number(hours.waitLimitSeconds) > 3600 ||
+		!(routing.mode === "least_busy" || routing.mode === "manual") ||
+		!Number.isInteger(routing.maxOpenChatsPerAgent) ||
+		Number(routing.maxOpenChatsPerAgent) < 1 ||
+		Number(routing.maxOpenChatsPerAgent) > 30
 	) {
 		return null
 	}
-	return value as unknown as EscalationSettings
+	return { ...value, routing } as unknown as EscalationSettings
 }
 
 @Injectable()
@@ -130,6 +136,7 @@ export class AssistantSettingsService {
 		const parsed = parseEscalationSettings({
 			rules: values.get("escalation_rules"),
 			businessHours: values.get("escalation_business_hours"),
+			routing: values.get("escalation_routing"),
 		})
 		return parsed ?? DEFAULT_ESCALATION_SETTINGS
 	}
@@ -144,8 +151,15 @@ export class AssistantSettingsService {
 			[
 				{ key: "escalation_rules", value: after.rules },
 				{ key: "escalation_business_hours", value: after.businessHours },
+				{ key: "escalation_routing", value: after.routing },
 			],
-			actor.userId
+			actor.userId,
+			before.routing.maxOpenChatsPerAgent === after.routing.maxOpenChatsPerAgent
+				? undefined
+				: {
+						from: before.routing.maxOpenChatsPerAgent,
+						to: after.routing.maxOpenChatsPerAgent,
+					}
 		)
 		await this.auditService.writeAudit({
 			actorId: actor.userId,

@@ -141,11 +141,14 @@ All tables are defined with `createTable` in `packages/db/src/schema.ts` and shi
 | `risk_indicators` | `code`, `name`, `weight`, `is_active` | Admin-editable. |
 | `official_contacts` | `kind` (`domain`/`sender`/`payment-channel`), `value`, `is_active` | The allowlist of genuine PHLPost domains, sender names, and payment channels. |
 | `escalations` | `conversation_id`, `reason`, `status`, `assigned_agent_id?`, `contact` (AES-256-GCM encrypted, optional), `claimed_at?`, `missed_at?`, `resolved_at?`, `outcome_note?` | State machine 5.3. ESC-2 stores the agent resolution summary in `outcome_note`. Contact is exposed only through the `escalations.conversations.handle` endpoint; ADM-5 applies its escalation-contact retention policy. AES-256-GCM uses a purpose-separated key derived from `BETTER_AUTH_SECRET`. |
+| `agent_presence` | `agent_id` (PK/FK), `available`, `max_open_chats`, `last_seen_at`, `updated_at` | ESC-5 agent availability lease and per-agent concurrency cap. Agents heartbeat while signed in; inactive assignments return to the queue after the ESC-3 wait limit. The `escalation_routing.maxOpenChatsPerAgent` setting is the global cap applied alongside this per-agent value. |
+| `escalation_transfers` | `id` (PK), `escalation_id`, `from_agent_id?`, `to_agent_id?`, `note`, `created_at` | ESC-5 transfer history. A null `to_agent_id` means returned to the queue. Transcript messages stay on the same Conversation and retain their original agent attribution and citations. |
 | `handoff_connectors`, `handoff_deliveries` | connector `code`, `kind`, `config`; delivery `escalation_id`, `status`, `attempts`, `external_ref?` | Outbox: `queued → delivered`, or `failed` after retries. |
 | `knowledge_gaps` | `label`, `category`, `language`, `question_count`, `examples_masked`, `status`, `draft_article_id?` | Rebuilt by the grouping job; `open → in_progress → resolved`. |
 | `feedback` | `conversation_id` (unique), `rating`, `comment_masked` | One per Conversation. |
 | `interaction_events` | `conversation_id`, `kind`, `category`, `language`, `channel_code`, `payload`, `occurred_at` | Append-only. The only source for analytics. ANL-1 records `conversation_started`, `answer_sent`, `tracking_lookup`, and `escalated`. `category` is an Inquiry Category code (`tracking`, `rates`, `postal-id`, `service-info`, `scam`, `complaint`, `other`); use `other` when classification is unavailable. `payload` is null unless validated non-text metadata is available; never place customer text or other free text in an event. |
-| `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. CNV-3 keys include `confidence_threshold` (0–1, default 0.7) and `max_output_tokens` (1–200, default 200). ESC-3 keys are `escalation_rules` (topics, keywords, categories, repeated low-confidence count) and `escalation_business_hours` (Asia/Manila weekly hours and holidays, plus the 30–3600 second wait limit). |
+| `assistant_settings` | `key` (unique), `value` (jsonb), `updated_by` | Every change is audited with old and new value. CNV-3 keys include `confidence_threshold` (0–1, default 0.7) and `max_output_tokens` (1–200, default 200). ESC-3 keys are `escalation_rules` (topics, keywords, categories, repeated low-confidence count) and `escalation_business_hours` (Asia/Manila weekly hours and holidays, plus the 30–3600 second wait limit). ESC-5 key `escalation_routing` stores `mode` (`least_busy` or `manual`) and `maxOpenChatsPerAgent` (1–30). |
+| **ESC-5 audit actions** | — | `escalations.presence.updated`, `escalations.presence.limit_updated`, `escalations.auto_assigned`, `escalations.transferred`, and `escalations.agent_unavailable`. Routing-setting changes use `escalation.settings.update` with old and new settings. |
 | `dashboard_layouts` | `user_id?`, `tiles` (jsonb) | A null `user_id` is the default layout. |
 | `kpi_definitions` | `code`, `method` (jsonb), `baseline`, `target`, `approved_by`, `effective_from` | Versioned; reports cite the version used. |
 | `management_summaries` | `period`, `draft`, `figures` (jsonb), `status`, `approved_by?` | `draft → approved`, or `discarded`. |
@@ -198,6 +201,8 @@ ai_active ──► resolved_by_ai
 | `ai_active` → `resolved_by_ai`              | Customer ends the chat or confirms the answer helped; or idle after a confident answer                  | No open Escalation                                      |
 | `ai_active` → `escalation_requested`        | Customer asks for a person; Confidence below threshold and customer accepts; an escalation rule matches | Escalation created in the same transaction              |
 | `escalation_requested` → `agent_active`     | An Agent claims the Escalation                                                                          | Only one Agent can claim; the assistant stops answering |
+| `agent_active` → `agent_active`              | An Agent transfers the Escalation to another available Agent                                             | Escalation row lock; transcript and message attribution stay intact |
+| `agent_active` → `escalation_requested`       | An Agent returns the chat to queue, or an agent-presence lease expires                                  | Escalation row lock; transfer note retained |
 | `escalation_requested` → `contact_captured` | Outside business hours, or no claim within the wait limit                                               | Customer agreed to leave a contact, or declined         |
 | `agent_active` → `resolved_by_agent`        | Agent closes the Conversation                                                                           |                                                         |
 | any open state → `abandoned`                | Idle timeout                                                                                            |                                                         |
@@ -220,7 +225,9 @@ Editing an approved article creates a new `draft` version; the approved version 
 
 ```
 queued ──► claimed ──► resolved
-   │
+   │          │
+   │          ├──► claimed    (transferred to another agent)
+   │          └──► queued     (returned or assigned agent timed out)
    ├──► pushed_external      (delivered through a Handoff Connector)
    └──► contact_captured     (offline; customer left a contact or declined)
 ```

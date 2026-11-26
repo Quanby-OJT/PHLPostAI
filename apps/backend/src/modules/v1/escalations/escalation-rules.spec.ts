@@ -5,6 +5,7 @@ import { isWithinBusinessHours, matchesEscalationRule } from "./escalation-rules
 describe("ESC-3 escalation rules", () => {
 	const settings: EscalationSettings = {
 		rules: { topics: [], keywords: [], categories: [], repeatedLowConfidenceCount: 2 },
+		routing: { mode: "manual", maxOpenChatsPerAgent: 3 },
 		businessHours: {
 			timezone: "Asia/Manila",
 			days: [

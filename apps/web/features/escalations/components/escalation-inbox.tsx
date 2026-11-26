@@ -5,12 +5,18 @@ import { useState } from "react"
 import { Button } from "@/core/components/ui/button"
 
 import {
+	useAgentPresenceHeartbeat,
+	useAgentPresenceQuery,
+	useAvailableAgentsQuery,
 	useClaimEscalationMutation,
 	useEscalationDetailQuery,
 	useEscalationLiveEvents,
 	useEscalationQueueQuery,
+	useMyOpenEscalationsQuery,
 	useReplyEscalationMutation,
 	useResolveEscalationMutation,
+	useSetAgentAvailabilityMutation,
+	useTransferEscalationMutation,
 } from "../api/escalations.hooks"
 
 function waitingLabel(seconds: number): string {
@@ -25,65 +31,129 @@ function pretty(value: string): string {
 
 export function EscalationInbox() {
 	const queue = useEscalationQueueQuery()
+	const mine = useMyOpenEscalationsQuery()
+	const presence = useAgentPresenceQuery()
+	const setAvailability = useSetAgentAvailabilityMutation()
 	const [selectedId, setSelectedId] = useState<string | null>(null)
-	const selected = selectedId ?? queue.data?.[0]?.id ?? null
+	const selected = selectedId ?? mine.data?.[0]?.id ?? queue.data?.[0]?.id ?? null
 	const detail = useEscalationDetailQuery(selected)
+	const availableAgents = useAvailableAgentsQuery(Boolean(detail.data?.canHandle))
 	const claim = useClaimEscalationMutation()
 	const reply = useReplyEscalationMutation(selected ?? "")
 	const resolve = useResolveEscalationMutation(selected ?? "")
+	const transfer = useTransferEscalationMutation(selected ?? "")
 	const [replyText, setReplyText] = useState("")
 	const [outcomeNote, setOutcomeNote] = useState("")
+	const [transferTarget, setTransferTarget] = useState("__queue")
+	const [transferNote, setTransferNote] = useState("")
+	useAgentPresenceHeartbeat(presence.data?.available ?? false)
 	useEscalationLiveEvents(
 		selected,
 		Boolean(detail.data?.canHandle && detail.data.status === "claimed")
 	)
 	const claimError = claim.variables === selected ? claim.error : null
-	const actionError = reply.error ?? resolve.error
+	const actionError = reply.error ?? resolve.error ?? transfer.error
 
 	return (
 		<section className="grid min-h-[34rem] gap-4 lg:grid-cols-[minmax(17rem,0.8fr)_minmax(0,1.5fr)]">
-			<div className="rounded-xl border">
-				<div className="flex items-center justify-between border-b p-4">
+			<div className="space-y-4">
+				<section className="space-y-3 rounded-xl border p-4">
 					<div>
-						<h2 className="font-semibold">Waiting for an agent</h2>
-						<p className="text-muted-foreground text-sm">Oldest requests appear first.</p>
+						<h2 className="font-semibold">Your availability</h2>
+						<p className="text-muted-foreground text-sm">
+							Maximum {presence.data?.maxOpenChats ?? "…"} simultaneous chats
+						</p>
 					</div>
-					<Button type="button" variant="outline" size="sm" onClick={() => void queue.refetch()}>
-						Refresh
+					{presence.error ? (
+						<p role="alert" className="text-destructive text-sm">
+							{presence.error.message}
+						</p>
+					) : null}
+					<Button
+						type="button"
+						variant={presence.data?.available ? "outline" : "default"}
+						disabled={presence.isPending || setAvailability.isPending}
+						onClick={() => setAvailability.mutate(!presence.data?.available)}
+					>
+						{setAvailability.isPending
+							? "Saving…"
+							: presence.data?.available
+								? "Set unavailable"
+								: "Set available"}
 					</Button>
-				</div>
-				{queue.isPending ? <p className="p-4 text-sm">Loading queue…</p> : null}
-				{queue.error ? (
-					<p role="alert" className="p-4 text-sm">
-						{queue.error.message}
-					</p>
-				) : null}
-				{queue.data?.length === 0 ? (
-					<p className="text-muted-foreground p-6 text-center text-sm">No queued chats.</p>
-				) : null}
-				<ul className="divide-y">
-					{queue.data?.map(item => (
-						<li key={item.id}>
-							<button
-								type="button"
-								aria-pressed={selected === item.id}
-								onClick={() => setSelectedId(item.id)}
-								className={`hover:bg-muted/50 w-full p-4 text-left ${selected === item.id ? "bg-muted" : ""}`}
-							>
-								<span className="flex items-center justify-between gap-3">
-									<strong className="truncate text-sm">{item.reason}</strong>
-									<span className="shrink-0 text-xs tabular-nums">
-										{waitingLabel(item.waitingSeconds)}
+				</section>
+				<div className="rounded-xl border">
+					<div className="flex items-center justify-between border-b p-4">
+						<div>
+							<h2 className="font-semibold">Waiting for an agent</h2>
+							<p className="text-muted-foreground text-sm">Oldest requests appear first.</p>
+						</div>
+						<Button type="button" variant="outline" size="sm" onClick={() => void queue.refetch()}>
+							Refresh
+						</Button>
+					</div>
+					{queue.isPending ? <p className="p-4 text-sm">Loading queue…</p> : null}
+					{queue.error ? (
+						<p role="alert" className="p-4 text-sm">
+							{queue.error.message}
+						</p>
+					) : null}
+					{queue.data?.length === 0 ? (
+						<p className="text-muted-foreground p-6 text-center text-sm">No queued chats.</p>
+					) : null}
+					<ul className="divide-y">
+						{queue.data?.map(item => (
+							<li key={item.id}>
+								<button
+									type="button"
+									aria-pressed={selected === item.id}
+									onClick={() => setSelectedId(item.id)}
+									className={`hover:bg-muted/50 w-full p-4 text-left ${selected === item.id ? "bg-muted" : ""}`}
+								>
+									<span className="flex items-center justify-between gap-3">
+										<strong className="truncate text-sm">{item.reason}</strong>
+										<span className="shrink-0 text-xs tabular-nums">
+											{waitingLabel(item.waitingSeconds)}
+										</span>
 									</span>
-								</span>
-								<span className="text-muted-foreground mt-1 block text-xs">
-									{pretty(item.category)} · {pretty(item.language)} ·{" "}
-									{new Date(item.createdAt).toLocaleTimeString()}
-								</span>
-							</button>
-						</li>
-					))}
-				</ul>
+									<span className="text-muted-foreground mt-1 block text-xs">
+										{pretty(item.category)} · {pretty(item.language)} ·{" "}
+										{new Date(item.createdAt).toLocaleTimeString()}
+									</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				</div>
+				<div className="rounded-xl border">
+					<div className="border-b p-4">
+						<h2 className="font-semibold">My open chats</h2>
+						<p className="text-muted-foreground text-sm">Chats assigned to you.</p>
+					</div>
+					{mine.isPending ? <p className="p-4 text-sm">Loading your chats…</p> : null}
+					{mine.data?.length === 0 ? (
+						<p className="text-muted-foreground p-6 text-center text-sm">
+							No chats assigned to you.
+						</p>
+					) : null}
+					<ul className="divide-y">
+						{mine.data?.map(item => (
+							<li key={item.id}>
+								<button
+									type="button"
+									aria-pressed={selected === item.id}
+									onClick={() => setSelectedId(item.id)}
+									className={`hover:bg-muted/50 w-full p-4 text-left ${selected === item.id ? "bg-muted" : ""}`}
+								>
+									<strong className="block truncate text-sm">{item.reason}</strong>
+									<span className="text-muted-foreground mt-1 block text-xs">
+										{pretty(item.category ?? "other")} · {pretty(item.language ?? "unknown")}
+									</span>
+								</button>
+							</li>
+						))}
+					</ul>
+				</div>
 			</div>
 
 			<div className="rounded-xl border">
@@ -131,7 +201,7 @@ export function EscalationInbox() {
 								<Button
 									type="button"
 									className="mt-3"
-									disabled={claim.isPending}
+									disabled={claim.isPending || !presence.data?.available}
 									onClick={() => {
 										setSelectedId(selected)
 										claim.mutate(selected)
@@ -141,6 +211,21 @@ export function EscalationInbox() {
 								</Button>
 							) : null}
 						</header>
+						{detail.data.transfers.length > 0 ? (
+							<section className="border-b p-4" aria-label="Transfer notes">
+								<h3 className="text-sm font-semibold">Transfer history</h3>
+								<ul className="mt-2 space-y-2 text-sm">
+									{detail.data.transfers.map(item => (
+										<li key={item.id} className="bg-muted/50 rounded-md p-2">
+											<p>{item.note}</p>
+											<time className="text-muted-foreground text-xs">
+												{new Date(item.createdAt).toLocaleString()}
+											</time>
+										</li>
+									))}
+								</ul>
+							</section>
+						) : null}
 						<div
 							className="max-h-[32rem] space-y-4 overflow-y-auto p-4"
 							aria-label="Conversation history"
@@ -163,12 +248,14 @@ export function EscalationInbox() {
 													: `${Math.round(message.confidence * 100)}%`}
 											</p>
 											<p>
-												Retrieval score: {message.retrievalScore === null
+												Retrieval score:{" "}
+												{message.retrievalScore === null
 													? "Not available"
 													: `${Math.round(message.retrievalScore * 100)}%`}
 											</p>
 											<p>
-												Groundedness: {message.groundednessResult?.grounded === true
+												Groundedness:{" "}
+												{message.groundednessResult?.grounded === true
 													? "Passed"
 													: message.groundednessResult?.grounded === false
 														? "Failed"
@@ -252,6 +339,57 @@ export function EscalationInbox() {
 										disabled={resolve.isPending || !outcomeNote.trim()}
 									>
 										{resolve.isPending ? "Closing…" : "Resolve conversation"}
+									</Button>
+								</form>
+								<form
+									className="space-y-2 border-t pt-3"
+									onSubmit={event => {
+										event.preventDefault()
+										const note = transferNote.trim()
+										if (!note) return
+										transfer.mutate(
+											{
+												toAgentId: transferTarget === "__queue" ? null : transferTarget,
+												note,
+											},
+											{ onSuccess: () => setTransferNote("") }
+										)
+									}}
+								>
+									<label className="block space-y-1 text-sm">
+										<span className="font-medium">Transfer chat</span>
+										<select
+											value={transferTarget}
+											onChange={event => setTransferTarget(event.target.value)}
+											className="bg-background h-10 w-full rounded-md border px-3"
+										>
+											<option value="__queue">Return to queue</option>
+											{availableAgents.data
+												?.filter(agent => agent.agentId !== detail.data.assignedAgentId)
+												.map(agent => (
+													<option key={agent.agentId} value={agent.agentId}>
+														{agent.name} ({agent.openChats}/{agent.maxOpenChats} chats)
+													</option>
+												))}
+										</select>
+									</label>
+									<label className="block space-y-1 text-sm">
+										<span>Note for the receiving agent</span>
+										<textarea
+											value={transferNote}
+											onChange={event => setTransferNote(event.target.value)}
+											maxLength={1000}
+											rows={2}
+											className="bg-background w-full rounded-md border p-2"
+											placeholder="Summarize what the next agent should know"
+										/>
+									</label>
+									<Button
+										type="submit"
+										variant="outline"
+										disabled={transfer.isPending || !transferNote.trim()}
+									>
+										{transfer.isPending ? "Transferring…" : "Transfer chat"}
 									</Button>
 								</form>
 							</div>

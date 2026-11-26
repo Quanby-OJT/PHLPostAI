@@ -100,9 +100,15 @@ export const EscalationBusinessHoursSchema = z.object({
 	waitLimitSeconds: z.number().int().min(30).max(3600),
 })
 
+export const EscalationRoutingSchema = z.object({
+	mode: z.enum(["least_busy", "manual"]),
+	maxOpenChatsPerAgent: z.number().int().min(1).max(30),
+})
+
 export const EscalationSettingsSchema = z.object({
 	rules: EscalationRulesSchema,
 	businessHours: EscalationBusinessHoursSchema,
+	routing: EscalationRoutingSchema,
 })
 
 export const UpdateEscalationSettingsRequestSchema = EscalationSettingsSchema
@@ -115,4 +121,5 @@ export type UpdateAssistantSettingsRequest = z.infer<typeof UpdateAssistantSetti
 export type EscalationSettings = z.infer<typeof EscalationSettingsSchema>
 export type EscalationBusinessHours = z.infer<typeof EscalationBusinessHoursSchema>
 export type EscalationRules = z.infer<typeof EscalationRulesSchema>
+export type EscalationRouting = z.infer<typeof EscalationRoutingSchema>
 export type UpdateEscalationSettingsRequest = z.infer<typeof UpdateEscalationSettingsRequestSchema>

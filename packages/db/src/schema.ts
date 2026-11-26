@@ -474,9 +474,10 @@ export const messages = createTable(
 		/**
 		 * Who produced the turn (DOMAIN-MODEL `messages.sender`, CNV-1). Set on
 		 * public customer turns; null on the template's staff rows, which carry
-		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`.
+		 * the same information in `role`. ESC-2 adds `agent` with `agent_id`; ESC-5
+		 * adds system-authored handoff notices to the preserved transcript.
 		 */
-		sender: t.text("sender").$type<"customer" | "assistant" | "agent">(),
+		sender: t.text("sender").$type<"customer" | "assistant" | "agent" | "system">(),
 		agentId: t.text("agent_id").references(() => users.id, { onDelete: "set null" }),
 		/**
 		 * What the assistant produced (DOMAIN-MODEL `messages.answer_kind`).
@@ -554,6 +555,39 @@ export const escalations = createTable(
 		index("escalations_status_created_at_idx").on(t.status, t.createdAt),
 		index("escalations_conversation_id_idx").on(t.conversationId),
 	]
+)
+
+/** ESC-5 agent availability and concurrency capacity. */
+export const agentPresence = createTable(
+	"agent_presence",
+	t => ({
+		agentId: t
+			.text("agent_id")
+			.primaryKey()
+			.references(() => users.id, { onDelete: "cascade" }),
+		available: t.boolean("available").notNull().default(false),
+		maxOpenChats: t.integer("max_open_chats").notNull().default(3),
+		lastSeenAt: t.timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+		updatedAt: t.timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [check("agent_presence_max_open_chats_check", sql`${t.maxOpenChats} between 1 and 30`)]
+)
+
+/** ESC-5 append-only handoff record. A null `to_agent_id` means returned to queue. */
+export const escalationTransfers = createTable(
+	"escalation_transfers",
+	t => ({
+		id: t.uuid("id").primaryKey().defaultRandom(),
+		escalationId: t
+			.uuid("escalation_id")
+			.notNull()
+			.references(() => escalations.id, { onDelete: "cascade" }),
+		fromAgentId: t.text("from_agent_id").references(() => users.id, { onDelete: "set null" }),
+		toAgentId: t.text("to_agent_id").references(() => users.id, { onDelete: "set null" }),
+		note: t.text("note").notNull(),
+		createdAt: t.timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+	}),
+	t => [index("escalation_transfers_escalation_id_created_at_idx").on(t.escalationId, t.createdAt)]
 )
 
 /**
@@ -1222,6 +1256,8 @@ export const schema = Object.assign(
 		conversations,
 		messages,
 		escalations,
+		agentPresence,
+		escalationTransfers,
 		interactionEvents,
 		dashboardLayouts,
 		goldenItems,

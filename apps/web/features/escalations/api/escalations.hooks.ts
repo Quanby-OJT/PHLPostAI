@@ -34,11 +34,36 @@ export interface EscalationMessage {
 
 export interface EscalationDetail extends EscalationQueueItem {
 	conversationCreatedAt: string
-	status: "queued" | "claimed" | "resolved"
+	status: "queued" | "claimed" | "resolved" | "contact_captured" | "pushed_external"
 	assignedAgentId: string | null
 	outcomeNote: string | null
 	canHandle: boolean
 	messages: EscalationMessage[]
+	transfers: Array<{
+		id: string
+		fromAgentId: string | null
+		toAgentId: string | null
+		note: string
+		createdAt: string
+	}>
+}
+
+export interface AgentPresence {
+	agentId: string
+	available: boolean
+	maxOpenChats: number
+	lastSeenAt: string
+}
+
+export interface AvailableAgent {
+	agentId: string
+	name: string
+	maxOpenChats: number
+	openChats: number
+}
+
+export interface AgentCapacity extends AvailableAgent {
+	available: boolean
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -76,6 +101,114 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
 	return (await response.json()) as T
 }
 
+async function putJson<T>(path: string, body: unknown): Promise<T> {
+	const response = await fetch(`${API_BASE}${path}`, {
+		method: "PUT",
+		credentials: "include",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+	})
+	if (!response.ok) {
+		let message = `Request failed (${response.status})`
+		try {
+			const body = (await response.json()) as { message?: string }
+			message = body.message ?? message
+		} catch {
+			// Keep the status-based error when the response is not JSON.
+		}
+		throw new ApiError(response.status, message)
+	}
+	return (await response.json()) as T
+}
+
+export function useAgentPresenceQuery() {
+	return useQuery({
+		queryKey: ["escalations", "presence"],
+		queryFn: () => fetchJson<AgentPresence>("/escalations/presence"),
+		retry: (count, error) => !(error instanceof ApiError && error.status === 403) && count < 2,
+	})
+}
+
+export function useSetAgentAvailabilityMutation() {
+	const client = useQueryClient()
+	return useMutation({
+		mutationFn: (available: boolean) =>
+			putJson<AgentPresence>("/escalations/presence", { available }),
+		onSuccess: async () =>
+			Promise.all([
+				client.invalidateQueries({ queryKey: ["escalations", "presence"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "available-agents"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "agent-capacities"] }),
+			]),
+	})
+}
+
+export function useAgentPresenceHeartbeat(available: boolean) {
+	useEffect(() => {
+		if (!available) return
+		const send = () => {
+			void fetch(`${API_BASE}/escalations/presence/heartbeat`, {
+				method: "POST",
+				credentials: "include",
+			})
+		}
+		send()
+		const interval = window.setInterval(send, 15_000)
+		return () => window.clearInterval(interval)
+	}, [available])
+}
+
+export function useMyOpenEscalationsQuery() {
+	return useQuery({
+		queryKey: ["escalations", "mine"],
+		queryFn: () => fetchJson<EscalationQueueItem[]>("/escalations/mine"),
+		refetchInterval: 10_000,
+	})
+}
+
+export function useAvailableAgentsQuery(enabled: boolean) {
+	return useQuery({
+		queryKey: ["escalations", "available-agents"],
+		queryFn: () => fetchJson<AvailableAgent[]>("/escalations/available-agents"),
+		enabled,
+		refetchInterval: enabled ? 10_000 : false,
+	})
+}
+
+export function useTransferEscalationMutation(id: string) {
+	const client = useQueryClient()
+	return useMutation({
+		mutationFn: (input: { toAgentId: string | null; note: string }) =>
+			postJson(`/escalations/${id}/transfer`, input),
+		onSuccess: async () =>
+			Promise.all([
+				client.invalidateQueries({ queryKey: ["escalations", "queue"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "mine"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "available-agents"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "detail", id] }),
+			]),
+	})
+}
+
+export function useAgentCapacitiesQuery() {
+	return useQuery({
+		queryKey: ["escalations", "agent-capacities"],
+		queryFn: () => fetchJson<AgentCapacity[]>("/escalations/agent-capacities"),
+	})
+}
+
+export function useSetAgentChatLimitMutation() {
+	const client = useQueryClient()
+	return useMutation({
+		mutationFn: (input: { agentId: string; maxOpenChats: number }) =>
+			putJson(`/escalations/agents/${encodeURIComponent(input.agentId)}/capacity`, {
+				maxOpenChats: input.maxOpenChats,
+			}),
+		onSuccess: async () =>
+			client.invalidateQueries({ queryKey: ["escalations", "agent-capacities"] }),
+	})
+}
+
 export function useEscalationQueueQuery() {
 	return useQuery({
 		queryKey: ["escalations", "queue"],
@@ -103,6 +236,9 @@ export function useClaimEscalationMutation() {
 			if (error && !(error instanceof ApiError && error.status === 409)) return
 			await Promise.all([
 				client.invalidateQueries({ queryKey: ["escalations", "queue"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "mine"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "available-agents"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "agent-capacities"] }),
 				client.invalidateQueries({ queryKey: ["escalations", "detail", id] }),
 			])
 		},
@@ -124,6 +260,8 @@ export function useResolveEscalationMutation(id: string) {
 		onSuccess: async () => {
 			await Promise.all([
 				client.invalidateQueries({ queryKey: ["escalations", "queue"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "mine"] }),
+				client.invalidateQueries({ queryKey: ["escalations", "agent-capacities"] }),
 				client.invalidateQueries({ queryKey: ["escalations", "detail", id] }),
 			])
 		},

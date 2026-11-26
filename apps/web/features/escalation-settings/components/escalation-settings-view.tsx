@@ -5,6 +5,11 @@ import { useState } from "react"
 import type { EscalationSettings } from "@repo/contracts"
 
 import {
+	useAgentCapacitiesQuery,
+	useSetAgentChatLimitMutation,
+	type AgentCapacity,
+} from "../../escalations/api/escalations.hooks"
+import {
 	useEscalationSettingsQuery,
 	useUpdateEscalationSettingsMutation,
 } from "../api/escalation-settings.hooks"
@@ -32,6 +37,8 @@ const DAY_LABELS = {
 export function EscalationSettingsView() {
 	const { data, isLoading, error } = useEscalationSettingsQuery()
 	const update = useUpdateEscalationSettingsMutation()
+	const agents = useAgentCapacitiesQuery()
+	const setAgentLimit = useSetAgentChatLimitMutation()
 	return (
 		<div className="max-w-4xl space-y-6 p-6">
 			<header>
@@ -64,7 +71,81 @@ export function EscalationSettingsView() {
 					onSave={values => update.mutate(values)}
 				/>
 			)}
+			<section className="space-y-4 rounded-md border p-5">
+				<div>
+					<h2 className="font-medium">Per-agent chat limits</h2>
+					<p className="text-muted-foreground mt-1 text-sm">
+						Set individual concurrency limits for agents who have opened the inbox.
+					</p>
+				</div>
+				{agents.error ? (
+					<p role="alert" className="text-destructive text-sm">
+						{agents.error.message}
+					</p>
+				) : null}
+				{agents.isPending ? <p className="text-sm">Loading agent capacities…</p> : null}
+				{agents.data?.length === 0 ? (
+					<p className="text-muted-foreground text-sm">No agent presence records yet.</p>
+				) : null}
+				<ul className="divide-y">
+					{agents.data?.map(agent => (
+						<AgentCapacityRow
+							key={`${agent.agentId}-${agent.maxOpenChats}`}
+							agent={agent}
+							saving={setAgentLimit.isPending && setAgentLimit.variables?.agentId === agent.agentId}
+							onSave={maxOpenChats =>
+								setAgentLimit.mutate({ agentId: agent.agentId, maxOpenChats })
+							}
+						/>
+					))}
+				</ul>
+			</section>
 		</div>
+	)
+}
+
+function AgentCapacityRow({
+	agent,
+	saving,
+	onSave,
+}: {
+	agent: AgentCapacity
+	saving: boolean
+	onSave: (maxOpenChats: number) => void
+}) {
+	const [limit, setLimit] = useState(String(agent.maxOpenChats))
+	return (
+		<li className="flex flex-wrap items-center justify-between gap-3 py-3">
+			<div>
+				<p className="text-sm font-medium">{agent.name}</p>
+				<p className="text-muted-foreground text-xs">
+					{agent.available ? "Available" : "Unavailable"} · {agent.openChats} open chats
+				</p>
+			</div>
+			<form
+				className="flex items-center gap-2"
+				onSubmit={event => {
+					event.preventDefault()
+					const parsed = Number(limit)
+					if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 30) onSave(parsed)
+				}}
+			>
+				<label className="text-sm">
+					<span className="sr-only">Maximum open chats for {agent.name}</span>
+					<input
+						type="number"
+						min="1"
+						max="30"
+						value={limit}
+						onChange={event => setLimit(event.target.value)}
+						className="bg-background h-9 w-20 rounded-md border px-2"
+					/>
+				</label>
+				<button type="submit" disabled={saving} className="rounded-md border px-3 py-2 text-sm">
+					{saving ? "Saving…" : "Save"}
+				</button>
+			</form>
+		</li>
 	)
 }
 
@@ -81,6 +162,10 @@ function SettingsForm({
 	const [keywords, setKeywords] = useState(initial.rules.keywords.join("\n"))
 	const [categories, setCategories] = useState<string[]>(initial.rules.categories)
 	const [repeatCount, setRepeatCount] = useState(String(initial.rules.repeatedLowConfidenceCount))
+	const [routingMode, setRoutingMode] = useState(initial.routing.mode)
+	const [maxOpenChatsPerAgent, setMaxOpenChatsPerAgent] = useState(
+		String(initial.routing.maxOpenChatsPerAgent)
+	)
 	const [days, setDays] = useState(initial.businessHours.days)
 	const [holidays, setHolidays] = useState(initial.businessHours.holidays.join("\n"))
 	const [waitLimit, setWaitLimit] = useState(String(initial.businessHours.waitLimitSeconds))
@@ -99,6 +184,10 @@ function SettingsForm({
 				days,
 				holidays: splitLines(holidays),
 				waitLimitSeconds: Number(waitLimit),
+			},
+			routing: {
+				mode: routingMode,
+				maxOpenChatsPerAgent: Number(maxOpenChatsPerAgent),
 			},
 		})
 	}
@@ -245,6 +334,38 @@ function SettingsForm({
 						max="3600"
 						value={waitLimit}
 						onChange={event => setWaitLimit(event.target.value)}
+						className="bg-background h-10 w-32 rounded-md border px-3"
+					/>
+				</label>
+			</section>
+
+			<section className="space-y-4 rounded-md border p-5">
+				<div>
+					<h2 className="font-medium">Agent routing</h2>
+					<p className="text-muted-foreground mt-1 text-sm">
+						Choose whether new escalations are assigned to the least busy available agent or remain
+						in the queue for an agent to claim.
+					</p>
+				</div>
+				<label className="block max-w-sm space-y-1 text-sm">
+					<span className="font-medium">Routing mode</span>
+					<select
+						value={routingMode}
+						onChange={event => setRoutingMode(event.target.value as typeof routingMode)}
+						className="bg-background h-10 w-full rounded-md border px-3"
+					>
+						<option value="least_busy">Least busy available agent</option>
+						<option value="manual">Manual claim from queue</option>
+					</select>
+				</label>
+				<label className="block max-w-sm space-y-1 text-sm">
+					<span className="font-medium">Maximum open chats per agent</span>
+					<input
+						type="number"
+						min="1"
+						max="30"
+						value={maxOpenChatsPerAgent}
+						onChange={event => setMaxOpenChatsPerAgent(event.target.value)}
 						className="bg-background h-10 w-32 rounded-md border px-3"
 					/>
 				</label>

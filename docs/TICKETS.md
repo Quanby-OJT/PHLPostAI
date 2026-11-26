@@ -2,7 +2,7 @@
 
 Development-ready vertical slices for the PHLPost AI-Backed Customer Support Solution. Built from the PHLPost Technical Specifications (source pages 90–127, "TS") as amended by Bid Bulletin Addendum No. 2026-17 of 2026-11-06, `PRD.md`, and `DOMAIN-MODEL.md`. Section references (§) are to the TS.
 
-- 44 tickets in 10 epics. Software development only: managed cloud hosting, backups and recovery, uptime, penetration testing, the service desk, training, and documentation are DevOps, QA, and service work outside this set (see `PRD.md`, Scope). Each ticket is one thin slice through database, API, and UI, sized for one to two days, one branch, and one small pull request.
+- 45 tickets in 10 epics. Software development only: managed cloud hosting, backups and recovery, uptime, penetration testing, the service desk, training, and documentation are DevOps, QA, and service work outside this set (see `PRD.md`, Scope). Each ticket is one thin slice through database, API, and UI, sized for one to two days, one branch, and one small pull request.
 - Stack: Quanby `RAG_AI` template — Next.js 16, NestJS, Python FastAPI RAG service, Drizzle and PostgreSQL with pgvector, Redis, Better Auth, Zod contracts.
 - The template already provides document ingestion, hybrid retrieval, grounded and cited streaming answers, model routing and failover across providers, input screening, the evaluation gate, reports, RBAC, and audit. Tickets reuse these and say so in their technical notes; none rebuilds them.
 - Staff actors are permission keys, not job titles. The key in a user story is the key the acceptance criteria and technical notes enforce. Keys are defined in `DOMAIN-MODEL.md` §2. Customers are anonymous and hold no permission, so their stories use the persona "customer".
@@ -25,7 +25,7 @@ Backbone left to right in the order a customer inquiry travels. Release 1 is the
 |---|---|---|---|---|---|---|---|---|---|
 | **Release 1 — walking skeleton** | FND-1, FND-2 | KB-1 | CHN-1 | CNV-1 | TRK-1 | — | ESC-1 | ANL-1 | — |
 | **Release 2 — every approved use case** | ADM-1, ADM-2 | KB-2 | CHN-2 | CNV-2, CNV-3, CNV-4, CNV-5, CNV-6 | TRK-2 | SCM-1, SCM-2, SCM-3 | ESC-2, ESC-3 | ANL-2, ANL-3 | ADM-3, EVL-1 |
-| **Release 3 — depth and acceptance** | — | KB-3 | CHN-3 | — | TRK-3, TRK-4 | SCM-4, SCM-5 | ESC-4 | ANL-4, ANL-5, ANL-6, ANL-7, ANL-8 | ADM-4, ADM-5, ADM-6, ADM-7, EVL-2 |
+| **Release 3 — depth and acceptance** | — | KB-3 | CHN-3 | — | TRK-3, TRK-4 | SCM-4, SCM-5 | ESC-4, ESC-5 | ANL-4, ANL-5, ANL-6, ANL-7, ANL-8 | ADM-4, ADM-5, ADM-6, ADM-7, EVL-2 |
 
 ## 1. Epic map
 
@@ -37,7 +37,7 @@ Backbone left to right in the order a customer inquiry travels. Release 1 is the
 | KB | `knowledge` | TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information | Article approval workflow, rate table, knowledge gaps | 3 |
 | TRK | `tracking` | TS §3.1 Track and Trace Assistance; §3.3; §3.4 | Tracking connector interface, status explanations, real adapter | 4 |
 | SCM | `scam-protection` | TS §3.1 AI-Assisted Scam Detection and Customer Protection | Advisory assessment, indicators, report review, known patterns | 5 |
-| ESC | `escalation` | TS §3.1 Human Agent Escalation and Handoff; §4.8 | Agent inbox, live takeover, rules, external helpdesk connector | 4 |
+| ESC | `escalation` | TS §3.1 Human Agent Escalation and Handoff; §4.8 | Agent inbox, live takeover, rules, external helpdesk connector, capacity routing | 5 |
 | ANL | `analytics` | TS §3.1 analytics; §3.2; §5.10; §6.14 | Events, dashboard, deflection KPI, trends, summaries, reports, AI monitoring | 8 |
 | ADM | `admin` | TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20 | Staff, MFA, transcripts, audit, retention, export, privacy requests | 7 |
 | EVL | `evaluation` | TS §3.1 language testing; §6.4 AI testing | Approved test sets per language and use case; safety suite | 2 |
@@ -88,16 +88,17 @@ Work top to bottom. A ticket may start once its dependencies are merged, so tick
 32. **SCM-4** — Match new submissions against known scam patterns
 33. **SCM-5** — Assess a screenshot of a suspicious message
 34. **ESC-4** — Push escalations to an external helpdesk
-35. **ANL-4** — Show sentiment and the concerns customers raise most
-36. **ANL-5** — Show scam-reporting trends
-37. **ANL-6** — Draft a plain-language management summary for approval
-38. **ANL-7** — Generate and export customer-service reports
-39. **ANL-8** — Monitor the health and quality of the AI service
-40. **ADM-4** — Search and export the audit log
-41. **ADM-5** — Apply retention periods and anonymize old conversations
-42. **ADM-6** — Export PHLPost's data and configuration in open formats
-43. **ADM-7** — Handle a customer's request to see or delete their data
-44. **EVL-2** — Test the assistant against unsafe, false, and hostile inputs
+35. **ESC-5** — Route escalations and transfer chats across at least 30 live agents
+36. **ANL-4** — Show sentiment and the concerns customers raise most
+37. **ANL-5** — Show scam-reporting trends
+38. **ANL-6** — Draft a plain-language management summary for approval
+39. **ANL-7** — Generate and export customer-service reports
+40. **ANL-8** — Monitor the health and quality of the AI service
+41. **ADM-4** — Search and export the audit log
+42. **ADM-5** — Apply retention periods and anonymize old conversations
+43. **ADM-6** — Export PHLPost's data and configuration in open formats
+44. **ADM-7** — Handle a customer's request to see or delete their data
+45. **EVL-2** — Test the assistant against unsafe, false, and hostile inputs
 
 ## 3. Risky-path flows
 
@@ -152,7 +153,7 @@ Tickets: TRK-1, TRK-2, TRK-3, TRK-4.
 
 Failure branch: two agents claim at once → the row lock gives it to one; the other sees "already claimed". Connector delivery fails → retried with backoff, then marked failed and shown in the inbox so nobody assumes it arrived.
 Why risky: a customer left waiting with no person and no assistant is the worst outcome; the state machine must never strand a chat.
-Tickets: ESC-1, ESC-2, ESC-3, ESC-4.
+Tickets: ESC-1, ESC-2, ESC-3, ESC-4, ESC-5.
 
 ### Flow D — Scam assessment
 
@@ -1069,6 +1070,7 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 - Claiming and replying (ESC-2)
 - Rules, business hours, and offline handling (ESC-3)
 - Pushing to an external helpdesk (ESC-4)
+- Least-busy assignment, agent presence, capacity limits and safe transfer between agents (ESC-5)
 
 **Technical notes:** Flow C — Human handoff, steps 1 and 2. State machines `DOMAIN-MODEL.md` §5.1 and §5.3. `EscalationService` is the only writer of `escalations.status`. Enforces `escalations.queue.view`.
 
@@ -1177,6 +1179,42 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 **Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
 
 **Dependencies:** ESC-3, TRK-3
+
+---
+
+**Title:** [ESC-5] Route escalations and transfer chats across at least 30 live agents
+**Epic:** `escalation`
+**Also touches:**
+`conversation` `admin`
+
+**Problem / context:** Bid Bulletin Addendum 2026-17 (TS §3.1 Agent Capacity Requirement): the escalation interface, routing engine, and agent workspace must support at least thirty (30) concurrent live support agents, and keep full interaction context and transcript history on transfer to any of them without the customer repeating information.
+
+**User story:** As a user with `escalations.conversations.handle` permission, I want escalated chats routed to an available agent and to be able to transfer a chat to a colleague with its whole history so that thirty of us can work at once without customers repeating themselves.
+
+**Acceptance criteria:**
+
+- *Given* agents who set themselves available, each with a maximum number of simultaneous chats, *when* an Escalation is queued, *then* the routing engine assigns it to the available agent with the fewest open chats, or leaves it in the queue for manual claim when nobody has room.
+- *Given* an agent in a live chat, *when* they transfer it to another available agent or back to the queue with a note, *then* the receiving agent sees the full transcript, sources, earlier agents' messages, and the note, the customer is told a colleague is taking over, and the transfer is audited.
+- *Given* an agent who goes away or signs out with open chats, *when* their chats are left unattended past the wait limit, *then* those chats return to the queue with their history and are routed again.
+- *Given* a load test with thirty agents signed in, each handling live chats at the same time, *when* it runs against staging, *then* every message is delivered within two seconds, none is lost or duplicated, and no chat has two assigned agents.
+- *Given* a user without `escalations.conversations.handle`, *when* they try to set availability, accept, or transfer a chat, *then* the API returns 403 and the denial is audited.
+- *Given* a user with `settings.escalation.manage`, *when* they change the routing mode or the per-agent chat limit, *then* the next Escalation uses it and the change is audited.
+
+**In scope:**
+
+- Agent availability and per-agent chat limit; `agent_presence` and `escalation_transfers` tables; routing engine (least-busy, with manual-claim fallback)
+- Transfer to agent or to queue with note; workspace showing an agent's several open chats; thirty-agent load test script kept in the repository
+
+**Out of scope:**
+
+- Skill-based or language-based routing rules beyond a simple language match
+- Agent performance scorecards
+
+**Technical notes:** Flow C — Human handoff, steps 3 and 4, extended: assignment and transfer run under the same row lock as claim so a chat never has two assigned agents. State machine `DOMAIN-MODEL.md` §5.3 (claimed → claimed on transfer, claimed → queued on return). Live delivery reuses the ESC-2 server-sent events and Redis pub/sub; the load test is the acceptance proof of the thirty-agent capacity (PRD assumption A10). Enforces `escalations.conversations.handle`; routing settings enforce `settings.escalation.manage`. Schema names are listed in `DOMAIN-MODEL.md`.
+
+**Definition of done:** Code + tests merged · acceptance criteria pass · audit/permission checks verified · PR reviewed · docs updated.
+
+**Dependencies:** ESC-2, ESC-3
 
 ---
 

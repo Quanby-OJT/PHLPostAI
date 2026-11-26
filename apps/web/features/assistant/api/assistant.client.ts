@@ -89,7 +89,7 @@ export async function requestHumanHandoff(input: {
 	conversationId: string
 	reason: string
 	sessionToken: string
-}): Promise<{ id: string; status: "queued" | "contact_captured"; createdAt: string }> {
+}): Promise<{ id: string; status: "queued" | "claimed" | "contact_captured"; createdAt: string }> {
 	const response = await fetch(`${API_BASE}/customer/escalations`, {
 		method: "POST",
 		headers: {
@@ -101,7 +101,7 @@ export async function requestHumanHandoff(input: {
 	if (!response.ok) throw await parseError(response)
 	return (await response.json()) as {
 		id: string
-		status: "queued" | "contact_captured"
+		status: "queued" | "claimed" | "contact_captured"
 		createdAt: string
 	}
 }
@@ -145,13 +145,13 @@ export interface AssistantStreamHandlers {
 	onAgentMode?: (result: {
 		conversationId: string
 		messageId: string
-		status?: "queued" | "contact_captured"
+		status?: "queued" | "claimed" | "contact_captured"
 	}) => void
 }
 
 export interface AgentMessageEvent {
 	id: string
-	sender: "agent"
+	sender: "agent" | "system"
 	content: string
 	turnIndex: number
 	createdAt: string
@@ -259,7 +259,7 @@ export async function streamQuestion(
 						agentMode: true
 						conversationId: string
 						messageId: string
-						status?: "queued" | "contact_captured"
+						status?: "queued" | "claimed" | "contact_captured"
 				  }
 			if ("agentMode" in payload && payload.agentMode) handlers.onAgentMode?.(payload)
 			else handlers.onFinal(payload as CustomerAnswer)

@@ -18,14 +18,24 @@ jest.mock("@repo/db/schema", () => ({
 		id: "escalations.id",
 		conversationId: "escalations.conversationId",
 		createdAt: "escalations.createdAt",
+		status: "escalations.status",
+		assignedAgentId: "escalations.assignedAgentId",
 	},
 	messages: {},
+	agentPresence: { agentId: "agentPresence.agentId" },
+	escalationTransfers: {},
+	users: { id: "users.id", name: "users.name" },
 }))
 
 jest.mock("drizzle-orm", () => ({
 	and: (...parts: unknown[]) => ({ and: parts }),
 	asc: (column: unknown) => ({ asc: column }),
+	desc: (column: unknown) => ({ desc: column }),
 	eq: (column: unknown, value: unknown) => ({ eq: [column, value] }),
+	gt: (column: unknown, value: unknown) => ({ gt: [column, value] }),
+	lt: (column: unknown, value: unknown) => ({ lt: [column, value] }),
+	isNull: (column: unknown) => ({ isNull: column }),
+	or: (...parts: unknown[]) => ({ or: parts }),
 	sql: Object.assign(() => "sql-fragment", { join: () => "sql-list" }),
 }))
 
@@ -50,6 +60,8 @@ describe("EscalationService", () => {
 		postAgentMessage: jest.Mock
 		resolveByAgent: jest.Mock
 		markContactCaptured: jest.Mock
+		returnToEscalationQueue: jest.Mock
+		postTransferNotice: jest.Mock
 	}
 	let auditService: { writeAudit: jest.Mock }
 	let liveService: { publish: jest.Mock }
@@ -64,10 +76,17 @@ describe("EscalationService", () => {
 			postAgentMessage: jest.fn().mockResolvedValue({ id: "message-1", turnIndex: 2 }),
 			resolveByAgent: jest.fn().mockResolvedValue(undefined),
 			markContactCaptured: jest.fn().mockResolvedValue(undefined),
+			returnToEscalationQueue: jest.fn().mockResolvedValue(undefined),
+			postTransferNotice: jest.fn().mockResolvedValue(undefined),
 		}
 		auditService = { writeAudit: jest.fn().mockResolvedValue(undefined) }
 		liveService = { publish: jest.fn().mockResolvedValue(undefined) }
-		settingsService = { getEscalationSettings: jest.fn().mockResolvedValue({}) }
+		settingsService = {
+			getEscalationSettings: jest.fn().mockResolvedValue({
+				routing: { mode: "manual", maxOpenChatsPerAgent: 3 },
+				businessHours: { waitLimitSeconds: 180 },
+			}),
+		}
 		service = new EscalationService(
 			conversationService as never,
 			auditService as never,
@@ -97,6 +116,16 @@ describe("EscalationService", () => {
 			})
 			.mockReturnValueOnce({
 				from: () => ({ where: () => ({ for: async () => [{ status: "escalation_requested" }] }) }),
+			})
+			.mockReturnValueOnce({
+				from: () => ({
+					where: () => ({
+						for: async () => [{ available: true, maxOpenChats: 3, lastSeenAt: new Date() }],
+					}),
+				}),
+			})
+			.mockReturnValueOnce({
+				from: () => ({ where: async () => [{ openChats: 0 }] }),
 			})
 
 		const result = await service.claim("escalation-1", "agent-1")
@@ -185,6 +214,51 @@ describe("EscalationService", () => {
 			outcomeNote: "Customer received the tracking details",
 		})
 		expect(conversationService.resolveByAgent).toHaveBeenCalledWith(mockTx, "conversation-1")
+		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
+	})
+
+	it("returns a transferred chat to the queue with a note, transcript notice, and audit", async () => {
+		mockSelect.mockReturnValueOnce({
+			from: () => ({
+				where: () => ({
+					for: async () => [
+						{
+							id: "escalation-1",
+							conversationId: "conversation-1",
+							status: "claimed",
+							assignedAgentId: "agent-1",
+						},
+					],
+				}),
+			}),
+		})
+
+		const result = await service.transfer(
+			"escalation-1",
+			"agent-1",
+			null,
+			"Customer needs a customs specialist"
+		)
+
+		expect(result).toMatchObject({ status: "queued", assignedAgentId: null })
+		expect(conversationService.returnToEscalationQueue).toHaveBeenCalledWith(
+			mockTx,
+			"conversation-1"
+		)
+		expect(conversationService.postTransferNotice).toHaveBeenCalledWith(
+			mockTx,
+			"conversation-1",
+			expect.stringContaining("returned to the agent queue")
+		)
+		expect(mockInsert).toHaveBeenCalledWith(expect.anything())
+		expect(auditService.writeAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: "escalations.transferred",
+				before: { status: "claimed", assignedAgentId: "agent-1" },
+				after: expect.objectContaining({ status: "queued", assignedAgentId: null }),
+			}),
+			mockTx
+		)
 		expect(liveService.publish).toHaveBeenCalledWith("conversation-1")
 	})
 

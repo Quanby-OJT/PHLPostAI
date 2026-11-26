@@ -70,6 +70,43 @@ export class ConversationService {
 			.where(eq(conversations.id, conversationId))
 	}
 
+	/** Return an attended chat to the queue without changing its transcript. */
+	async returnToEscalationQueue(tx: DbTransaction, conversationId: string): Promise<void> {
+		await tx
+			.update(conversations)
+			.set({ status: "escalation_requested" })
+			.where(eq(conversations.id, conversationId))
+	}
+
+	/** Append a customer-visible handoff notice to the same immutable transcript. */
+	async postTransferNotice(
+		tx: DbTransaction,
+		conversationId: string,
+		content: string
+	): Promise<void> {
+		const [conversation] = await tx
+			.select({ id: conversations.id })
+			.from(conversations)
+			.where(eq(conversations.id, conversationId))
+			.for("update")
+		if (!conversation) throw new NotFoundException("Conversation not found")
+		const [indexRow] = await tx
+			.select({ nextTurn: sql<number>`coalesce(max(${messages.turnIndex}), -1) + 1` })
+			.from(messages)
+			.where(eq(messages.conversationId, conversationId))
+		const [message] = await tx
+			.insert(messages)
+			.values({
+				conversationId,
+				role: "assistant",
+				sender: "system",
+				content,
+				turnIndex: indexRow?.nextTurn ?? 0,
+			})
+			.returning({ id: messages.id })
+		if (!message) throw new Error("Failed to record transfer notice")
+	}
+
 	/** Close a live agent conversation while preserving ConversationService ownership. */
 	async resolveByAgent(tx: DbTransaction, conversationId: string): Promise<void> {
 		await tx
