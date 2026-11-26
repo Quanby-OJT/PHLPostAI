@@ -21,26 +21,26 @@ node scripts/tickets-to-linear.mjs --dry-run
 
 Backbone left to right in the order a customer inquiry travels. Release 1 is the thinnest product that works end to end.
 
-| Backbone →                              | Set up and secure | Curate knowledge | Reach the assistant | Understand and answer             | Look up tracking | Protect from scams  | Hand over to a person | Measure and report                | Govern and hand back              |
-| --------------------------------------- | ----------------- | ---------------- | ------------------- | --------------------------------- | ---------------- | ------------------- | --------------------- | --------------------------------- | --------------------------------- |
-| **Release 1 — walking skeleton**        | FND-1, FND-2      | KB-1             | CHN-1               | CNV-1                             | TRK-1            | —                   | ESC-1                 | ANL-1                             | —                                 |
-| **Release 2 — every approved use case** | ADM-1, ADM-2      | KB-2             | CHN-2               | CNV-2, CNV-3, CNV-4, CNV-5, CNV-6 | TRK-2            | SCM-1, SCM-2, SCM-3 | ESC-2, ESC-3          | ANL-2, ANL-3                      | ADM-3, EVL-1                      |
-| **Release 3 — depth and acceptance**    | —                 | KB-3             | CHN-3               | —                                 | TRK-3, TRK-4     | SCM-4, SCM-5        | ESC-4                 | ANL-4, ANL-5, ANL-6, ANL-7, ANL-8 | ADM-4, ADM-5, ADM-6, ADM-7, EVL-2 |
+| Backbone → | Set up and secure | Curate knowledge | Reach the assistant | Understand and answer | Look up tracking | Protect from scams | Hand over to a person | Measure and report | Govern and hand back |
+|---|---|---|---|---|---|---|---|---|---|
+| **Release 1 — walking skeleton** | FND-1, FND-2 | KB-1 | CHN-1 | CNV-1 | TRK-1 | — | ESC-1 | ANL-1 | — |
+| **Release 2 — every approved use case** | ADM-1, ADM-2 | KB-2 | CHN-2 | CNV-2, CNV-3, CNV-4, CNV-5, CNV-6 | TRK-2 | SCM-1, SCM-2, SCM-3 | ESC-2, ESC-3 | ANL-2, ANL-3 | ADM-3, EVL-1 |
+| **Release 3 — depth and acceptance** | — | KB-3 | CHN-3 | — | TRK-3, TRK-4 | SCM-4, SCM-5 | ESC-4 | ANL-4, ANL-5, ANL-6, ANL-7, ANL-8 | ADM-4, ADM-5, ADM-6, ADM-7, EVL-2 |
 
 ## 1. Epic map
 
-| Epic key | Label             | TOR / PRD source                                                     | Note                                                                         | Tickets |
-| -------- | ----------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ------- |
-| FND      | `foundation`      | PRD constraints; TS §3.5, §4.10                                      | Repository from the RAG_AI template, PHLPost permission catalog and roles    | 2       |
-| CHN      | `channels`        | TS §3.1 Omnichannel AI Virtual Assistant; §4.8                       | Website chat widget, channel interface, customer feedback                    | 3       |
-| CNV      | `conversation`    | TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9                  | Grounded answers, categories, confidence, languages, output guardrails       | 6       |
-| KB       | `knowledge`       | TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information | Article approval workflow, rate table, knowledge gaps                        | 3       |
-| TRK      | `tracking`        | TS §3.1 Track and Trace Assistance; §3.3; §3.4                       | Tracking connector interface, status explanations, real adapter              | 4       |
-| SCM      | `scam-protection` | TS §3.1 AI-Assisted Scam Detection and Customer Protection           | Advisory assessment, indicators, report review, known patterns               | 5       |
-| ESC      | `escalation`      | TS §3.1 Human Agent Escalation and Handoff; §4.8                     | Agent inbox, live takeover, rules, external helpdesk connector               | 4       |
-| ANL      | `analytics`       | TS §3.1 analytics; §3.2; §5.10; §6.14                                | Events, dashboard, deflection KPI, trends, summaries, reports, AI monitoring | 8       |
-| ADM      | `admin`           | TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20  | Staff, MFA, transcripts, audit, retention, export, privacy requests          | 7       |
-| EVL      | `evaluation`      | TS §3.1 language testing; §6.4 AI testing                            | Approved test sets per language and use case; safety suite                   | 2       |
+| Epic key | Label | TOR / PRD source | Note | Tickets |
+|---|---|---|---|---|
+| FND | `foundation` | PRD constraints; TS §3.5, §4.10 | Repository from the RAG_AI template, PHLPost permission catalog and roles | 2 |
+| CHN | `channels` | TS §3.1 Omnichannel AI Virtual Assistant; §4.8 | Website chat widget, channel interface, customer feedback | 3 |
+| CNV | `conversation` | TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9 | Grounded answers, categories, confidence, languages, output guardrails | 6 |
+| KB | `knowledge` | TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information | Article approval workflow, rate table, knowledge gaps | 3 |
+| TRK | `tracking` | TS §3.1 Track and Trace Assistance; §3.3; §3.4 | Tracking connector interface, status explanations, real adapter | 4 |
+| SCM | `scam-protection` | TS §3.1 AI-Assisted Scam Detection and Customer Protection | Advisory assessment, indicators, report review, known patterns | 5 |
+| ESC | `escalation` | TS §3.1 Human Agent Escalation and Handoff; §4.8 | Agent inbox, live takeover, rules, external helpdesk connector | 4 |
+| ANL | `analytics` | TS §3.1 analytics; §3.2; §5.10; §6.14 | Events, dashboard, deflection KPI, trends, summaries, reports, AI monitoring | 8 |
+| ADM | `admin` | TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20 | Staff, MFA, transcripts, audit, retention, export, privacy requests | 7 |
+| EVL | `evaluation` | TS §3.1 language testing; §6.4 AI testing | Approved test sets per language and use case; safety suite | 2 |
 
 ## 2. Build order
 
@@ -111,7 +111,7 @@ Only paths that are easy to get wrong are drawn. Tickets cite them by name in th
 3. Template screening: sanitize → injection check → mask personal data      [before cache, storage, and tracing]
 4. Classify: Inquiry Category, language, is_eligible
 5. Route:  tracking → Flow B · rates → rate lookup tool · scam → Flow D · otherwise → retrieval over APPROVED chunks only
-6. Generate from the tool result or the retrieved chunks; run the groundedness check; compute Confidence; CNV-5 validates claims and blocks unsafe requests before final output
+6. Generate from the tool result or the retrieved chunks; run the groundedness check; compute Confidence
 7. Confidence ≥ threshold → streamed answer with sources
    Confidence < threshold → "I'm not sure" answer + offer of a person (Flow C)
    an escalation rule matches (sensitive topic, explicit request) → Flow C directly
@@ -235,10 +235,10 @@ Source: PRD constraints; TS §3.5, §4.10. Repository from the RAG_AI template, 
 
 **Acceptance criteria:**
 
-- _Given_ a fresh clone, _when_ I run the README quick start, _then_ web, backend, the RAG service, and the pgvector database start locally and `pnpm test` passes.
-- _Given_ a merge to `staging`, _when_ the deploy workflow finishes, _then_ the staging URL serves the PHLPost admin sign-in page and the API health endpoint returns 200.
-- _Given_ the repository, _when_ I search for the template's example modules, _then_ `todos`, `tickets`, and `feature-preview` are gone from backend, web, contracts, and schema, and the Flutter app is removed from the workspace.
-- _Given_ the RAG service configuration, _when_ it starts, _then_ it runs the `agentic` profile with provider keys read from environment variables and no provider name hard-coded outside the provider module.
+- *Given* a fresh clone, *when* I run the README quick start, *then* web, backend, the RAG service, and the pgvector database start locally and `pnpm test` passes.
+- *Given* a merge to `staging`, *when* the deploy workflow finishes, *then* the staging URL serves the PHLPost admin sign-in page and the API health endpoint returns 200.
+- *Given* the repository, *when* I search for the template's example modules, *then* `todos`, `tickets`, and `feature-preview` are gone from backend, web, contracts, and schema, and the Flutter app is removed from the workspace.
+- *Given* the RAG service configuration, *when* it starts, *then* it runs the `agentic` profile with provider keys read from environment variables and no provider name hard-coded outside the provider module.
 
 **In scope:**
 
@@ -271,10 +271,10 @@ Source: PRD constraints; TS §3.5, §4.10. Repository from the RAG_AI template, 
 
 **Acceptance criteria:**
 
-- _Given_ a fresh database, _when_ `pnpm db:seed` runs, _then_ every key in the `DOMAIN-MODEL.md` catalog exists and the ten seeded roles hold the grants listed there.
-- _Given_ the seed has already run, _when_ it runs again, _then_ no duplicate rows are created and admin-made changes to role grants are kept.
-- _Given_ a route that requires a key the signed-in user lacks, _when_ it is called, _then_ the API returns 403 and an Audit Entry with outcome `denied` records the key, the actor, and the IP address.
-- _Given_ a user with `users.roles.manage`, _when_ they open the roles screen, _then_ the new modules appear as groups in the permission checklist and can be granted or removed.
+- *Given* a fresh database, *when* `pnpm db:seed` runs, *then* every key in the `DOMAIN-MODEL.md` catalog exists and the ten seeded roles hold the grants listed there.
+- *Given* the seed has already run, *when* it runs again, *then* no duplicate rows are created and admin-made changes to role grants are kept.
+- *Given* a route that requires a key the signed-in user lacks, *when* it is called, *then* the API returns 403 and an Audit Entry with outcome `denied` records the key, the actor, and the IP address.
+- *Given* a user with `users.roles.manage`, *when* they open the roles screen, *then* the new modules appear as groups in the permission checklist and can be granted or removed.
 
 **In scope:**
 
@@ -311,11 +311,11 @@ Source: TS §3.1 Omnichannel AI Virtual Assistant; §4.8. Website chat widget, c
 
 **Acceptance criteria:**
 
-- _Given_ a page that includes the widget script, _when_ the customer opens the chat, _then_ a notice says they are chatting with an AI assistant and links the privacy notice before the first message can be sent.
-- _Given_ an open chat, _when_ the customer sends a message, _then_ the answer streams into the widget and the Conversation continues across page loads in the same browser tab session.
-- _Given_ a request from an origin that is not on the allowed list, _when_ it calls the public chat API, _then_ it is refused and the attempt is logged.
-- _Given_ a session sending messages faster than the limit, _when_ the limit is reached, _then_ further messages are refused with a clear 'please wait' notice and an Interaction Event records the throttle.
-- _Given_ a phone-sized screen or a keyboard-only user, _when_ they use the widget, _then_ it is fully usable and meets WCAG 2.1 AA for contrast, focus, and labels.
+- *Given* a page that includes the widget script, *when* the customer opens the chat, *then* a notice says they are chatting with an AI assistant and links the privacy notice before the first message can be sent.
+- *Given* an open chat, *when* the customer sends a message, *then* the answer streams into the widget and the Conversation continues across page loads in the same browser tab session.
+- *Given* a request from an origin that is not on the allowed list, *when* it calls the public chat API, *then* it is refused and the attempt is logged.
+- *Given* a session sending messages faster than the limit, *when* the limit is reached, *then* further messages are refused with a clear 'please wait' notice and an Interaction Event records the throttle.
+- *Given* a phone-sized screen or a keyboard-only user, *when* they use the widget, *then* it is fully usable and meets WCAG 2.1 AA for contrast, focus, and labels.
 
 **In scope:**
 
@@ -347,10 +347,10 @@ Source: TS §3.1 Omnichannel AI Virtual Assistant; §4.8. Website chat widget, c
 
 **Acceptance criteria:**
 
-- _Given_ the channels screen, _when_ a permitted user disables `web-widget`, _then_ the widget shows an 'assistant unavailable' notice within one minute and no new Conversation can start.
-- _Given_ the web widget, _when_ its messages are processed, _then_ they pass through the `ChannelAdapter` interface exactly as a second adapter would, proven by a test adapter registered only in tests.
-- _Given_ a permitted user, _when_ they change the allowed origins or the welcome text for a channel, _then_ the change takes effect without a deploy and is audited with old and new values.
-- _Given_ a user without `channels.channels.manage`, _when_ they open or call the channels screen, _then_ the API returns 403 and the denial is audited.
+- *Given* the channels screen, *when* a permitted user disables `web-widget`, *then* the widget shows an 'assistant unavailable' notice within one minute and no new Conversation can start.
+- *Given* the web widget, *when* its messages are processed, *then* they pass through the `ChannelAdapter` interface exactly as a second adapter would, proven by a test adapter registered only in tests.
+- *Given* a permitted user, *when* they change the allowed origins or the welcome text for a channel, *then* the change takes effect without a deploy and is audited with old and new values.
+- *Given* a user without `channels.channels.manage`, *when* they open or call the channels screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -380,10 +380,10 @@ Source: TS §3.1 Omnichannel AI Virtual Assistant; §4.8. Website chat widget, c
 
 **Acceptance criteria:**
 
-- _Given_ a Conversation that the customer ends or that receives a confident answer, _when_ the chat closes, _then_ the widget asks 'Did this help?' with yes and no and an optional comment.
-- _Given_ a submitted rating, _when_ it is saved, _then_ one Feedback row exists for the Conversation, the comment is masked for personal data, and an Interaction Event is recorded.
-- _Given_ a Conversation that already has Feedback, _when_ the customer rates again, _then_ the earlier rating is replaced, never duplicated.
-- _Given_ a customer who closes the widget without rating, _when_ the session ends, _then_ nothing is stored and the Conversation is not marked unhelpful.
+- *Given* a Conversation that the customer ends or that receives a confident answer, *when* the chat closes, *then* the widget asks 'Did this help?' with yes and no and an optional comment.
+- *Given* a submitted rating, *when* it is saved, *then* one Feedback row exists for the Conversation, the comment is masked for personal data, and an Interaction Event is recorded.
+- *Given* a Conversation that already has Feedback, *when* the customer rates again, *then* the earlier rating is replaced, never duplicated.
+- *Given* a customer who closes the widget without rating, *when* the session ends, *then* nothing is stored and the Conversation is not marked unhelpful.
 
 **In scope:**
 
@@ -418,11 +418,11 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ at least one approved Knowledge Article, _when_ a customer asks a question it covers, _then_ a streamed answer is returned with the titles of the articles it used.
-- _Given_ a question no approved content covers, _when_ it is asked, _then_ the assistant says it does not have that information and invents nothing.
-- _Given_ a message containing a phone number, email address, or ID number, _when_ it is processed, _then_ the stored Message and the trace hold the masked form only.
-- _Given_ a message that tries to override the assistant's instructions, _when_ it is screened, _then_ the request is refused or neutralized as configured and the attempt is recorded.
-- _Given_ an anonymous caller without a valid Customer Session token, _when_ they call the public chat endpoint, _then_ the API returns 401.
+- *Given* at least one approved Knowledge Article, *when* a customer asks a question it covers, *then* a streamed answer is returned with the titles of the articles it used.
+- *Given* a question no approved content covers, *when* it is asked, *then* the assistant says it does not have that information and invents nothing.
+- *Given* a message containing a phone number, email address, or ID number, *when* it is processed, *then* the stored Message and the trace hold the masked form only.
+- *Given* a message that tries to override the assistant's instructions, *when* it is screened, *then* the request is refused or neutralized as configured and the attempt is recorded.
+- *Given* an anonymous caller without a valid Customer Session token, *when* they call the public chat endpoint, *then* the API returns 401.
 
 **In scope:**
 
@@ -454,11 +454,11 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ a customer message, _when_ it passes screening, _then_ it is stored with one Inquiry Category and `is_eligible` taken from that category's setting at that moment.
-- _Given_ a message the classifier cannot place, _when_ it is classified, _then_ it is labelled `other` and is not eligible.
-- _Given_ the categories screen, _when_ a permitted user adds a category or changes whether one is eligible, _then_ new messages use the change, earlier messages keep their label, and the change is audited.
-- _Given_ a labelled test set of at least 100 messages across the seeded categories, _when_ the classifier runs in CI, _then_ accuracy is reported and the build fails below the agreed floor.
-- _Given_ a user without `settings.assistant.manage`, _when_ they call the categories endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* a customer message, *when* it passes screening, *then* it is stored with one Inquiry Category and `is_eligible` taken from that category's setting at that moment.
+- *Given* a message the classifier cannot place, *when* it is classified, *then* it is labelled `other` and is not eligible.
+- *Given* the categories screen, *when* a permitted user adds a category or changes whether one is eligible, *then* new messages use the change, earlier messages keep their label, and the change is audited.
+- *Given* a labelled test set of at least 100 messages across the seeded categories, *when* the classifier runs in CI, *then* accuracy is reported and the build fails below the agreed floor.
+- *Given* a user without `settings.assistant.manage`, *when* they call the categories endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -488,12 +488,12 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ an answer whose Confidence is at or above the threshold, _when_ it is produced, _then_ it is sent normally and stored with its Confidence.
-- _Given_ an answer whose Confidence is below the threshold, _when_ it is produced, _then_ the customer instead sees that the assistant is not sure, what it could find, and an offer to talk to a person.
-- _Given_ the settings screen, _when_ a permitted user changes the threshold between 0 and 1, _then_ the next message uses it and the change is audited with old and new values.
-- _Given_ a stored assistant Message, _when_ it is inspected, _then_ it shows the retrieval score, the groundedness result, and the Confidence derived from them.
-- _Given_ a user without `settings.assistant.manage`, _when_ they call the settings endpoint, _then_ the API returns 403 and the denial is audited.
-- _Given_ the routine-answer length limit, which a permitted user can set to any value up to 200 tokens, _when_ an answer in an eligible category is generated, _then_ it does not exceed the limit, ends on a complete sentence, offers “more details” when content was left out, and stores its token count on the Message.
+- *Given* an answer whose Confidence is at or above the threshold, *when* it is produced, *then* it is sent normally and stored with its Confidence.
+- *Given* an answer whose Confidence is below the threshold, *when* it is produced, *then* the customer instead sees that the assistant is not sure, what it could find, and an offer to talk to a person.
+- *Given* the settings screen, *when* a permitted user changes the threshold between 0 and 1, *then* the next message uses it and the change is audited with old and new values.
+- *Given* a stored assistant Message, *when* it is inspected, *then* it shows the retrieval score, the groundedness result, and the Confidence derived from them.
+- *Given* a user without `settings.assistant.manage`, *when* they call the settings endpoint, *then* the API returns 403 and the denial is audited.
+- *Given* the routine-answer length limit, which a permitted user can set to any value up to 200 tokens, *when* an answer in an eligible category is generated, *then* it does not exceed the limit, ends on a complete sentence, offers “more details” when content was left out, and stores its token count on the Message.
 
 **In scope:**
 
@@ -523,11 +523,11 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ a message in English, Filipino, Cebuano, or Ilocano, _when_ it is answered, _then_ the reply is in that language and the Message stores the detected language.
-- _Given_ a Taglish or other code-switched message, _when_ it is answered, _then_ the reply follows the customer's dominant language and keeps postal terms as PHLPost writes them.
-- _Given_ a message in a language outside the four, _when_ it is answered, _then_ the reply is in English, says which languages are supported, and the Message is tagged `unsupported`.
-- _Given_ knowledge that exists only in English, _when_ a Cebuano or Ilocano question matches it, _then_ the answer is given in the customer's language from the English source and cites it.
-- _Given_ the widget, _when_ the customer picks a language from the menu, _then_ the fixed interface text switches and later replies use that language.
+- *Given* a message in English, Filipino, Cebuano, or Ilocano, *when* it is answered, *then* the reply is in that language and the Message stores the detected language.
+- *Given* a Taglish or other code-switched message, *when* it is answered, *then* the reply follows the customer's dominant language and keeps postal terms as PHLPost writes them.
+- *Given* a message in a language outside the four, *when* it is answered, *then* the reply is in English, says which languages are supported, and the Message is tagged `unsupported`.
+- *Given* knowledge that exists only in English, *when* a Cebuano or Ilocano question matches it, *then* the answer is given in the customer's language from the English source and cites it.
+- *Given* the widget, *when* the customer picks a language from the menu, *then* the fixed interface text switches and later replies use that language.
 
 **In scope:**
 
@@ -557,11 +557,11 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ a drafted answer containing an amount, a tracking status, or a payment instruction, _when_ that value does not appear in the tool result or the cited sources, _then_ the answer is withheld and replaced with the 'not sure' reply, and the block is recorded.
-- _Given_ a drafted answer asking the customer to pay, or to share a password, one-time code, or card number, _when_ it is checked, _then_ it is always blocked, whatever the sources say.
-- _Given_ the guardrail settings, _when_ a permitted user adds a blocked topic or phrase, _then_ matching drafts are withheld from then on and the change is audited.
-- _Given_ the guardrail test cases, _when_ they run in CI, _then_ every case is blocked and the build fails if one passes through.
-- _Given_ a user without `settings.assistant.manage`, _when_ they call the guardrail settings endpoint, _then_ the API returns 403 and the denial is audited.
+- *Given* a drafted answer containing an amount, a tracking status, or a payment instruction, *when* that value does not appear in the tool result or the cited sources, *then* the answer is withheld and replaced with the 'not sure' reply, and the block is recorded.
+- *Given* a drafted answer asking the customer to pay, or to share a password, one-time code, or card number, *when* it is checked, *then* it is always blocked, whatever the sources say.
+- *Given* the guardrail settings, *when* a permitted user adds a blocked topic or phrase, *then* matching drafts are withheld from then on and the change is audited.
+- *Given* the guardrail test cases, *when* they run in CI, *then* every case is blocked and the build fails if one passes through.
+- *Given* a user without `settings.assistant.manage`, *when* they call the guardrail settings endpoint, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -592,10 +592,10 @@ Source: TS §3.1 conversational AI, NLP, Postal ID; §4.8–4.9. Grounded answer
 
 **Acceptance criteria:**
 
-- _Given_ approved Postal ID articles, _when_ a customer asks how to apply or renew, _then_ the answer lists the steps and requirements from those articles and cites them.
-- _Given_ a customer asking 'am I eligible' or 'will my application be approved' about their own case, _when_ it is answered, _then_ the assistant gives the published requirements, says it cannot decide individual cases, and points to the capturing site or a person.
-- _Given_ a customer who shares an ID number or uploads personal details, _when_ the message is stored, _then_ the details are masked and the reply reminds them not to share personal information in chat.
-- _Given_ a question about the status of a specific Postal ID application, _when_ it is asked, _then_ the assistant says it has no access to application records and offers the official channel or a person.
+- *Given* approved Postal ID articles, *when* a customer asks how to apply or renew, *then* the answer lists the steps and requirements from those articles and cites them.
+- *Given* a customer asking 'am I eligible' or 'will my application be approved' about their own case, *when* it is answered, *then* the assistant gives the published requirements, says it cannot decide individual cases, and points to the capturing site or a person.
+- *Given* a customer who shares an ID number or uploads personal details, *when* the message is stored, *then* the details are masked and the reply reminds them not to share personal information in chat.
+- *Given* a question about the status of a specific Postal ID application, *when* it is asked, *then* the assistant says it has no access to application records and offers the official channel or a person.
 
 **In scope:**
 
@@ -631,11 +631,11 @@ Source: TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information. A
 
 **Acceptance criteria:**
 
-- _Given_ a draft version, _when_ its author submits it and a different user with `knowledge.articles.approve` approves it, _then_ the version becomes `approved`, is indexed, and can be retrieved by the assistant.
-- _Given_ a version in review, _when_ its own author tries to approve it, _then_ the API refuses and the attempt is audited.
-- _Given_ an approved article, _when_ a permitted user deactivates it, _then_ its chunks are no longer retrievable from that moment and cached answers built on it are cleared.
-- _Given_ an approved article that is edited, _when_ the edit is saved, _then_ a new draft version is created and the approved version keeps serving until the new one is approved.
-- _Given_ a user without `knowledge.articles.manage`, _when_ they try to create or edit an article, _then_ the API returns 403 and the denial is audited.
+- *Given* a draft version, *when* its author submits it and a different user with `knowledge.articles.approve` approves it, *then* the version becomes `approved`, is indexed, and can be retrieved by the assistant.
+- *Given* a version in review, *when* its own author tries to approve it, *then* the API refuses and the attempt is audited.
+- *Given* an approved article, *when* a permitted user deactivates it, *then* its chunks are no longer retrievable from that moment and cached answers built on it are cleared.
+- *Given* an approved article that is edited, *when* the edit is saved, *then* a new draft version is created and the approved version keeps serving until the new one is approved.
+- *Given* a user without `knowledge.articles.manage`, *when* they try to create or edit an article, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -667,11 +667,11 @@ Source: TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information. A
 
 **Acceptance criteria:**
 
-- _Given_ an approved Rate Entry for a service, zone, and weight band, _when_ a customer asks the price for a matching item, _then_ the assistant quotes that price with its effective date and names the service.
-- _Given_ a question missing the weight or the destination, _when_ it is asked, _then_ the assistant asks for the missing detail before quoting.
-- _Given_ no Rate Entry matching the request, _when_ it is asked, _then_ the assistant says it has no published rate for that case and quotes nothing.
-- _Given_ a CSV of rates, _when_ a permitted user imports it, _then_ rows are validated, shown as a preview with errors, and go live only after a second user approves the batch.
-- _Given_ a user without `knowledge.rates.manage`, _when_ they call the rates endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* an approved Rate Entry for a service, zone, and weight band, *when* a customer asks the price for a matching item, *then* the assistant quotes that price with its effective date and names the service.
+- *Given* a question missing the weight or the destination, *when* it is asked, *then* the assistant asks for the missing detail before quoting.
+- *Given* no Rate Entry matching the request, *when* it is asked, *then* the assistant says it has no published rate for that case and quotes nothing.
+- *Given* a CSV of rates, *when* a permitted user imports it, *then* rows are validated, shown as a preview with errors, and go live only after a second user approves the batch.
+- *Given* a user without `knowledge.rates.manage`, *when* they call the rates endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -702,10 +702,10 @@ Source: TS §3.1 PHLPost Knowledge Base, Postal Rates and Service Information. A
 
 **Acceptance criteria:**
 
-- _Given_ messages answered as uncertain or refused for lack of content, _when_ the gaps screen is opened, _then_ they appear grouped by similar wording with a count, the category, the language, and example questions with personal data masked.
-- _Given_ a gap group, _when_ a user who also holds `knowledge.articles.manage` chooses 'draft article', _then_ a draft is created pre-filled with the example questions and the group is marked in progress.
-- _Given_ an article approved from a gap, _when_ the same question is asked again and answered confidently, _then_ the group is marked resolved.
-- _Given_ a user without `knowledge.gaps.view`, _when_ they open the gaps screen, _then_ the API returns 403 and the denial is audited.
+- *Given* messages answered as uncertain or refused for lack of content, *when* the gaps screen is opened, *then* they appear grouped by similar wording with a count, the category, the language, and example questions with personal data masked.
+- *Given* a gap group, *when* a user who also holds `knowledge.articles.manage` chooses 'draft article', *then* a draft is created pre-filled with the example questions and the group is marked in progress.
+- *Given* an article approved from a gap, *when* the same question is asked again and answered confidently, *then* the group is marked resolved.
+- *Given* a user without `knowledge.gaps.view`, *when* they open the gaps screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -740,11 +740,11 @@ Source: TS §3.1 Track and Trace Assistance; §3.3; §3.4. Tracking connector in
 
 **Acceptance criteria:**
 
-- _Given_ the mock connector holding a record for a tracking number, _when_ a customer asks where that item is, _then_ the reply states the status, place, and time exactly as the connector returned them.
-- _Given_ a tracking number the connector does not know, _when_ it is asked about, _then_ the assistant says no record was found and suggests checking the number; it does not guess a status.
-- _Given_ a message about tracking with no number, or a malformed one, _when_ it is asked, _then_ the assistant asks for the tracking number and performs no lookup.
-- _Given_ a connector that does not answer within the timeout, _when_ a lookup is made, _then_ the assistant says the tracking system cannot be reached right now and offers to try again or to reach a person.
-- _Given_ any lookup, _when_ it completes, _then_ a Tracking Lookup row stores a hash of the number, the connector, the outcome, and the latency, and never the number itself.
+- *Given* the mock connector holding a record for a tracking number, *when* a customer asks where that item is, *then* the reply states the status, place, and time exactly as the connector returned them.
+- *Given* a tracking number the connector does not know, *when* it is asked about, *then* the assistant says no record was found and suggests checking the number; it does not guess a status.
+- *Given* a message about tracking with no number, or a malformed one, *when* it is asked, *then* the assistant asks for the tracking number and performs no lookup.
+- *Given* a connector that does not answer within the timeout, *when* a lookup is made, *then* the assistant says the tracking system cannot be reached right now and offers to try again or to reach a person.
+- *Given* any lookup, *when* it completes, *then* a Tracking Lookup row stores a hash of the number, the connector, the outcome, and the latency, and never the number itself.
 
 **In scope:**
 
@@ -775,10 +775,10 @@ Source: TS §3.1 Track and Trace Assistance; §3.3; §3.4. Tracking connector in
 
 **Acceptance criteria:**
 
-- _Given_ a Status Explanation for a status code in the customer's language, _when_ a lookup returns that code, _then_ the reply gives the official status followed by the approved explanation and next steps.
-- _Given_ a status code with no explanation, _when_ a lookup returns it, _then_ the reply shows the official description unchanged and the code appears in a 'needs explanation' list.
-- _Given_ a status that means the item is held at Customs, _when_ it is returned, _then_ the reply includes the approved Customs guidance and required documents, and states that PHLPost does not decide the release.
-- _Given_ a user without `tracking.explanations.manage`, _when_ they call the explanations endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* a Status Explanation for a status code in the customer's language, *when* a lookup returns that code, *then* the reply gives the official status followed by the approved explanation and next steps.
+- *Given* a status code with no explanation, *when* a lookup returns it, *then* the reply shows the official description unchanged and the code appears in a 'needs explanation' list.
+- *Given* a status that means the item is held at Customs, *when* it is returned, *then* the reply includes the approved Customs guidance and required documents, and states that PHLPost does not decide the release.
+- *Given* a user without `tracking.explanations.manage`, *when* they call the explanations endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -807,11 +807,11 @@ Source: TS §3.1 Track and Trace Assistance; §3.3; §3.4. Tracking connector in
 
 **Acceptance criteria:**
 
-- _Given_ five consecutive failed or timed-out lookups, _when_ the next lookup is made, _then_ it returns `unavailable` at once without calling the source, and the connector shows as 'open' on the connectors screen.
-- _Given_ an open breaker, _when_ the wait period passes and a trial lookup succeeds, _then_ normal lookups resume and the recovery is logged.
-- _Given_ the connectors screen, _when_ a permitted user opens it, _then_ it shows each connector's status, success rate, median and 95th percentile latency, and the last error, with no customer data.
-- _Given_ a permitted user, _when_ they change the active connector, timeout, or credentials reference, _then_ the change applies without a deploy and is audited; secrets are never displayed.
-- _Given_ a user without `tracking.connectors.manage`, _when_ they open the connectors screen, _then_ the API returns 403 and the denial is audited.
+- *Given* five consecutive failed or timed-out lookups, *when* the next lookup is made, *then* it returns `unavailable` at once without calling the source, and the connector shows as 'open' on the connectors screen.
+- *Given* an open breaker, *when* the wait period passes and a trial lookup succeeds, *then* normal lookups resume and the recovery is logged.
+- *Given* the connectors screen, *when* a permitted user opens it, *then* it shows each connector's status, success rate, median and 95th percentile latency, and the last error, with no customer data.
+- *Given* a permitted user, *when* they change the active connector, timeout, or credentials reference, *then* the change applies without a deploy and is audited; secrets are never displayed.
+- *Given* a user without `tracking.connectors.manage`, *when* they open the connectors screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -839,11 +839,11 @@ Source: TS §3.1 Track and Trace Assistance; §3.3; §3.4. Tracking connector in
 
 **Acceptance criteria:**
 
-- _Given_ the PHLPost API documentation and test credentials, _when_ the adapter is built against them, _then_ a lookup of a known test item returns the same status, place, and time as PHLPost's own Track and Trace page.
-- _Given_ the shared connector contract tests, _when_ they run against the real adapter and the mock, _then_ both pass.
-- _Given_ every status code the PHLPost source can return, _when_ the mapping is reviewed, _then_ each is listed for TRK-2 with its official description, and unmapped codes are reported.
-- _Given_ a permitted user, _when_ they switch the active connector from `mock` to the PHLPost adapter, _then_ new lookups use it at once and the switch is audited.
-- _Given_ a user without `tracking.connectors.manage`, _when_ they try to switch connectors, _then_ the API returns 403 and the denial is audited.
+- *Given* the PHLPost API documentation and test credentials, *when* the adapter is built against them, *then* a lookup of a known test item returns the same status, place, and time as PHLPost's own Track and Trace page.
+- *Given* the shared connector contract tests, *when* they run against the real adapter and the mock, *then* both pass.
+- *Given* every status code the PHLPost source can return, *when* the mapping is reviewed, *then* each is listed for TRK-2 with its official description, and unmapped codes are reported.
+- *Given* a permitted user, *when* they switch the active connector from `mock` to the PHLPost adapter, *then* new lookups use it at once and the switch is audited.
+- *Given* a user without `tracking.connectors.manage`, *when* they try to switch connectors, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -880,11 +880,11 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 **Acceptance criteria:**
 
-- _Given_ a pasted message that asks for a fee through a link that is not a PHLPost domain, _when_ it is submitted, _then_ the reply gives a high risk level, names the indicators found, and gives safety guidance, worded as an assessment and never as a finding of fraud.
-- _Given_ a submitted link, _when_ it is assessed, _then_ its domain is parsed and compared with the official list, and the system makes no request to that link.
-- _Given_ a submission that contains instructions aimed at the assistant, _when_ it is assessed, _then_ the instructions are not followed, and the attempt is counted as an indicator.
-- _Given_ a submission the checks cannot judge, _when_ it is assessed, _then_ the risk level is `uncertain`, general safety guidance is given, and reporting to PHLPost is offered.
-- _Given_ any assessment, _when_ it is stored, _then_ the Scam Submission is masked for personal data and the Scam Assessment records the indicators, risk level, and Confidence.
+- *Given* a pasted message that asks for a fee through a link that is not a PHLPost domain, *when* it is submitted, *then* the reply gives a high risk level, names the indicators found, and gives safety guidance, worded as an assessment and never as a finding of fraud.
+- *Given* a submitted link, *when* it is assessed, *then* its domain is parsed and compared with the official list, and the system makes no request to that link.
+- *Given* a submission that contains instructions aimed at the assistant, *when* it is assessed, *then* the instructions are not followed, and the attempt is counted as an indicator.
+- *Given* a submission the checks cannot judge, *when* it is assessed, *then* the risk level is `uncertain`, general safety guidance is given, and reporting to PHLPost is offered.
+- *Given* any assessment, *when* it is stored, *then* the Scam Submission is masked for personal data and the Scam Assessment records the indicators, risk level, and Confidence.
 
 **In scope:**
 
@@ -917,10 +917,10 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 **Acceptance criteria:**
 
-- _Given_ the indicators screen, _when_ a permitted user adds, weights, or deactivates a Risk Indicator, _then_ new assessments use the change and it is audited.
-- _Given_ the official contacts screen, _when_ a permitted user adds a genuine domain or sender name, _then_ submissions from it stop being flagged as unofficial, and look-alike domains are still flagged.
-- _Given_ a sample message, _when_ a permitted user runs 'test assessment', _then_ the screen shows the indicators that fired and the resulting risk level without creating a customer record.
-- _Given_ a user without `scam.indicators.manage`, _when_ they call these endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* the indicators screen, *when* a permitted user adds, weights, or deactivates a Risk Indicator, *then* new assessments use the change and it is audited.
+- *Given* the official contacts screen, *when* a permitted user adds a genuine domain or sender name, *then* submissions from it stop being flagged as unofficial, and look-alike domains are still flagged.
+- *Given* a sample message, *when* a permitted user runs 'test assessment', *then* the screen shows the indicators that fired and the resulting risk level without creating a customer record.
+- *Given* a user without `scam.indicators.manage`, *when* they call these endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -949,11 +949,11 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 **Acceptance criteria:**
 
-- _Given_ an assessment that is high risk or uncertain, or a customer who chooses to report, _when_ the report is sent, _then_ a Scam Report in `reported` appears in the queue and the customer sees a reference number.
-- _Given_ a report in the queue, _when_ a permitted user opens it, _then_ they see the masked submission, the extracted links as text that cannot be clicked, the indicators, and the assessment.
-- _Given_ a report under review, _when_ the reviewer records a finding and notes, _then_ the status follows the state machine, the finding is audited, and the customer-facing wording stays advisory.
-- _Given_ a user with `scam.reports.view` but not `scam.reports.validate`, _when_ they open a report, _then_ they can read it but cannot set a finding.
-- _Given_ a user with neither permission, _when_ they open the queue, _then_ the API returns 403 and the denial is audited.
+- *Given* an assessment that is high risk or uncertain, or a customer who chooses to report, *when* the report is sent, *then* a Scam Report in `reported` appears in the queue and the customer sees a reference number.
+- *Given* a report in the queue, *when* a permitted user opens it, *then* they see the masked submission, the extracted links as text that cannot be clicked, the indicators, and the assessment.
+- *Given* a report under review, *when* the reviewer records a finding and notes, *then* the status follows the state machine, the finding is audited, and the customer-facing wording stays advisory.
+- *Given* a user with `scam.reports.view` but not `scam.reports.validate`, *when* they open a report, *then* they can read it but cannot set a finding.
+- *Given* a user with neither permission, *when* they open the queue, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -983,11 +983,11 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 **Acceptance criteria:**
 
-- _Given_ a report marked `confirmed_scam`, _when_ the reviewer saves it as a Scam Pattern, _then_ the pattern stores its domains, sender, key phrases, and a similarity signature, with personal data removed.
-- _Given_ an active pattern, _when_ a new submission closely matches it, _then_ the assessment is high risk, cites 'matches a scam PHLPost has confirmed', and links the pattern.
-- _Given_ the patterns screen, _when_ a permitted user opens it, _then_ each pattern shows first seen, last seen, and the number of matching submissions.
-- _Given_ a pattern that is deactivated, _when_ a matching submission arrives, _then_ it is assessed without the pattern.
-- _Given_ a user without `scam.reports.validate`, _when_ they try to create or edit a pattern, _then_ the API returns 403 and the denial is audited.
+- *Given* a report marked `confirmed_scam`, *when* the reviewer saves it as a Scam Pattern, *then* the pattern stores its domains, sender, key phrases, and a similarity signature, with personal data removed.
+- *Given* an active pattern, *when* a new submission closely matches it, *then* the assessment is high risk, cites 'matches a scam PHLPost has confirmed', and links the pattern.
+- *Given* the patterns screen, *when* a permitted user opens it, *then* each pattern shows first seen, last seen, and the number of matching submissions.
+- *Given* a pattern that is deactivated, *when* a matching submission arrives, *then* it is assessed without the pattern.
+- *Given* a user without `scam.reports.validate`, *when* they try to create or edit a pattern, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1016,10 +1016,10 @@ Source: TS §3.1 AI-Assisted Scam Detection and Customer Protection. Advisory as
 
 **Acceptance criteria:**
 
-- _Given_ a PNG or JPEG screenshot under the size limit, _when_ it is uploaded, _then_ the text and links are read from it and assessed exactly as a pasted message would be.
-- _Given_ a file that is not an image, is too large, or fails the malware scan, _when_ it is uploaded, _then_ it is refused with a clear reason and nothing is stored.
-- _Given_ an image whose text cannot be read, _when_ it is assessed, _then_ the assistant says so and asks the customer to paste the text.
-- _Given_ a stored screenshot, _when_ its Scam Submission is deleted or anonymized, _then_ the image file is deleted in the same operation.
+- *Given* a PNG or JPEG screenshot under the size limit, *when* it is uploaded, *then* the text and links are read from it and assessed exactly as a pasted message would be.
+- *Given* a file that is not an image, is too large, or fails the malware scan, *when* it is uploaded, *then* it is refused with a clear reason and nothing is stored.
+- *Given* an image whose text cannot be read, *when* it is assessed, *then* the assistant says so and asks the customer to paste the text.
+- *Given* a stored screenshot, *when* its Scam Submission is deleted or anonymized, *then* the image file is deleted in the same operation.
 
 **In scope:**
 
@@ -1055,10 +1055,10 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 
 **Acceptance criteria:**
 
-- _Given_ a customer who asks to talk to a person, _when_ they confirm, _then_ an Escalation in `queued` is created with the reason, the Conversation becomes `escalation_requested`, and the customer is told a person will join.
-- _Given_ the inbox, _when_ a permitted user opens it, _then_ queued Escalations are listed oldest first with category, language, waiting time, and reason.
-- _Given_ an Escalation, _when_ a permitted user opens it, _then_ the whole Conversation is shown, with the sources and Confidence of each assistant answer and personal data masked.
-- _Given_ a user without `escalations.queue.view`, _when_ they open the inbox, _then_ the API returns 403 and the denial is audited.
+- *Given* a customer who asks to talk to a person, *when* they confirm, *then* an Escalation in `queued` is created with the reason, the Conversation becomes `escalation_requested`, and the customer is told a person will join.
+- *Given* the inbox, *when* a permitted user opens it, *then* queued Escalations are listed oldest first with category, language, waiting time, and reason.
+- *Given* an Escalation, *when* a permitted user opens it, *then* the whole Conversation is shown, with the sources and Confidence of each assistant answer and personal data masked.
+- *Given* a user without `escalations.queue.view`, *when* they open the inbox, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1089,11 +1089,11 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 
 **Acceptance criteria:**
 
-- _Given_ a queued Escalation, _when_ a permitted user claims it, _then_ it becomes `claimed`, the Conversation becomes `agent_active`, and the customer sees that an agent has joined.
-- _Given_ two agents claiming the same Escalation at once, _when_ both requests arrive, _then_ one succeeds and the other is told it is already claimed.
-- _Given_ an `agent_active` Conversation, _when_ the customer sends a message, _then_ it reaches the agent within two seconds and the assistant posts no answer.
-- _Given_ an agent reply, _when_ it is sent, _then_ it appears in the widget marked as from a PHLPost agent and is stored with `sender = agent` and the agent's id.
-- _Given_ a user without `escalations.conversations.handle`, _when_ they try to claim or reply, _then_ the API returns 403 and the denial is audited.
+- *Given* a queued Escalation, *when* a permitted user claims it, *then* it becomes `claimed`, the Conversation becomes `agent_active`, and the customer sees that an agent has joined.
+- *Given* two agents claiming the same Escalation at once, *when* both requests arrive, *then* one succeeds and the other is told it is already claimed.
+- *Given* an `agent_active` Conversation, *when* the customer sends a message, *then* it reaches the agent within two seconds and the assistant posts no answer.
+- *Given* an agent reply, *when* it is sent, *then* it appears in the widget marked as from a PHLPost agent and is stored with `sender = agent` and the agent's id.
+- *Given* a user without `escalations.conversations.handle`, *when* they try to claim or reply, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1124,11 +1124,11 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 
 **Acceptance criteria:**
 
-- _Given_ a rule listing sensitive topics or keywords, _when_ a customer message matches it, _then_ the assistant does not attempt an answer and offers a person at once.
-- _Given_ business hours set in Asia/Manila, _when_ an Escalation is requested outside them, _then_ the customer is told agents are offline and may leave an optional contact; the Escalation becomes `contact_captured`.
-- _Given_ an Escalation queued during business hours, _when_ nobody claims it within the wait limit, _then_ the customer is offered the same offline path and the Escalation is flagged as missed.
-- _Given_ a contact left by a customer, _when_ it is stored, _then_ it is encrypted, shown only to holders of `escalations.conversations.handle`, and falls under the retention rules of ADM-5.
-- _Given_ a user without `settings.escalation.manage`, _when_ they call the rules endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* a rule listing sensitive topics or keywords, *when* a customer message matches it, *then* the assistant does not attempt an answer and offers a person at once.
+- *Given* business hours set in Asia/Manila, *when* an Escalation is requested outside them, *then* the customer is told agents are offline and may leave an optional contact; the Escalation becomes `contact_captured`.
+- *Given* an Escalation queued during business hours, *when* nobody claims it within the wait limit, *then* the customer is offered the same offline path and the Escalation is flagged as missed.
+- *Given* a contact left by a customer, *when* it is stored, *then* it is encrypted, shown only to holders of `escalations.conversations.handle`, and falls under the retention rules of ADM-5.
+- *Given* a user without `settings.escalation.manage`, *when* they call the rules endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1157,11 +1157,11 @@ Source: TS §3.1 Human Agent Escalation and Handoff; §4.8. Agent inbox, live ta
 
 **Acceptance criteria:**
 
-- _Given_ an enabled webhook connector, _when_ an Escalation is created, _then_ a signed request with the reason, category, language, and a link to the transcript is delivered, and the Escalation shows `pushed_external` with the external reference when one is returned.
-- _Given_ a delivery that fails, _when_ it is retried with backoff and still fails, _then_ it is marked failed, stays visible in the inbox, and the failure is in the integration log.
-- _Given_ an enabled email connector, _when_ an Escalation is created, _then_ an email with the same summary goes to the configured address, with personal data limited to what the customer chose to leave.
-- _Given_ a permitted user, _when_ they send a test delivery from the connector screen, _then_ the result and response code are shown.
-- _Given_ a user without `escalations.connectors.manage`, _when_ they call the connector endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* an enabled webhook connector, *when* an Escalation is created, *then* a signed request with the reason, category, language, and a link to the transcript is delivered, and the Escalation shows `pushed_external` with the external reference when one is returned.
+- *Given* a delivery that fails, *when* it is retried with backoff and still fails, *then* it is marked failed, stays visible in the inbox, and the failure is in the integration log.
+- *Given* an enabled email connector, *when* an Escalation is created, *then* an email with the same summary goes to the configured address, with personal data limited to what the customer chose to leave.
+- *Given* a permitted user, *when* they send a test delivery from the connector screen, *then* the result and response code are shown.
+- *Given* a user without `escalations.connectors.manage`, *when* they call the connector endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1197,10 +1197,10 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ a Conversation that starts, receives an answer, and is escalated, _when_ each step happens, _then_ one Interaction Event per step is stored with its kind, category, language, channel, and time, and no free text.
-- _Given_ the overview page, _when_ a permitted user opens it, _then_ it shows today's conversations, answers, tracking lookups, and escalations, matching the event table.
-- _Given_ an event row, _when_ any code tries to update or delete it, _then_ the database refuses.
-- _Given_ a user without `analytics.dashboard.view`, _when_ they open the overview, _then_ the API returns 403 and the denial is audited.
+- *Given* a Conversation that starts, receives an answer, and is escalated, *when* each step happens, *then* one Interaction Event per step is stored with its kind, category, language, channel, and time, and no free text.
+- *Given* the overview page, *when* a permitted user opens it, *then* it shows today's conversations, answers, tracking lookups, and escalations, matching the event table.
+- *Given* an event row, *when* any code tries to update or delete it, *then* the database refuses.
+- *Given* a user without `analytics.dashboard.view`, *when* they open the overview, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1229,11 +1229,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ events over a chosen period, _when_ the dashboard is opened, _then_ it shows inquiry volume over time, volume by category, by language, and by channel, the escalation rate, and median and 95th percentile response time.
-- _Given_ the filters, _when_ a permitted user sets a date range, category, language, or channel, _then_ every tile recomputes for that selection.
-- _Given_ the layout controls, _when_ a permitted user hides, shows, or reorders tiles and saves, _then_ their layout is kept for them, and a default layout applies to new users.
-- _Given_ any tile, _when_ its figure is compared with a direct count of events for the same filter, _then_ the two match.
-- _Given_ a user without `analytics.dashboard.view`, _when_ they open the dashboard, _then_ the API returns 403 and the denial is audited.
+- *Given* events over a chosen period, *when* the dashboard is opened, *then* it shows inquiry volume over time, volume by category, by language, and by channel, the escalation rate, and median and 95th percentile response time.
+- *Given* the filters, *when* a permitted user sets a date range, category, language, or channel, *then* every tile recomputes for that selection.
+- *Given* the layout controls, *when* a permitted user hides, shows, or reorders tiles and saves, *then* their layout is kept for them, and a default layout applies to new users.
+- *Given* any tile, *when* its figure is compared with a direct count of events for the same filter, *then* the two match.
+- *Given* a user without `analytics.dashboard.view`, *when* they open the dashboard, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1262,11 +1262,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ an approved KPI Definition, _when_ the deflection tile is shown for a period, _then_ it displays the rate, the numerator, the denominator, and the definition version.
-- _Given_ Conversations that were escalated, ended on an uncertain answer, or were blocked, _when_ the rate is computed, _then_ none of them counts as resolved by the AI.
-- _Given_ the definition's choices for abandoned sessions, duplicates within a time window, and test sessions, _when_ they are changed and approved as a new version, _then_ figures are computed per version and earlier reports keep the version they used.
-- _Given_ a period before go-live, _when_ a permitted user enters the baseline volume and handling figures, _then_ the tile shows the rate against the baseline and the 70% target.
-- _Given_ a user without `analytics.kpi.manage`, _when_ they try to edit a definition or baseline, _then_ the API returns 403 and the denial is audited.
+- *Given* an approved KPI Definition, *when* the deflection tile is shown for a period, *then* it displays the rate, the numerator, the denominator, and the definition version.
+- *Given* Conversations that were escalated, ended on an uncertain answer, or were blocked, *when* the rate is computed, *then* none of them counts as resolved by the AI.
+- *Given* the definition's choices for abandoned sessions, duplicates within a time window, and test sessions, *when* they are changed and approved as a new version, *then* figures are computed per version and earlier reports keep the version they used.
+- *Given* a period before go-live, *when* a permitted user enters the baseline volume and handling figures, *then* the tile shows the rate against the baseline and the 70% target.
+- *Given* a user without `analytics.kpi.manage`, *when* they try to edit a definition or baseline, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1295,11 +1295,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ a closed Conversation, _when_ the nightly job runs, _then_ it is labelled positive, neutral, or negative and the label is stored as an event, with no message text copied.
-- _Given_ the sentiment tile, _when_ it is shown, _then_ it gives the share of each label and, separately, the share of 'helpful' ratings from customers.
-- _Given_ the concerns tile, _when_ it is shown, _then_ it lists the top recurring topics for the period with counts and the change from the previous period.
-- _Given_ a week where a category's volume rises by more than the configured percentage, _when_ the trends panel is opened, _then_ the rise is listed with its size and start date.
-- _Given_ a user without `analytics.dashboard.view`, _when_ they open these tiles, _then_ the API returns 403 and the denial is audited.
+- *Given* a closed Conversation, *when* the nightly job runs, *then* it is labelled positive, neutral, or negative and the label is stored as an event, with no message text copied.
+- *Given* the sentiment tile, *when* it is shown, *then* it gives the share of each label and, separately, the share of 'helpful' ratings from customers.
+- *Given* the concerns tile, *when* it is shown, *then* it lists the top recurring topics for the period with counts and the change from the previous period.
+- *Given* a week where a category's volume rises by more than the configured percentage, *when* the trends panel is opened, *then* the rise is listed with its size and start date.
+- *Given* a user without `analytics.dashboard.view`, *when* they open these tiles, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1328,10 +1328,10 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ scam submissions and reports over a period, _when_ the scam trends page is opened, _then_ it shows submissions over time, by risk level, by indicator, and by review finding.
-- _Given_ active Scam Patterns, _when_ the page is opened, _then_ the most matched patterns are listed with first seen, last seen, and match counts.
-- _Given_ the most reported look-alike domains, _when_ they are listed, _then_ they appear as plain text that cannot be clicked.
-- _Given_ a user without `scam.reports.view`, _when_ they open the page, _then_ the API returns 403 and the denial is audited.
+- *Given* scam submissions and reports over a period, *when* the scam trends page is opened, *then* it shows submissions over time, by risk level, by indicator, and by review finding.
+- *Given* active Scam Patterns, *when* the page is opened, *then* the most matched patterns are listed with first seen, last seen, and match counts.
+- *Given* the most reported look-alike domains, *when* they are listed, *then* they appear as plain text that cannot be clicked.
+- *Given* a user without `scam.reports.view`, *when* they open the page, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1358,11 +1358,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ a chosen period, _when_ a permitted user asks for a summary, _then_ a draft is produced within a minute that states the main figures and changes, and stores the exact figures it was given.
-- _Given_ a draft, _when_ it is opened, _then_ every number in the text is shown beside the figure it came from, and any number that does not match a figure is highlighted.
-- _Given_ a draft, _when_ a user with `analytics.summaries.approve` edits and approves it, _then_ it becomes `approved`, is marked 'AI-drafted, reviewed by' with their name, and can be exported.
-- _Given_ a draft that is not approved, _when_ anyone tries to export it, _then_ the export is refused.
-- _Given_ a user without `analytics.summaries.generate`, _when_ they request a summary, _then_ the API returns 403 and the denial is audited.
+- *Given* a chosen period, *when* a permitted user asks for a summary, *then* a draft is produced within a minute that states the main figures and changes, and stores the exact figures it was given.
+- *Given* a draft, *when* it is opened, *then* every number in the text is shown beside the figure it came from, and any number that does not match a figure is highlighted.
+- *Given* a draft, *when* a user with `analytics.summaries.approve` edits and approves it, *then* it becomes `approved`, is marked 'AI-drafted, reviewed by' with their name, and can be exported.
+- *Given* a draft that is not approved, *when* anyone tries to export it, *then* the export is refused.
+- *Given* a user without `analytics.summaries.generate`, *when* they request a summary, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1389,11 +1389,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ the reports screen, _when_ a permitted user picks a report and a period, _then_ the report is shown on screen and can be downloaded as CSV, XLSX, PDF, and JSON.
-- _Given_ the customer-service performance report, _when_ it is generated, _then_ it contains volumes, categories, deflection with its definition version, escalation rate, response times, sentiment, and scam figures.
-- _Given_ a report schedule, _when_ a user with `reports.schedules.manage` sets it to monthly, _then_ the report is produced on the first day of each month and stored for download.
-- _Given_ a user with `reports.reports.view` only, _when_ they open a report, _then_ they can read it but the download buttons are not offered.
-- _Given_ a user with neither permission, _when_ they open the reports screen, _then_ the API returns 403 and the denial is audited.
+- *Given* the reports screen, *when* a permitted user picks a report and a period, *then* the report is shown on screen and can be downloaded as CSV, XLSX, PDF, and JSON.
+- *Given* the customer-service performance report, *when* it is generated, *then* it contains volumes, categories, deflection with its definition version, escalation rate, response times, sentiment, and scam figures.
+- *Given* a report schedule, *when* a user with `reports.schedules.manage` sets it to monthly, *then* the report is produced on the first day of each month and stored for download.
+- *Given* a user with `reports.reports.view` only, *when* they open a report, *then* they can read it but the download buttons are not offered.
+- *Given* a user with neither permission, *when* they open the reports screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1422,11 +1422,11 @@ Source: TS §3.1 analytics; §3.2; §5.10; §6.14. Events, dashboard, deflection
 
 **Acceptance criteria:**
 
-- _Given_ a chosen period, _when_ the monitoring screen is opened, _then_ it shows the rates of confident, uncertain, blocked, and failed answers, response latency, model provider availability and failovers, and retrieval hit rate.
-- _Given_ the breakdown controls, _when_ a permitted user splits by language or category, _then_ each rate is shown per language or category so a weak language is visible.
-- _Given_ a rate that crosses its configured limit for the period, _when_ the screen is opened, _then_ it is flagged and listed under 'needs attention' with a link to example Conversations.
-- _Given_ an assistant answer, _when_ a permitted user marks it as inaccurate with a note, _then_ the mark is stored, counted, and offered as a candidate for the evaluation set.
-- _Given_ a user without `analytics.monitoring.view`, _when_ they open the screen, _then_ the API returns 403 and the denial is audited.
+- *Given* a chosen period, *when* the monitoring screen is opened, *then* it shows the rates of confident, uncertain, blocked, and failed answers, response latency, model provider availability and failovers, and retrieval hit rate.
+- *Given* the breakdown controls, *when* a permitted user splits by language or category, *then* each rate is shown per language or category so a weak language is visible.
+- *Given* a rate that crosses its configured limit for the period, *when* the screen is opened, *then* it is flagged and listed under 'needs attention' with a link to example Conversations.
+- *Given* an assistant answer, *when* a permitted user marks it as inaccurate with a note, *then* the mark is stored, counted, and offered as a candidate for the evaluation set.
+- *Given* a user without `analytics.monitoring.view`, *when* they open the screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1459,11 +1459,11 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ the staff screen, _when_ a permitted user creates an account with an email and one or more roles, _then_ the person receives an invitation to set a password and can sign in with exactly those roles.
-- _Given_ an active account, _when_ a permitted user deactivates it, _then_ its sessions end at once, it can no longer sign in, and its past actions stay in the audit trail.
-- _Given_ an account's roles, _when_ they are changed, _then_ the new permissions apply on the next request and the change is audited with old and new roles.
-- _Given_ the last active System Administrator, _when_ someone tries to deactivate or demote it, _then_ the API refuses.
-- _Given_ a user without `users.accounts.manage`, _when_ they call the staff endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* the staff screen, *when* a permitted user creates an account with an email and one or more roles, *then* the person receives an invitation to set a password and can sign in with exactly those roles.
+- *Given* an active account, *when* a permitted user deactivates it, *then* its sessions end at once, it can no longer sign in, and its past actions stay in the audit trail.
+- *Given* an account's roles, *when* they are changed, *then* the new permissions apply on the next request and the change is audited with old and new roles.
+- *Given* the last active System Administrator, *when* someone tries to deactivate or demote it, *then* the API refuses.
+- *Given* a user without `users.accounts.manage`, *when* they call the staff endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1491,11 +1491,11 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ a staff account without a second factor, _when_ the person signs in, _then_ they must enrol an authenticator app before reaching any screen.
-- _Given_ an enrolled account, _when_ the person signs in with a correct password, _then_ they must also enter a valid one-time code, and five wrong codes lock the attempt for a period.
-- _Given_ a person who lost their device, _when_ a permitted user resets their second factor, _then_ they must enrol again at next sign-in and the reset is audited.
-- _Given_ recovery codes, _when_ they are issued at enrolment, _then_ each works once and their use is audited.
-- _Given_ a user without `users.accounts.manage`, _when_ they try to reset another person's second factor, _then_ the API returns 403 and the denial is audited.
+- *Given* a staff account without a second factor, *when* the person signs in, *then* they must enrol an authenticator app before reaching any screen.
+- *Given* an enrolled account, *when* the person signs in with a correct password, *then* they must also enter a valid one-time code, and five wrong codes lock the attempt for a period.
+- *Given* a person who lost their device, *when* a permitted user resets their second factor, *then* they must enrol again at next sign-in and the reset is audited.
+- *Given* recovery codes, *when* they are issued at enrolment, *then* each works once and their use is audited.
+- *Given* a user without `users.accounts.manage`, *when* they try to reset another person's second factor, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1525,10 +1525,10 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ the transcripts screen, _when_ a permitted user filters by date, category, language, outcome, or reference, _then_ matching Conversations are listed with personal data masked.
-- _Given_ an assistant answer in a transcript, _when_ it is opened, _then_ it shows the sources used, the tool result if any, the Confidence, the model and provider, and a link to the trace.
-- _Given_ a permitted user opening a transcript, _when_ it loads, _then_ an Audit Entry records who viewed which Conversation.
-- _Given_ a user without `conversations.transcripts.view`, _when_ they open the screen, _then_ the API returns 403 and the denial is audited.
+- *Given* the transcripts screen, *when* a permitted user filters by date, category, language, outcome, or reference, *then* matching Conversations are listed with personal data masked.
+- *Given* an assistant answer in a transcript, *when* it is opened, *then* it shows the sources used, the tool result if any, the Confidence, the model and provider, and a link to the trace.
+- *Given* a permitted user opening a transcript, *when* it loads, *then* an Audit Entry records who viewed which Conversation.
+- *Given* a user without `conversations.transcripts.view`, *when* they open the screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1556,10 +1556,10 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ the audit screen, _when_ a permitted user filters by actor, action, target, outcome, or date, _then_ matching Audit Entries are listed newest first with old and new values where they exist.
-- _Given_ a filtered result, _when_ a user with `audit.log.export` downloads it, _then_ a CSV and a JSON file are produced and the export itself is audited.
-- _Given_ any Audit Entry, _when_ any user, including a System Administrator, tries to change or delete it, _then_ the database refuses.
-- _Given_ a user without `audit.log.view`, _when_ they open the screen, _then_ the API returns 403 and the denial is audited.
+- *Given* the audit screen, *when* a permitted user filters by actor, action, target, outcome, or date, *then* matching Audit Entries are listed newest first with old and new values where they exist.
+- *Given* a filtered result, *when* a user with `audit.log.export` downloads it, *then* a CSV and a JSON file are produced and the export itself is audited.
+- *Given* any Audit Entry, *when* any user, including a System Administrator, tries to change or delete it, *then* the database refuses.
+- *Given* a user without `audit.log.view`, *when* they open the screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1588,11 +1588,11 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ retention periods set per data class, _when_ the daily job runs, _then_ Conversations, Scam Submissions and their images, and escalation contacts older than their period are anonymized or deleted as configured.
-- _Given_ an anonymized Conversation, _when_ analytics are recomputed, _then_ the counts are unchanged because Interaction Events hold no free text.
-- _Given_ a data class with no period set, or a Conversation under a legal hold, _when_ the job runs, _then_ nothing in it is touched and held items are listed.
-- _Given_ any run, _when_ it finishes, _then_ an Audit Entry records each class, the date range, and the counts removed.
-- _Given_ a user without `settings.retention.manage`, _when_ they call the retention endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* retention periods set per data class, *when* the daily job runs, *then* Conversations, Scam Submissions and their images, and escalation contacts older than their period are anonymized or deleted as configured.
+- *Given* an anonymized Conversation, *when* analytics are recomputed, *then* the counts are unchanged because Interaction Events hold no free text.
+- *Given* a data class with no period set, or a Conversation under a legal hold, *when* the job runs, *then* nothing in it is touched and held items are listed.
+- *Given* any run, *when* it finishes, *then* an Audit Entry records each class, the date range, and the counts removed.
+- *Given* a user without `settings.retention.manage`, *when* they call the retention endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1619,11 +1619,11 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ the export screen, _when_ a permitted user selects knowledge, rates, settings, conversations, events, scam data, and audit log and starts an export, _then_ an Export Bundle is built in the background and offered for download with a checksum.
-- _Given_ a finished bundle, _when_ it is unpacked, _then_ each data set is JSON Lines or CSV with a schema file, knowledge articles are Markdown with their versions, and prompts and settings are JSON.
-- _Given_ an export that includes conversations, _when_ it is built, _then_ the content is the stored masked form and the export is audited with its scope.
-- _Given_ a bundle older than the expiry period, _when_ someone tries to download it, _then_ the file is gone and the request record remains.
-- _Given_ a user without `privacy.exports.create`, _when_ they call the export endpoints, _then_ the API returns 403 and the denial is audited.
+- *Given* the export screen, *when* a permitted user selects knowledge, rates, settings, conversations, events, scam data, and audit log and starts an export, *then* an Export Bundle is built in the background and offered for download with a checksum.
+- *Given* a finished bundle, *when* it is unpacked, *then* each data set is JSON Lines or CSV with a schema file, knowledge articles are Markdown with their versions, and prompts and settings are JSON.
+- *Given* an export that includes conversations, *when* it is built, *then* the content is the stored masked form and the export is audited with its scope.
+- *Given* a bundle older than the expiry period, *when* someone tries to download it, *then* the file is gone and the request record remains.
+- *Given* a user without `privacy.exports.create`, *when* they call the export endpoints, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1653,11 +1653,11 @@ Source: TS §3.1 Administrative and Management Interface; §4.6; §4.13; §4.20.
 
 **Acceptance criteria:**
 
-- _Given_ the widget, _when_ a customer opens 'my data', _then_ they are shown a reference for their session and can download their own conversation from that browser.
-- _Given_ a Privacy Request with a session reference, _when_ a permitted user fulfils an access request, _then_ a file of that session's conversations is produced and the request is marked fulfilled.
-- _Given_ a deletion request, _when_ a permitted user fulfils it, _then_ that session's Conversations, Scam Submissions, and contact are anonymized at once by the same routine as the retention job, and the request is audited.
-- _Given_ a reference that matches nothing, _when_ it is searched, _then_ the screen says no data was found and discloses nothing else.
-- _Given_ a user without `privacy.requests.manage`, _when_ they open the requests screen, _then_ the API returns 403 and the denial is audited.
+- *Given* the widget, *when* a customer opens 'my data', *then* they are shown a reference for their session and can download their own conversation from that browser.
+- *Given* a Privacy Request with a session reference, *when* a permitted user fulfils an access request, *then* a file of that session's conversations is produced and the request is marked fulfilled.
+- *Given* a deletion request, *when* a permitted user fulfils it, *then* that session's Conversations, Scam Submissions, and contact are anonymized at once by the same routine as the retention job, and the request is audited.
+- *Given* a reference that matches nothing, *when* it is searched, *then* the screen says no data was found and discloses nothing else.
+- *Given* a user without `privacy.requests.manage`, *when* they open the requests screen, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1692,11 +1692,11 @@ Source: TS §3.1 language testing; §6.4 AI testing. Approved test sets per lang
 
 **Acceptance criteria:**
 
-- _Given_ the golden set, _when_ a permitted user adds an item, _then_ it records the question, language, use case, expected sources or tool result, and the expected behaviour: answer, uncertain, or escalate.
-- _Given_ at least 30 approved items per language for tracking, rates, Postal ID, service information, and code-switched input, _when_ an evaluation runs, _then_ results are reported per language and per use case for grounding, correct behaviour, and reply language.
-- _Given_ a run that scores below the accepted baseline for any language, _when_ CI evaluates a change, _then_ the deployment is blocked until a user with `eval.gate.approve` accepts a new baseline.
-- _Given_ a completed run, _when_ a permitted user exports it, _then_ the report lists every item with its outcome, suitable as acceptance evidence.
-- _Given_ a user without `eval.golden.manage`, _when_ they try to edit the golden set, _then_ the API returns 403 and the denial is audited.
+- *Given* the golden set, *when* a permitted user adds an item, *then* it records the question, language, use case, expected sources or tool result, and the expected behaviour: answer, uncertain, or escalate.
+- *Given* at least 30 approved items per language for tracking, rates, Postal ID, service information, and code-switched input, *when* an evaluation runs, *then* results are reported per language and per use case for grounding, correct behaviour, and reply language.
+- *Given* a run that scores below the accepted baseline for any language, *when* CI evaluates a change, *then* the deployment is blocked until a user with `eval.gate.approve` accepts a new baseline.
+- *Given* a completed run, *when* a permitted user exports it, *then* the report lists every item with its outcome, suitable as acceptance evidence.
+- *Given* a user without `eval.golden.manage`, *when* they try to edit the golden set, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 
@@ -1726,11 +1726,11 @@ Source: TS §3.1 language testing; §6.4 AI testing. Approved test sets per lang
 
 **Acceptance criteria:**
 
-- _Given_ cases that ask for a rate, status, or policy that does not exist, _when_ the suite runs, _then_ the assistant answers uncertain or refuses in every case and fabricates nothing.
-- _Given_ prompt-injection cases, including ones hidden inside scam submissions, _when_ the suite runs, _then_ none changes the assistant's behaviour or reveals its instructions.
-- _Given_ cases seeking abusive, discriminatory, or off-topic content, _when_ the suite runs, _then_ each is declined politely and logged.
-- _Given_ known scam samples and genuine PHLPost notices, _when_ the suite runs, _then_ the scams score high or uncertain and the genuine notices are not called scams, and the miss rates are reported.
-- _Given_ a user without `eval.runs.execute`, _when_ they try to start a run, _then_ the API returns 403 and the denial is audited.
+- *Given* cases that ask for a rate, status, or policy that does not exist, *when* the suite runs, *then* the assistant answers uncertain or refuses in every case and fabricates nothing.
+- *Given* prompt-injection cases, including ones hidden inside scam submissions, *when* the suite runs, *then* none changes the assistant's behaviour or reveals its instructions.
+- *Given* cases seeking abusive, discriminatory, or off-topic content, *when* the suite runs, *then* each is declined politely and logged.
+- *Given* known scam samples and genuine PHLPost notices, *when* the suite runs, *then* the scams score high or uncertain and the genuine notices are not called scams, and the miss rates are reported.
+- *Given* a user without `eval.runs.execute`, *when* they try to start a run, *then* the API returns 403 and the denial is audited.
 
 **In scope:**
 

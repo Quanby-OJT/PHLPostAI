@@ -192,6 +192,8 @@ def _sharable_entry(payload: dict[str, Any]) -> dict[str, Any]:
             "retrievalScore",
             "groundednessResult",
             "outputTokens",
+            # CNV-5: the source text the backend checks a replayed answer against.
+            "retrievedChunks",
         )
         if key in payload
     }
@@ -397,6 +399,7 @@ class GenerationService:
                 for key in ("retrievalScore", "groundednessResult", "outputTokens")
                 if key in cached
             },
+            "retrievedChunks": cached.get("retrievedChunks", []),
             "cached": True,
             "latencyMs": round((time.perf_counter() - started) * 1000, 3),
         }

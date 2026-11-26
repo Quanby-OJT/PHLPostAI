@@ -286,12 +286,14 @@ export class CustomerChatService {
 			classification.replyLanguage
 		)
 		const guardrail = validateCustomerAnswer(reply, [result.reply], input.blockedTopics)
-		if (guardrail.blocked)
+		if (guardrail.blocked) {
+			this.logBlocked(guardrail.reason, input.correlationId)
 			reply = withLanguageNotice(
 				this.lowConfidenceReply(classification, []),
 				classification.language,
 				classification.replyLanguage
 			)
+		}
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
@@ -353,12 +355,14 @@ export class CustomerChatService {
 			classification.replyLanguage
 		)
 		const guardrail = validateCustomerAnswer(reply, [result.reply], input.blockedTopics)
-		if (guardrail.blocked)
+		if (guardrail.blocked) {
+			this.logBlocked(guardrail.reason, input.correlationId)
 			reply = withLanguageNotice(
 				this.lowConfidenceReply(classification, []),
 				classification.language,
 				classification.replyLanguage
 			)
+		}
 
 		const { assistantMessageId } = await this.conversationService.recordTurn({
 			conversationId: input.conversationId,
@@ -502,6 +506,7 @@ export class CustomerChatService {
 				: validateCustomerAnswer(draftAnswer, evidence, input.blockedTopics)
 		let answer = draftAnswer
 		if (guardrail.blocked) {
+			this.logBlocked(guardrail.reason, asString(envelope.traceId))
 			answer = withLanguageNotice(
 				this.lowConfidenceReply(classification, []),
 				classification?.language ?? null,
@@ -599,6 +604,11 @@ export class CustomerChatService {
 			ilo: "Saanak a sigurado a sumungbat. Mabalinmo nga kiddawen ti panagsarita iti maysa a tao iti baba.",
 		}
 		return `${offer[language]} ${found[language](titles)}`
+	}
+
+	/** CNV-5: the reason only, never the draft text, so operators can see why answers are withheld. */
+	private logBlocked(reason: string | null, traceId: string | null): void {
+		this.logger.warn(`answer_blocked reason=${reason ?? "unknown"} trace=${traceId ?? "none"}`)
 	}
 
 	/** CNV-4: "I don't know" in the reply language, plus the supported-languages notice. */

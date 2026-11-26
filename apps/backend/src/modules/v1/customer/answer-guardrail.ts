@@ -1,15 +1,20 @@
 /** CNV-5 final-output checks. This is intentionally deterministic and fail closed. */
+/** Asking the customer to pay now or through a channel, or to hand over a secret (AC2). */
 const PAYMENT_OR_SECRET_REQUEST =
-	/\b(?:please\s+)?pay\b|\b(?:make|complete|submit)\s+(?:a\s+)?payment\b|\bsettle\s+(?:the\s+)?(?:fee|payment)\b|\bpayment\s+link\b|\b(?:send|share|provide|enter|give|text)\s+(?:(?:me|us)\s+)?(?:(?:your|the|my)\s+)?(?:password|one[- ]time\s+code|otp|(?:credit\s+)?card\s+number|cvv|pin)\b|\bsend\s+(?:payment|money|your\s+card)\b/i
+	/\bpay\b[^.!?]{0,40}?\b(?:now|immediately|right away|today|to\s+(?:this|the\s+following|my|our)|via|through|using|online|link|gcash|maya|paymaya|bank|account|transfer)\b|\b(?:make|complete|submit)\s+(?:a\s+|the\s+)?payment\s+(?:to|via|through|using|now|online)\b|\bsettle\s+(?:the\s+)?(?:fee|payment)\s+(?:now|via|through|online|to)\b|\bpayment\s+link\b|\b(?:send|transfer|wire)\s+(?:the\s+)?(?:payment|money|funds)\b|\b(?:send|share|provide|enter|give|text)\s+(?:(?:me|us)\s+)?(?:(?:your|the|my)\s+)?(?:password|one[- ]time\s+code|otp|(?:credit\s+)?card\s+number|cvv|pin)\b|\bsend\s+your\s+card\b/i
+/** A plain payment instruction, such as "pay the fee at the counter", must come from the sources (AC1). */
+const PAYMENT_MENTION = /\b(?:pay|paid|payment)\b/i
+/** A warning such as "Never share your password" is advice, not a request. */
+const NEGATION =
+	/\b(?:never|do\s+not|don't|dont|should\s+not|shouldn't|will\s+not|won't|huwag|hindi|ayaw|dili|saan|di)\b/i
 const AMOUNT = /(?:₱|PHP\s*)\s?\d[\d,]*(?:\.\d{1,2})?|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:PHP|pesos?)\b/gi
 const BARE_AMOUNT =
 	/\b(?:fee|cost|price|rate|postage|amount(?:\s+due)?|total|balance)\b[^.!?]{0,30}?\b(\d[\d,]*(?:\.\d{1,2})?)\b/gi
+const NUMBER = /\d[\d,]*(?:\.\d+)?/g
+/** Citation markers such as [1] are references, not figures. */
+const CITATION_MARKER = /\[\d+\]/g
 const STATUS =
 	/\b(?:in transit|out for delivery|delivered|delivery attempted|available for pickup|held at|returned to sender|pending|processed|approved|rejected|cancelled|canceled|failed|successful|completed)\b/gi
-
-function normalized(value: string): string {
-	return value.toLowerCase().replace(/[,\s]/g, "").replace(/₱/g, "php")
-}
 
 export interface AnswerGuardrailResult {
 	blocked: boolean
@@ -18,15 +23,29 @@ export interface AnswerGuardrailResult {
 		| "blocked_topic"
 		| "unsupported_amount"
 		| "unsupported_status"
+		| "unsupported_payment_instruction"
 		| null
 }
 
+function sentences(text: string): string[] {
+	return text.split(/(?<=[.!?])\s+|\n+/).filter(Boolean)
+}
+
+function numericValue(text: string): number | null {
+	const digits = text.match(NUMBER)?.[0]?.replace(/,/g, "")
+	if (digits === undefined) return null
+	const value = Number(digits)
+	return Number.isFinite(value) ? value : null
+}
+
 export function validateCustomerAnswer(
-	answer: string,
+	draft: string,
 	evidence: readonly string[],
 	blockedTopics: readonly string[] = []
 ): AnswerGuardrailResult {
-	if (PAYMENT_OR_SECRET_REQUEST.test(answer)) {
+	const answer = draft.replace(CITATION_MARKER, "")
+	const statements = sentences(answer).filter(sentence => !NEGATION.test(sentence))
+	if (statements.some(sentence => PAYMENT_OR_SECRET_REQUEST.test(sentence))) {
 		return { blocked: true, reason: "payment_or_credential_request" }
 	}
 	const folded = answer.toLocaleLowerCase()
@@ -36,13 +55,26 @@ export function validateCustomerAnswer(
 		return { blocked: true, reason: "blocked_topic" }
 	}
 	const sourceText = evidence.join(" ").toLocaleLowerCase()
-	const source = normalized(sourceText)
+	if (
+		statements.some(sentence => PAYMENT_MENTION.test(sentence)) &&
+		!PAYMENT_MENTION.test(sourceText)
+	) {
+		return { blocked: true, reason: "unsupported_payment_instruction" }
+	}
+	const sourceValues = new Set(
+		(sourceText.match(NUMBER) ?? [])
+			.map(numericValue)
+			.filter((value): value is number => value !== null)
+	)
 	const amounts = [
 		...(answer.match(AMOUNT) ?? []),
 		...[...answer.matchAll(BARE_AMOUNT)].map(match => match[1] ?? ""),
 	]
 	for (const amount of amounts) {
-		if (!source.includes(normalized(amount))) return { blocked: true, reason: "unsupported_amount" }
+		const value = numericValue(amount)
+		if (value === null || !sourceValues.has(value)) {
+			return { blocked: true, reason: "unsupported_amount" }
+		}
 	}
 	for (const status of answer.match(STATUS) ?? []) {
 		if (!sourceText.includes(status.toLocaleLowerCase()))

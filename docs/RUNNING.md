@@ -491,11 +491,18 @@ details when something was cut. Each assistant Message stores `confidence`,
 provider's usage figures), and the Agent Inbox transcript shows them. Cached
 answers are kept per limit.
 
-CNV-5 validates money amounts and common tracking/transaction statuses against
-the retrieved source text before a reply is delivered. Requests for payment or
-credentials are always replaced with the uncertainty reply. A blocked draft is
-recorded as `answer_blocked`; source text is used only for validation and is
-not copied into the message metadata.
+CNV-5 checks every draft before it is delivered
+(`apps/backend/src/modules/v1/customer/answer-guardrail.ts`). Amounts, common
+tracking/transaction statuses and payment instructions (such as "pay the fee at
+the counter") must appear in the tool result or the cited source text; amounts
+are compared by value and citation markers like `[1]` are ignored. A request to
+pay now or through a channel (GCash, a bank, a link) or to share a password,
+one-time code or card number is always blocked, while a warning such as "Never
+share your OTP" is allowed. A blocked draft is replaced with the uncertainty
+reply, recorded as `answer_blocked`, and logged with its reason only
+(`answer_blocked reason=…`); source text is used only for validation and is not
+copied into the message metadata. The cases in `answer-guardrail.cases.ts` run
+in CI, so one escape fails the build.
 
 Try it: set the threshold to 0.95 and ask a question with an approved article
 (the "not sure" reply with the article title), set it back to 0.5 (a normal
