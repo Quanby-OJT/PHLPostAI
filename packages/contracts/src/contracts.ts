@@ -98,6 +98,27 @@ export type {
 export { RetrievalFiltersSchema } from "./modules/v1/chat/chat.schema.js"
 export type { RetrievalFilters } from "./modules/v1/chat/chat.schema.js"
 
+export { conversationsContract } from "./modules/v1/conversations/conversations.contract.js"
+export {
+	AnswerProvenanceSchema,
+	TRANSCRIPT_LANGUAGES,
+	TRANSCRIPT_OUTCOMES,
+	ToolResultSchema,
+	TranscriptDetailSchema,
+	TranscriptMessageSchema,
+	TranscriptPageSchema,
+	TranscriptRowSchema,
+	TranscriptSearchSchema,
+} from "./modules/v1/conversations/conversations.schema.js"
+export type {
+	AnswerProvenance,
+	TranscriptDetail,
+	TranscriptMessage,
+	TranscriptPage,
+	TranscriptRow,
+	TranscriptSearch,
+} from "./modules/v1/conversations/conversations.schema.js"
+
 export { apiKeysContract } from "./modules/v1/apikeys/apikeys.contract.js"
 export {
 	ApiKeySchema,

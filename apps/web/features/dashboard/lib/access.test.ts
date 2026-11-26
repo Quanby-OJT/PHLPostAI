@@ -175,6 +175,15 @@ describe("navItems", () => {
 			"Status explanations"
 		)
 
+		// ADM-3: transcripts need conversations.transcripts.view.
+		expect(
+			getAccessibleNavItems({
+				roles: [],
+				permissions: ["conversations.transcripts.view"],
+			}).map(item => item.label)
+		).toContain("Transcripts")
+		expect(getAccessibleNavItems(noAccess).map(item => item.label)).not.toContain("Transcripts")
+
 		expect(
 			getAccessibleNavItems({ roles: ["System Administrator"], permissions: [] }).map(
 				item => item.label
@@ -187,6 +196,7 @@ describe("navItems", () => {
 			"Status explanations",
 			"Chat",
 			"Agent inbox",
+			"Transcripts",
 			"Scam Reports",
 			"Deflection KPI",
 			"User Management",

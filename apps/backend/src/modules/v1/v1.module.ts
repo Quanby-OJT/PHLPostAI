@@ -7,6 +7,7 @@ import { ApiKeysV1Module } from "./apikeys/apikeys.module"
 import { AssistantModule } from "./assistant/assistant.module"
 import { ChannelsModule } from "./channels/channels.module"
 import { ChatModule } from "./chat/chat.module"
+import { ConversationTranscriptsModule } from "./conversations/conversation-transcripts.module"
 import { CorpusModule } from "./corpus/corpus.module"
 import { CustomerModule } from "./customer/customer.module"
 import { DiagnosticsModule } from "./diagnostics/diagnostics.module"
@@ -28,6 +29,7 @@ import { ScamModule } from "./scam/scam.module"
 		ApiKeysV1Module,
 		AnalyticsModule,
 		ChatModule,
+		ConversationTranscriptsModule,
 		ChannelsModule,
 		CorpusModule,
 		CustomerModule,
