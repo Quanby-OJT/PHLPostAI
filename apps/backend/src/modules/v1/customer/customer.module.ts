@@ -52,6 +52,13 @@ import { ScamAssessmentService } from "./scam-assessment.service"
 		},
 	],
 
-	exports: [ConversationService, CustomerSessionService, ChannelsService, AllowedOriginGuard, EscalationService],
+	exports: [
+		ConversationService,
+		CustomerSessionService,
+		ChannelsService,
+		AllowedOriginGuard,
+		EscalationService,
+		ScamAssessmentService,
+	],
 })
 export class CustomerModule {}

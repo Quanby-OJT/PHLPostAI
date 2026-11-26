@@ -605,17 +605,19 @@ export class RagGatewayService {
 	async assessScam(input: {
 		query: string
 		approvedIndicators: readonly string[]
+		customIndicators: readonly { code: string; name: string }[]
 		deterministicIndicators: readonly string[]
 		userId: string
 		permissions: readonly string[]
 		requestId: string
+		actorType: "user" | "customer"
 	}): Promise<unknown> {
 		const token = this.mintServiceToken({
 			sub: input.userId,
 			permissions: input.permissions,
 			requestId: input.requestId,
 			traceId: input.requestId,
-			actorType: "customer",
+			actorType: input.actorType,
 		})
 		return this.forward("/internal/scam/assess", {
 			headers: {
@@ -626,6 +628,7 @@ export class RagGatewayService {
 			body: JSON.stringify({
 				query: input.query,
 				approvedIndicators: input.approvedIndicators,
+				customIndicators: input.customIndicators,
 				deterministicIndicators: input.deterministicIndicators,
 			}),
 			failureMessage: "Scam assessment failed",

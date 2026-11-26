@@ -1,17 +1,19 @@
-import { domainToASCII } from "node:url"
 import { z } from "zod"
 
+import { normalizeOfficialContact, resemblesOfficialHostname } from "./scam-contacts"
 import { SCAM_INDICATORS, type ScamIndicator } from "./scam-copy"
 
-const MODEL_INDICATORS = [
-	"payment_request",
-	"information_request",
-	"impersonation",
-	"urgency",
-] as const
+export const LOCAL_ONLY_INDICATORS = new Set<string>([
+	"unofficial_domain",
+	"suspicious_link",
+	"prompt_injection",
+	"lookalike_domain",
+	"unofficial_sender",
+	"unofficial_payment_channel",
+])
 const ModelAssessmentSchema = z.strictObject({
 	riskLevel: z.enum(["low", "medium", "high", "uncertain"]),
-	indicators: z.array(z.enum(MODEL_INDICATORS)).max(MODEL_INDICATORS.length),
+	indicators: z.array(z.string().max(60)).max(100),
 	confidence: z.number().min(0).max(1),
 })
 
@@ -74,12 +76,19 @@ export function inspectScamLinks(
 	textWithoutLinks: string
 	extractedUrls: string[]
 	unofficialDomain: boolean
+	lookalikeDomain: boolean
 	suspiciousLink: boolean
 	kind: "text" | "email" | "link"
 } {
-	const allowlist = new Set(officialHosts.map(host => domainToASCII(host).replace(/\.$/u, "")))
+	const allowlist = new Set(
+		officialHosts.flatMap(host => {
+			const normalized = normalizeOfficialContact("domain", host)
+			return normalized ? [normalized] : []
+		})
+	)
 	const extractedUrls: string[] = []
 	let unofficialDomain = false
+	let lookalikeDomain = false
 	let suspiciousLink = false
 	let isLinkOnly = false
 	const textWithoutLinks = text.replace(LINK, (candidate: string) => {
@@ -106,7 +115,12 @@ export function inspectScamLinks(
 		}
 		const hostname = url.hostname.replace(/\.$/u, "")
 		const isOfficial = allowlist.has(hostname)
-		if (!isOfficial) unofficialDomain = true
+		if (!isOfficial) {
+			unofficialDomain = true
+			lookalikeDomain ||= Array.from(allowlist).some(official =>
+				resemblesOfficialHostname(hostname, official)
+			)
+		}
 		if (url.username || url.password || url.port) suspiciousLink = true
 		extractedUrls.push(isOfficial ? `${url.protocol}//${hostname}` : "[UNOFFICIAL_URL]")
 		return "[LINK]"
@@ -115,6 +129,7 @@ export function inspectScamLinks(
 		textWithoutLinks,
 		extractedUrls,
 		unofficialDomain,
+		lookalikeDomain,
 		suspiciousLink,
 		kind: isLinkOnly ? "link" : EMAIL.test(text) ? "email" : "text",
 	}
@@ -122,35 +137,40 @@ export function inspectScamLinks(
 
 export function resolveScamAssessment(
 	deterministic: readonly ScamIndicator[],
-	active: ReadonlySet<string>,
+	weights: ReadonlyMap<string, number>,
 	rawModel: unknown
 ) {
-	const mandatoryHigh =
-		deterministic.includes("payment_request") && deterministic.includes("unofficial_domain")
-	const findings = new Set(deterministic.filter(code => active.has(code)))
-	if (mandatoryHigh) {
-		findings.add("payment_request")
-		findings.add("unofficial_domain")
-	}
+	const findings = new Set<string>(deterministic.filter(code => weights.has(code)))
+	const mandatoryHigh = findings.has("payment_request") && findings.has("unofficial_domain")
+	const hasLocalFindings = findings.size > 0
 	const parsed = ModelAssessmentSchema.safeParse(rawModel)
 	const model =
-		parsed.success && parsed.data.indicators.every(code => active.has(code)) ? parsed.data : null
-	const hasDeterministicEvidence = findings.size > 0
+		parsed.success &&
+		parsed.data.confidence > 0 &&
+		parsed.data.indicators.length > 0 &&
+		parsed.data.indicators.every(code => weights.has(code) && !LOCAL_ONLY_INDICATORS.has(code))
+			? parsed.data
+			: null
 	for (const code of model?.indicators ?? []) findings.add(code)
-	const indicators = SCAM_INDICATORS.filter(code => findings.has(code))
+	const indicators = [
+		...SCAM_INDICATORS.filter(code => findings.delete(code)),
+		...Array.from(findings).sort(),
+	]
 
 	if (mandatoryHigh) return { riskLevel: "high", indicators, confidence: 1 } as const
-	if (model && findings.has("payment_request") && findings.has("unofficial_domain")) {
-		return { riskLevel: "high", indicators, confidence: Math.max(0.5, model.confidence) } as const
-	}
 	if (indicators.length === 0) return { riskLevel: "uncertain", indicators, confidence: 0 } as const
-	if (
-		model &&
-		model.riskLevel !== "uncertain" &&
-		(!hasDeterministicEvidence || model.riskLevel !== "low")
-	) {
-		return { riskLevel: model.riskLevel, indicators, confidence: model.confidence }
-	}
-	if (hasDeterministicEvidence) return { riskLevel: "medium", indicators, confidence: 0.5 } as const
-	return { riskLevel: "uncertain", indicators, confidence: 0 } as const
+	const score = indicators.reduce((total, code) => total + (weights.get(code) ?? 0), 0)
+	const linkedFee =
+		indicators.includes("payment_request") && indicators.includes("unofficial_domain")
+	const riskLevel =
+		score >= 3 || linkedFee
+			? "high"
+			: !hasLocalFindings && model?.riskLevel === "low"
+				? "low"
+				: "medium"
+	return {
+		riskLevel,
+		indicators,
+		confidence: Math.max(hasLocalFindings ? 0.5 : 0, model?.confidence ?? 0),
+	} as const
 }
