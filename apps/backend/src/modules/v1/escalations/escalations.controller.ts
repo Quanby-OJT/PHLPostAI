@@ -15,7 +15,6 @@ import { AllowAnonymous, Session, type UserSession } from "@thallesp/nestjs-bett
 import type { Response } from "express"
 import { z } from "zod"
 
-import { AuditService } from "@/common/audit/audit.service"
 import { ConversationLiveService } from "@/common/conversation-live/conversation-live.service"
 import { RequirePermissions } from "@/shared/decorators/require-permissions.decorator"
 import { SessionThrottle } from "@/shared/decorators/session-throttle.decorator"
@@ -34,12 +33,26 @@ const RequestEscalationSchema = z.object({
 	]),
 })
 
+const CaptureContactSchema = z.object({
+	conversationId: z.string().uuid(),
+	contact: z
+		.string()
+		.trim()
+		.max(254)
+		.optional()
+		.nullable()
+		.refine(
+			value =>
+				!value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) || /^\+?[0-9() .-]{7,24}$/.test(value),
+			"Enter a valid email address or phone number"
+		),
+})
+
 @Controller()
 export class EscalationsController {
 	constructor(
 		private readonly escalationService: EscalationService,
 		private readonly customerSessionService: CustomerSessionService,
-		private readonly auditService: AuditService,
 		private readonly conversationLiveService: ConversationLiveService
 	) {}
 
@@ -62,16 +75,29 @@ export class EscalationsController {
 			...parsed.data,
 			customerSessionId: session.id,
 		})
-		await this.auditService.writeAudit({
-			actorId: `customer-session:${session.id}`,
-			actorType: "system",
-			action: "escalations.requested",
-			resourceType: "escalation",
-			resourceId: escalation.id,
-			before: null,
-			after: { conversationId: parsed.data.conversationId, reason: parsed.data.reason },
-		})
 		return escalation
+	}
+
+	@Post("v1/customer/escalations/contact")
+	@AllowAnonymous()
+	@StrictThrottle()
+	@SessionThrottle()
+	@UseGuards(AllowedOriginGuard)
+	async captureCustomerContact(
+		@Headers("x-customer-session") sessionToken: string | undefined,
+		@Body() body: unknown
+	) {
+		const session = sessionToken ? await this.customerSessionService.resolve(sessionToken) : null
+		if (!session) throw new UnauthorizedException("Invalid or expired customer session")
+		const parsed = CaptureContactSchema.safeParse(body)
+		if (!parsed.success) {
+			throw new BadRequestException(parsed.error.issues[0]?.message ?? "Invalid contact")
+		}
+		return this.escalationService.captureCustomerContact({
+			...parsed.data,
+			contact: parsed.data.contact ?? undefined,
+			customerSessionId: session.id,
+		})
 	}
 
 	@Get("v1/escalations")
@@ -86,6 +112,13 @@ export class EscalationsController {
 		this.requireEscalationId(id)
 		const detail = await this.escalationService.getQueued(id, session.user.id)
 		return { ...detail, canHandle: detail.assignedAgentId === session.user.id }
+	}
+
+	@Get("v1/escalations/:id/contact")
+	@RequirePermissions("escalations.conversations.handle")
+	async getCustomerContact(@Param("id") id: string, @Session() session: UserSession) {
+		this.requireEscalationId(id)
+		return this.escalationService.getCustomerContact(id, session.user.id)
 	}
 
 	@Post("v1/escalations/:id/claim")

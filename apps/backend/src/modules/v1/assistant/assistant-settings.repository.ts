@@ -11,16 +11,13 @@ export class AssistantSettingsRepository {
 	}
 
 	/** Saves several settings in one transaction, so a save never applies halfway. */
-	async setMany(entries: ReadonlyArray<{ key: string; value: number }>, updatedBy: string) {
+	async setMany(entries: ReadonlyArray<{ key: string; value: unknown }>, updatedBy: string) {
 		await db.transaction(async tx => {
 			for (const { key, value } of entries) {
-				await tx
-					.insert(assistantSettings)
-					.values({ key, value, updatedBy })
-					.onConflictDoUpdate({
-						target: assistantSettings.key,
-						set: { value, updatedBy },
-					})
+				await tx.insert(assistantSettings).values({ key, value, updatedBy }).onConflictDoUpdate({
+					target: assistantSettings.key,
+					set: { value, updatedBy },
+				})
 			}
 		})
 	}

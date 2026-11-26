@@ -6,6 +6,9 @@ jest.mock("@thallesp/nestjs-better-auth", () => ({
 	AllowAnonymous: () => () => undefined,
 	Session: () => () => undefined,
 }))
+jest.mock("@/modules/v1/assistant/assistant-settings.service", () => ({
+	AssistantSettingsService: class AssistantSettingsService {},
+}))
 
 describe("EscalationsController permission metadata", () => {
 	it.each(["claim", "reply", "resolve", "agentEvents"] as const)(
@@ -16,4 +19,13 @@ describe("EscalationsController permission metadata", () => {
 			).toEqual(["escalations.conversations.handle"])
 		}
 	)
+
+	it("limits stored customer contact to conversation handlers", () => {
+		expect(
+			Reflect.getMetadata(
+				REQUIRED_PERMISSIONS_KEY,
+				EscalationsController.prototype.getCustomerContact
+			)
+		).toEqual(["escalations.conversations.handle"])
+	})
 })
